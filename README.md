@@ -13,11 +13,11 @@ However, what's different from an ant colony is that fact that when first initia
 
 Mechanism
 =========
-Under the bonnet, most of the heavy-lifting will be done with Chef/Puppet while AWARE is focusing on "deciding what to do autonomously." This would mean focusing on three things - 1) API for the communications between the queen and worker nodes, and 2) API for the queen node to communicate with the user, and 3) API for the queen node to interact with Chef/Puppet.
+Under the bonnet, most of the heavy-lifting will be done with Chef/Puppet and OpenStack while AWARE is focusing on "deciding what to do autonomously." This would mean focusing on three things - 1) API for the communications between the queen and worker nodes (an evolving draft is in the mind map), and 2) API for the queen node to communicate with the user, and 3) API for the queen node to interact with Chef/Puppet and OpenStack.
 
 Origin
 ======
-This project was born after trying "Fuel for OpenStack" which is an orchestrator for OpenStack. However, much of the information was still pre-defined down to hostnames and MAC addresses. What I really wanted was to tell the computer that "I want a cluster that can handle web traffic based on a front-end, middleware, a database and some storage." and then the computer can spawn those machines accordingly without I care about hostnames and MAC addresses.
+This project was born after trying "Fuel for OpenStack" which is an orchestrator for OpenStack. However, much of the information was still pre-defined down to hostnames and MAC addresses. What I ultimately wanted was to tell the computer that "I want a cluster that can handle web traffic based on a front-end, middleware, a database and some storage." and then the computer can spawn those machines accordingly without I care about hostnames and MAC addresses. An intermediate goal would be that I can tell the computer "I want a cluster with at least 3 controllers, 10 compute nodes and 2 copies of data amongst all nodes.
 
 License
 =======
