@@ -65,7 +65,8 @@ const ClusterCreationWizard = ({ onClusterCreated }) => {
           configuration: {
             maxNodes: clusterData.nodeCount,
             purpose: clusterData.purpose,
-            constraints: clusterData.constraints
+            constraints: clusterData.constraints,
+            resources: clusterData.resources
           }
         };
         
