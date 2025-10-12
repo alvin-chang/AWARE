@@ -9,7 +9,12 @@ class ClusterService {
       configuration: {
         maxNodes: 100,
         heartbeatInterval: 30000,
-        electionTimeout: 5000
+        electionTimeout: 5000,
+        resources: {
+          cpu: '1 core',
+          memory: '2GB',
+          storage: '25GB'
+        }
       },
       createdAt: null,
       updatedAt: null
@@ -32,7 +37,11 @@ class ClusterService {
       status: 'initializing',
       configuration: {
         ...this.clusterState.configuration,
-        ...configuration
+        ...configuration,
+        resources: {
+          ...this.clusterState.configuration.resources,
+          ...configuration.resources
+        }
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
