@@ -1,32 +1,13 @@
 // src/api/routes/cluster.js
 const express = require('express');
 const router = express.Router();
-
-// Mock cluster state (in a real system, this would be stored in etcd or similar)
-let clusterState = {
-  clusterId: 'aware-cluster-1',
-  name: 'Default Cluster',
-  status: 'active',
-  nodes: [],
-  configuration: {
-    maxNodes: 100,
-    heartbeatInterval: 30000,
-    electionTimeout: 5000
-  }
-};
+const { validateClusterCreation, validateClusterConfig } = require('../middleware/validation');
 
 // Get cluster status
 router.get('/status', (req, res) => {
   try {
-    const status = {
-      ...clusterState,
-      leader: req.app.get('electionManager')?.getLeader() || 'unknown',
-      isLeader: req.app.get('electionManager')?.isLeader() || false,
-      nodeCount: req.app.get('nodeDiscovery') 
-        ? req.app.get('nodeDiscovery').getDiscoveredNodes().length + 1  // +1 for self
-        : 1,
-      timestamp: new Date().toISOString()
-    };
+    const clusterService = req.app.get('clusterService');
+    const status = clusterService.getClusterStatus();
     
     res.json(status);
   } catch (error) {
@@ -38,7 +19,10 @@ router.get('/status', (req, res) => {
 // Get cluster configuration
 router.get('/config', (req, res) => {
   try {
-    res.json(clusterState.configuration);
+    const clusterService = req.app.get('clusterService');
+    const status = clusterService.getClusterStatus();
+    
+    res.json(status.configuration);
   } catch (error) {
     console.error('Error getting cluster config:', error);
     res.status(500).json({ error: 'Failed to get cluster configuration' });
@@ -46,20 +30,20 @@ router.get('/config', (req, res) => {
 });
 
 // Update cluster configuration
-router.put('/config', (req, res) => {
+router.put('/config', validateClusterConfig, (req, res) => {
   try {
+    const clusterService = req.app.get('clusterService');
     const { configuration } = req.body;
     
     if (!configuration) {
       return res.status(400).json({ error: 'Configuration object is required' });
     }
     
-    // Update configuration with provided values
-    clusterState.configuration = { ...clusterState.configuration, ...configuration };
+    const updatedConfig = clusterService.updateConfiguration(configuration);
     
     res.json({
       message: 'Cluster configuration updated successfully',
-      configuration: clusterState.configuration
+      configuration: updatedConfig
     });
   } catch (error) {
     console.error('Error updating cluster config:', error);
@@ -68,71 +52,90 @@ router.put('/config', (req, res) => {
 });
 
 // Create a new cluster
-router.post('/', (req, res) => {
+router.post('/', validateClusterCreation, async (req, res) => {
   try {
+    const clusterService = req.app.get('clusterService');
     const { name, configuration } = req.body;
     
     if (!name) {
       return res.status(400).json({ error: 'Cluster name is required' });
     }
     
-    // Set up new cluster
-    clusterState = {
-      clusterId: `cluster-${Date.now()}`,
-      name: name,
-      status: 'initializing',
-      nodes: [],
-      configuration: {
-        maxNodes: 100,
-        heartbeatInterval: 30000,
-        electionTimeout: 5000,
-        ...(configuration || {})
-      }
-    };
-    
-    // Update status to active after initialization
-    setTimeout(() => {
-      clusterState.status = 'active';
-    }, 1000);
+    const cluster = await clusterService.createCluster(name, configuration);
     
     res.status(201).json({
       message: 'Cluster created successfully',
-      cluster: {
-        ...clusterState,
-        leader: req.app.get('electionManager')?.getLeader() || 'electing',
-        timestamp: new Date().toISOString()
-      }
+      cluster: cluster
     });
   } catch (error) {
     console.error('Error creating cluster:', error);
-    res.status(500).json({ error: 'Failed to create cluster' });
+    res.status(500).json({ error: error.message || 'Failed to create cluster' });
   }
 });
 
 // Get cluster metrics
 router.get('/metrics', (req, res) => {
   try {
-    // In a real implementation, this would gather metrics from all nodes
-    const metrics = {
-      cpu: {
-        average: 45.2,
-        nodes: {}
-      },
-      memory: {
-        average: 60.1,
-        nodes: {}
-      },
-      network: {
-        throughput: '1.2GB',
-        latency: '2.3ms'
-      },
-      timestamp: new Date().toISOString()
-    };
+    const clusterService = req.app.get('clusterService');
+    const metrics = clusterService.getMetrics();
     
     res.json(metrics);
   } catch (error) {
     console.error('Error getting cluster metrics:', error);
     res.status(500).json({ error: 'Failed to get cluster metrics' });
+  }
+});
+
+// Scale cluster up (add nodes)
+router.post('/scale-up', (req, res) => {
+  try {
+    const clusterService = req.app.get('clusterService');
+    const { count } = req.body;
+    
+    if (!count || count <= 0) {
+      return res.status(400).json({ error: 'Count must be a positive integer' });
+    }
+    
+    const result = clusterService.scaleUp(count);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error scaling cluster up:', error);
+    res.status(500).json({ error: error.message || 'Failed to scale cluster up' });
+  }
+});
+
+// Scale cluster down (remove nodes)
+router.post('/scale-down', (req, res) => {
+  try {
+    const clusterService = req.app.get('clusterService');
+    const { count } = req.body;
+    
+    if (!count || count <= 0) {
+      return res.status(400).json({ error: 'Count must be a positive integer' });
+    }
+    
+    const result = clusterService.scaleDown(count);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error scaling cluster down:', error);
+    res.status(500).json({ error: error.message || 'Failed to scale cluster down' });
+  }
+});
+
+// Get cluster events/history
+router.get('/events', (req, res) => {
+  try {
+    const clusterService = req.app.get('clusterService');
+    const { limit = 50 } = req.query;
+    
+    const events = clusterService.getEvents(parseInt(limit));
+    
+    res.json(events);
+  } catch (error) {
+    console.error('Error getting cluster events:', error);
+    res.status(500).json({ error: 'Failed to get cluster events' });
   }
 });
 
