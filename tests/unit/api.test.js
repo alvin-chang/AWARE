@@ -190,6 +190,38 @@ describe('Cluster Service', () => {
     expect(service.getClusterStatus).toBeDefined();
     expect(service.createCluster).toBeDefined();
   });
+
+  test('should correctly save resource configuration when creating a cluster', async () => {
+    const ClusterService = require('../../src/api/services/cluster-service');
+    const service = new ClusterService();
+
+    const resourceConfig = {
+      cpu: '4 cores',
+      memory: '16GB',
+      storage: '500GB'
+    };
+
+    await service.createCluster('test-cluster-with-resources', { resources: resourceConfig });
+    const status = service.getClusterStatus();
+
+    expect(status.configuration.resources).toEqual(resourceConfig);
+  });
+
+  test('should correctly merge partial resource configuration', async () => {
+    const ClusterService = require('../../src/api/services/cluster-service');
+    const service = new ClusterService();
+
+    const partialResourceConfig = {
+      cpu: '8 cores'
+    };
+
+    await service.createCluster('test-cluster-partial-resources', { resources: partialResourceConfig });
+    const status = service.getClusterStatus();
+
+    expect(status.configuration.resources.cpu).toBe('8 cores');
+    expect(status.configuration.resources.memory).toBe('2GB');
+    expect(status.configuration.resources.storage).toBe('25GB');
+  });
 });
 
 describe('API Validation Middleware', () => {
