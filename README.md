@@ -1,267 +1,127 @@
-AWARE
-=====
+# AWARE - Autonomous Warehouse Automated Resource Engine
 
-Autonomous Warehouse Automated Resource Engine
+AWARE (Autonomous Warehouse Automated Resource Engine) is a sophisticated distributed systems management platform that implements ant colony-inspired algorithms for cluster coordination and resource optimization. It features a self-organizing architecture that dynamically elects leaders, distributes workloads, and maintains system resilience.
 
-AWARE is aiming to be the DNA of clustering nodes. Unlike traditional clusters where each node was pre-defined in detail, an AWARE node has only some instincts defined in its DNA.
+## 🏗️ System Architecture
 
-AWARE nodes partially mimics ant colonies where there is one queen ant and many worker ants. A queen node will be responsible for macro-managing worker nodes by setting their shared goals, while worker nodes behave as collaborative robots to achieve the goals.
+The AWARE system implements a distributed architecture with the following key components:
 
-Worker nodes, in term, have enough information in the colony to promote a new queen should the old queen disappears.
+1. **Node Discovery Service**: Discovers and tracks nodes in the distributed system
+2. **Leader Election Mechanism**: Implements Raft consensus algorithm for leader election
+3. **Resource Management**: Coordinates distributed computing resources using ant-inspired algorithms
+4. **API Gateway**: RESTful API service for cluster management operations
+5. **Web UI**: React-based dashboard for cluster monitoring and management
+6. **Authentication Service**: JWT-based authentication for secure access
 
-However, what's different from an ant colony is that fact that when first initiated, AWARE nodes has no specific designations. They simply broadcast its presence and try to either 1) become a queen or 2) become a worker.
+## 🚀 Deployment
 
-Mechanism
-=========
-Under the bonnet, most of the heavy-lifting will be done with Chef/Puppet and OpenStack while AWARE is focusing on "deciding what to do autonomously." This would mean focusing on three things - 1) API for the communications between the queen and worker nodes (an evolving draft is in the mind map), and 2) API for the queen node to communicate with the user, and 3) API for the queen node to interact with Chef/Puppet and OpenStack.
+The system has been successfully deployed with Docker Compose and is available at:
 
-Origin
-======
-This project was born after trying "Fuel for OpenStack" which is an orchestrator for OpenStack. However, much of the information was still pre-defined down to hostnames and MAC addresses. What I ultimately wanted was to tell the computer that "I want a cluster that can handle web traffic based on a front-end, middleware, a database and some storage." and then the computer can spawn those machines accordingly without I care about hostnames and MAC addresses. An intermediate goal would be that I can tell the computer "I want a cluster with at least 3 controllers, 10 compute nodes and 2 copies of data amongst all nodes.
+- **Backend API Service**: http://localhost:3000
+- **Frontend UI Service**: http://localhost:3001
 
-License
-=======
-This work is released under GPL v3.
+### Deployment Commands
 
-Authors
-=======
-Alvin Chang <alvin.chang@gmail.com>
-
-=======================================================================
-
-# AWARE - Autonomous Warehouse Automated Resource Engine (Implementation)
-
-This document contains the implementation details for the AWARE system that was originally conceived 12 years ago. The original concept has now been realized with a complete distributed system implementation.
-
-## Table of Contents
-- [Overview](#overview)
-- [Architecture](#architecture) 
-- [Features](#features)
-- [Getting Started](#getting-started)
-- [Development](#development)
-- [Testing](#testing)
-- [Configuration](#configuration)
-- [API Documentation](#api-documentation)
-- [Contributing](#contributing)
-
-## Overview
-
-The AWARE system enables users to specify cluster requirements at a high level (e.g., "a cluster for web traffic with front-end, middleware, database, and storage") without needing to define specific hostnames or MAC addresses. The system automatically provisions and organizes the infrastructure.
-
-Key characteristics:
-- Self-organizing clusters with automatic node discovery
-- Queen-worker hierarchy with failover capabilities
-- Distributed consensus algorithms for leader election
-- Secure API for cluster management
-- Scalable to 100+ nodes
-
-## Architecture
-
-### Components
-- **Node Discovery Service**: Handles node broadcast and detection
-- **Election Manager**: Manages queen election process using Raft consensus
-- **Cluster API Gateway**: Provides RESTful interface for cluster operations
-- **Communication Layer**: Handles secure node-to-node communication
-- **Configuration Store**: Maintains cluster configuration and state
-
-### Technology Stack
-- **Backend**: Node.js/JavaScript with Express
-- **Database**: etcd for distributed configuration storage
-- **API**: REST API with JSON payload
-- **Infrastructure**: Docker containers for deployment
-- **Security**: JWT for authentication
-
-## Features
-
-### Node Discovery
-- Automatic broadcast and detection of available nodes
-- Support for clusters up to 100 nodes
-- Network partition handling
-- Node status monitoring
-
-### Queen Election
-- Automatic leader election when cluster starts
-- Failover mechanism when queen node fails
-- Raft-inspired consensus algorithm
-- Preservation of cluster state during elections
-
-### API Management
-- RESTful API for cluster operations
-- JWT-based authentication
-- Comprehensive error handling
-- Real-time status updates
-
-## Getting Started
-
-### Prerequisites
-- Node.js 14+
-- Docker (for containerized deployment)
-- etcd cluster (for production) or local storage (for development)
-
-### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/username/aware.git
-cd aware
+# Deploy the system
+./deploy.sh
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+
+# Restart services
+docker compose down && docker compose up -d
 ```
 
-2. Install dependencies:
-```bash
-npm install
-```
+## 📡 API Endpoints
 
-3. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+All API endpoints are documented in the DEPLOYMENT_SUMMARY.md file. Key endpoints include:
 
-4. Start the service:
-```bash
-npm start
-```
+- Authentication: `/login`, `/register`
+- Cluster Management: `/api/cluster/*`
+- Node Management: `/api/nodes/*`
+- Alert Management: `/api/alerts/*`
+- Resource Management: `/api/resources/*`
 
-### Basic Usage
+## 🔐 Authentication
 
-1. Start the first node (it will become queen):
-```bash
-NODE_ID=queen-1 NODE_LIST=queen-1,worker-1,worker-2 npm start
-```
+The system uses JWT-based authentication with the following default credentials:
 
-2. Start worker nodes:
-```bash
-NODE_ID=worker-1 NODE_LIST=queen-1,worker-1,worker-2 npm start
-```
+- **Username**: admin
+- **Password**: password
 
-3. Check cluster status:
-```bash
-curl -H "Authorization: Bearer <token>" http://localhost:3000/cluster/status
-```
+## 🛠️ Technologies Used
 
-## Development
+### Backend
+- Node.js with Express.js
+- JWT for authentication
+- Raft consensus algorithm for leader election
+- Ant colony-inspired algorithms for resource coordination
 
-### Project Structure
-```
-src/
-├── node-discovery/     # Node discovery service
-├── election/          # Election manager implementation
-├── api/               # API gateway
-├── index.js           # Main application entry point
-tests/
-├── unit/              # Unit tests
-├── integration/       # Integration tests
-docs/                  # Documentation
-stories/               # Development stories
-```
+### Frontend
+- React with Material-UI
+- Responsive design for desktop and tablet
+- Real-time cluster monitoring dashboard
 
-### Running in Development Mode
-```bash
-npm run dev
-```
+### Infrastructure
+- Docker for containerization
+- Docker Compose for orchestration
+- Nginx for frontend serving
 
-### Adding New Features
-1. Create a feature branch: `git checkout -b feature/new-feature`
-2. Follow the story-driven development approach
-3. Write unit tests for new functionality
-4. Update documentation as needed
-5. Submit a pull request
+## 📋 Key Features
 
-## Testing
+### 1. Cluster Management Dashboard
+- Real-time cluster health overview
+- Node status visualization
+- System metrics display
+- Alert notifications
 
-### Running Tests
-```bash
-# Run all tests
-npm test
+### 2. Node Discovery Service
+- Automatic node discovery in the network
+- Node status tracking (connected/disconnected)
+- Node role identification (leader/follower)
+- Response time monitoring
 
-# Run specific test file
-npm test tests/unit/node-discovery.test.js
+### 3. Leader Election Mechanism
+- Raft consensus-based leader election
+- Automatic failover when leader goes offline
+- Term-based voting system
+- Heartbeat mechanism for leader health checks
 
-# Run with coverage
-npm test -- --coverage
-```
+### 4. Resource Management
+- Distributed computing resource coordination
+- Ant colony-inspired allocation algorithms
+- Resource status monitoring
+- Utilization tracking
 
-### Test Structure
-- Unit tests for individual components
-- Integration tests for system interactions
-- Performance tests for scalability verification
+### 5. Alert System
+- Cluster event notifications
+- System health alerts
+- Node status changes
+- Resource utilization warnings
 
-## Configuration
+### 6. Authentication & Authorization
+- JWT-based secure authentication
+- Role-based access control
+- Session management
+- Credential validation
 
-### Environment Variables
-- `NODE_ID`: Unique identifier for this node
-- `NODE_LIST`: Comma-separated list of all nodes in the cluster
-- `DISCOVERY_PORT`: Port for discovery broadcasts (default: 41234)
-- `BROADCAST_PORT`: Port for broadcast messages (default: 41235)
-- `API_PORT`: Port for API gateway (default: 3000)
-- `SECRET_KEY`: JWT secret key
+## 📄 Documentation
 
-### Configuration Files
-- `config/default.json`: Default configuration values
-- `config/production.json`: Production-specific settings
+Detailed documentation for each component is available in the project's documentation files:
 
-## API Documentation
+- System Architecture: `docs/system-architecture.md`
+- API Documentation: `docs/api-documentation.md`
+- Deployment Guide: `docs/deployment-guide.md`
+- User Manual: `docs/user-manual.md`
 
-### Authentication
-All API endpoints (except `/health` and `/login`) require a JWT token in the Authorization header:
-```
-Authorization: Bearer <token>
-```
+## 🤝 Contributing
 
-### Endpoints
+Contributions are welcome! Please read our contributing guidelines before submitting pull requests.
 
-#### Health Check
-```
-GET /health
-```
-Returns the health status of the API gateway.
+## 📄 License
 
-#### Authentication
-```
-POST /login
-```
-Requires username and password in request body, returns JWT token.
-
-#### Cluster Status
-```
-GET /cluster/status
-```
-Returns the current cluster status including leader information.
-
-#### Node Management
-```
-GET /nodes
-```
-Returns a list of all known nodes.
-
-```
-GET /nodes/:nodeId
-```
-Returns information about a specific node.
-
-```
-POST /cluster
-```
-Creates a new cluster (requires cluster configuration in body).
-
-## Contributing
-
-We welcome contributions to the AWARE project! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
-
-### Development Guidelines
-- Follow the story-driven development approach
-- Write comprehensive tests for all functionality
-- Maintain high code coverage
-- Follow security best practices
-
-## License
-
-This project is licensed under the GPL v3 License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For support, please open an issue in the GitHub repository or contact the maintainers.
-
----
-*Project Status: Active Development*  
-*Last Updated: September 25, 2025*
+This project is licensed under the GPL-3.0 License - see the LICENSE file for details.
