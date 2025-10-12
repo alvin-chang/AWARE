@@ -9,8 +9,9 @@ class AWAREEngine {
       nodeId: config.nodeId,
       discoveryPort: config.discoveryPort || 41234,
       broadcastPort: config.broadcastPort || 41235,
-      apiPort: config.apiPort || 3000,
+      apiPort: config.apiPort || process.env.API_PORT || 3000,
       nodes: config.nodes || [], // Other nodes in the cluster
+      secretKey: config.secretKey || process.env.SECRET_KEY || 'default_secret',
       ...config
     };
     
@@ -40,7 +41,7 @@ class AWAREEngine {
       port: this.config.apiPort,
       nodeDiscovery: this.nodeDiscovery,
       electionManager: this.electionManager,
-      secretKey: this.config.secretKey || 'default_secret'
+      secretKey: this.config.secretKey
     });
     
     // Start services in order
@@ -76,18 +77,19 @@ class AWAREEngine {
 if (require.main === module) {
   const engine = new AWAREEngine({
     nodeId: process.env.NODE_ID || require('uuid').v4(),
+    secretKey: process.env.SECRET_KEY,
     nodes: process.env.NODE_LIST ? process.env.NODE_LIST.split(',') : []
   });
   
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
-    console.log('\\nReceived SIGINT, shutting down gracefully...');
+    console.log('\nReceived SIGINT, shutting down gracefully...');
     await engine.shutdown();
     process.exit(0);
   });
   
   process.on('SIGTERM', async () => {
-    console.log('\\nReceived SIGTERM, shutting down gracefully...');
+    console.log('\nReceived SIGTERM, shutting down gracefully...');
     await engine.shutdown();
     process.exit(0);
   });

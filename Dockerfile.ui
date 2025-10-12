@@ -1,0 +1,32 @@
+# Use the official Node.js runtime as the base image for building
+FROM node:18-alpine AS builder
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy UI package.json and package-lock.json to the working directory
+COPY src/ui/package*.json ./
+
+# Install the UI dependencies
+RUN npm install
+
+# Copy the UI source code to the working directory
+COPY src/ui/ .
+
+# Build the UI for production
+RUN npm run build
+
+# Use nginx to serve the built UI
+FROM nginx:alpine
+
+# Copy the built UI from the builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copy custom nginx configuration (if needed)
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

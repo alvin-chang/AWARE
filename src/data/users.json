@@ -1,0 +1,26 @@
+{
+  "users": [
+    {
+      "id": "3496839d-a1a2-4fde-80f7-e3bc2facb7a8",
+      "username": "admin",
+      "email": "admin@example.com",
+      "passwordHash": "c625e97de169febac689e5f923ca6a849c4e516af2b79329f98712902976ecf7b4c98d29288abd5eb153353e96ac4eb09ebec1ef580598e3cc7eb8d602c380d3",
+      "salt": "fdf2b9326322f1f96ed1f24fc4a4b399fb13dc65b38b9a5bdaf3f94abf0be62b",
+      "role": "admin",
+      "createdAt": "2025-09-28T13:38:40.747Z",
+      "updatedAt": "2025-09-28T13:38:40.748Z",
+      "isActive": true
+    },
+    {
+      "id": "0ea28946-3d11-4d8b-9eef-0ed699595cb9",
+      "username": "user",
+      "email": "user@example.com",
+      "passwordHash": "5fdb0490dea3137c3302c56c8bd2b1b1e344541792af3980c078de943b9987bb30d70087519beebba7d2df58579902b6ac81d0cec787c823434d618ebcc37c45",
+      "salt": "99eabd798d41ccbb26b9b437692378f71761c6d9b36bb69768f1d7b72e7ef313",
+      "role": "user",
+      "createdAt": "2025-09-28T13:38:40.750Z",
+      "updatedAt": "2025-09-28T13:38:40.750Z",
+      "isActive": true
+    }
+  ]
+}

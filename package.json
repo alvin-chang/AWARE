@@ -6,8 +6,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "init-users": "node scripts/init-users.js",
     "test": "jest",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "ui-dev": "cd src/ui && npm start",
+    "ui-build": "cd src/ui && npm run build",
+    "ui-install": "cd src/ui && npm install"
   },
   "keywords": [
     "cluster",
@@ -20,16 +24,19 @@
   "author": "Alvin Chang",
   "license": "GPL-3.0",
   "dependencies": {
-    "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.0",
     "cors": "^2.8.5",
-    "uuid": "^9.0.0",
-    "express-validator": "^7.0.0"
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.7.0",
+    "express-validator": "^7.0.0",
+    "helmet": "^6.0.1",
+    "jsonwebtoken": "^9.0.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.0",
-    "jest": "^29.5.0",
+    "@playwright/test": "^1.55.1",
     "eslint": "^8.40.0",
+    "jest": "^29.5.0",
+    "nodemon": "^3.0.0",
     "supertest": "^6.3.3"
   },
   "engines": {

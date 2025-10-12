@@ -2,6 +2,14 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const clusterRouter = require('./routes/cluster');
+const nodesRouter = require('./routes/nodes');
+const alertsRouter = require('./routes/alerts');
+const resourcesRouter = require('./routes/resources');
+const { authenticateToken, authLimiter } = require('./middleware/auth');
+const ClusterService = require('./services/cluster-service');
 
 class APIGateway {
   constructor(config = {}) {
@@ -12,44 +20,62 @@ class APIGateway {
     this.electionManager = config.electionManager;
     this.server = null;
     
-    // Middleware
-    this.app.use(cors());
-    this.app.use(express.json());
-    this.app.use(express.urlencoded({ extended: true }));
+    // Initialize cluster service
+    this.clusterService = new ClusterService({
+      nodeDiscovery: this.nodeDiscovery,
+      electionManager: this.electionManager
+    });
     
-    // Authentication middleware
-    this.app.use(this.authenticationMiddleware.bind(this));
+    // Security middleware
+    this.app.use(helmet({  // Security headers
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https:"],
+        },
+      },
+      hsts: {
+        maxAge: 31536000, // 1 year
+        includeSubDomains: true,
+        preload: true
+      }
+    }));
     
-    // Routes
-    this.setupRoutes();
-  }
-
-  // Authentication middleware
-  authenticationMiddleware(req, res, next) {
-    // Skip authentication for health checks and login
-    if (req.path === '/health' || (req.path === '/login' && req.method === 'POST')) {
-      return next();
-    }
-
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    // Rate limiting for all requests
+    const generalLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100, // Limit each IP to 100 requests per windowMs
+      message: 'Too many requests from this IP, please try again later',
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    this.app.use(generalLimiter);
     
-    if (!token) {
-      return res.status(401).json({ error: 'Access denied. No token provided.' });
-    }
-
-    try {
-      const decoded = jwt.verify(token, this.secretKey);
-      req.user = decoded;
-      next();
-    } catch (ex) {
-      res.status(400).json({ error: 'Invalid token.' });
-    }
-  }
-
-  // Setup API routes
-  setupRoutes() {
-    // Health check endpoint
-    this.app.get('/health', (req, res) => {
+    // CORS middleware
+    this.app.use(cors({
+      origin: process.env.ALLOWED_ORIGINS?.split(',') || [process.env.FRONTEND_URL || 'http://localhost:3001'],
+      credentials: true,
+      optionsSuccessStatus: 200
+    }));
+    
+    // Body parsing middleware
+    this.app.use(express.json({ 
+      limit: '10mb'  // Limit request size
+    }));
+    this.app.use(express.urlencoded({ 
+      extended: true,
+      limit: '10mb'  // Limit request size
+    }));
+    
+    // Make services available to routes
+    this.app.set('nodeDiscovery', this.nodeDiscovery);
+    this.app.set('electionManager', this.electionManager);
+    this.app.set('clusterService', this.clusterService);
+    
+    // Public routes (no authentication required)
+    this.app.use('/health', (req, res) => {
       res.status(200).json({ 
         status: 'healthy', 
         timestamp: new Date().toISOString(),
@@ -57,118 +83,125 @@ class APIGateway {
       });
     });
 
-    // Login endpoint (for obtaining token)
-    this.app.post('/login', (req, res) => {
+    // Login route with rate limiting
+    this.app.post('/login', authLimiter, (req, res) => {
       const { username, password } = req.body;
       
-      // In a real implementation, you would verify credentials
-      if (username && password) { // Simplified for example
+      // Import User model locally to avoid circular dependencies
+      const User = require('./models/User');
+      
+      // Validate user credentials against the user database
+      const user = User.validateCredentials(username, password);
+      
+      if (user) {
         const token = jwt.sign(
-          { username, permissions: ['read', 'write'] }, 
+          { 
+            userId: user.id,
+            username: user.username, 
+            permissions: user.role === 'admin' ? ['read', 'write', 'admin'] : ['read', 'write'],
+            role: user.role
+          }, 
           this.secretKey, 
-          { expiresIn: '1h' }
+          { expiresIn: process.env.TOKEN_EXPIRY || '24h' }
         );
         
-        res.json({ token });
+        res.json({ 
+          token,
+          user: {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            email: user.email
+          }
+        });
       } else {
-        res.status(400).json({ error: 'Username and password required.' });
+        // Invalid credentials
+        res.status(401).json({ 
+          error: 'Invalid username or password' 
+        });
       }
     });
 
-    // Cluster status endpoint
-    this.app.get('/cluster/status', (req, res) => {
-      try {
-        const status = {
-          clusterId: 'aware-cluster-1',
-          leader: this.electionManager?.getLeader() || 'unknown',
-          isLeader: this.electionManager?.isLeader() || false,
-          nodeCount: this.nodeDiscovery ? this.nodeDiscovery.getDiscoveredNodes().length + 1 : 1, // +1 for this node
-          status: 'active',
-          timestamp: new Date().toISOString()
-        };
-        
-        res.json(status);
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to get cluster status' });
+    // User registration route with rate limiting
+    this.app.post('/register', authLimiter, (req, res) => {
+      const { username, email, password, role } = req.body;
+      
+      // Import User model locally to avoid circular dependencies
+      const User = require('./models/User');
+      
+      // Validate input
+      if (!username || !email || !password) {
+        return res.status(400).json({ 
+          error: 'Username, email, and password are required' 
+        });
       }
-    });
-
-    // List all nodes
-    this.app.get('/nodes', (req, res) => {
+      
+      // Check if user already exists
+      const existingUser = User.findByUsername(username);
+      if (existingUser) {
+        return res.status(409).json({ 
+          error: 'Username already exists' 
+        });
+      }
+      
       try {
-        if (!this.nodeDiscovery) {
-          return res.status(500).json({ error: 'Node discovery service not available' });
-        }
-
-        const discoveredNodes = this.nodeDiscovery.getDiscoveredNodes();
-        const thisNode = {
-          nodeId: this.nodeDiscovery.nodeId,
-          status: 'self',
-          lastSeen: new Date().toISOString(),
-          address: '127.0.0.1',
-          capabilities: ['compute', 'storage']
-        };
+        // Create new user (default role is 'user')
+        const newUser = User.create(username, email, password, role || 'user');
         
-        res.json({
-          self: thisNode,
-          discovered: discoveredNodes,
-          total: discoveredNodes.length + 1
+        // Generate token for the new user
+        const token = jwt.sign(
+          { 
+            userId: newUser.id,
+            username: newUser.username, 
+            permissions: newUser.role === 'admin' ? ['read', 'write', 'admin'] : ['read', 'write'],
+            role: newUser.role
+          }, 
+          this.secretKey, 
+          { expiresIn: process.env.TOKEN_EXPIRY || '24h' }
+        );
+        
+        res.status(201).json({ 
+          message: 'User registered successfully',
+          token,
+          user: {
+            id: newUser.id,
+            username: newUser.username,
+            role: newUser.role,
+            email: newUser.email
+          }
         });
       } catch (error) {
-        res.status(500).json({ error: 'Failed to get nodes list' });
-      }
-    });
-
-    // Get specific node status
-    this.app.get('/nodes/:nodeId', (req, res) => {
-      try {
-        const { nodeId } = req.params;
-        
-        if (!this.nodeDiscovery) {
-          return res.status(500).json({ error: 'Node discovery service not available' });
-        }
-
-        const discoveredNodes = this.nodeDiscovery.getDiscoveredNodes();
-        const node = discoveredNodes.find(n => n.nodeId === nodeId);
-        
-        if (node) {
-          res.json(node);
-        } else if (nodeId === this.nodeDiscovery.nodeId) {
-          res.json({
-            nodeId: nodeId,
-            status: 'self',
-            lastSeen: new Date().toISOString(),
-            capabilities: ['compute', 'storage']
-          });
-        } else {
-          res.status(404).json({ error: 'Node not found' });
-        }
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to get node status' });
-      }
-    });
-
-    // Create a new cluster
-    this.app.post('/cluster', (req, res) => {
-      try {
-        const { name, configuration } = req.body;
-        
-        // In a real implementation, this would create a new cluster
-        res.status(201).json({
-          message: 'Cluster creation initiated',
-          clusterId: `cluster-${Date.now()}`,
-          name,
-          status: 'initializing'
+        console.error('Error registering user:', error);
+        res.status(500).json({ 
+          error: 'Failed to register user' 
         });
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to create cluster' });
       }
+    });
+
+    // Protected routes (authentication required)
+    this.app.use(authenticateToken);
+    
+    // API routes
+    this.app.use('/api/cluster', clusterRouter);
+    this.app.use('/api/nodes', nodesRouter);
+    this.app.use('/api/alerts', alertsRouter);
+    this.app.use('/api/resources', resourcesRouter);
+    
+    // Catch-all for undefined routes
+    this.app.use('*', (req, res) => {
+      res.status(404).json({ error: 'Route not found' });
     });
 
     // Error handling middleware
     this.app.use((err, req, res, next) => {
       console.error(err.stack);
-      res.status(500).json({ error: 'Something went wrong!' });
+      
+      // Don't expose stack traces in production
+      if (process.env.NODE_ENV === 'production') {
+        res.status(500).json({ error: 'Internal server error' });
+      } else {
+        res.status(500).json({ error: 'Something went wrong!', details: err.message });
+      }
     });
   }
 
@@ -177,6 +210,7 @@ class APIGateway {
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(this.port, () => {
         console.log(`API Gateway listening on port ${this.port}`);
+        console.log(`API endpoints available at http://localhost:${this.port}/api/`);
         resolve();
       }).on('error', (err) => {
         console.error('API Gateway error:', err);
