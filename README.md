@@ -1,127 +1,121 @@
-# AWARE - Autonomous Warehouse Automated Resource Engine
+# AWARE — Agentic AI Security Control Plane
 
-AWARE (Autonomous Warehouse Automated Resource Engine) is a sophisticated distributed systems management platform that implements ant colony-inspired algorithms for cluster coordination and resource optimization. It features a self-organizing architecture that dynamically elects leaders, distributes workloads, and maintains system resilience.
+> **⚠️ NOTE:** This README reflects AWARE's evolved direction (agentic AI security control plane). The previous "distributed systems platform" description is archived in `docs/legacy/README-v1.md`.
 
-## 🏗️ System Architecture
+**Project Key:** `aware`  
+**Root:** `~/src/AWARE`  
+**Gitea (primary):** http://192.168.1.204:3000/alvin/AWARE  
+**GitHub (read-only mirror):** https://github.com/alvin-chang/AWARE  
+**License:** GPL-3.0
 
-The AWARE system implements a distributed architecture with the following key components:
+> **All agents push to Gitea only.** GitHub is a read-only public mirror. Never push directly to GitHub.
 
-1. **Node Discovery Service**: Discovers and tracks nodes in the distributed system
-2. **Leader Election Mechanism**: Implements Raft consensus algorithm for leader election
-3. **Resource Management**: Coordinates distributed computing resources using ant-inspired algorithms
-4. **API Gateway**: RESTful API service for cluster management operations
-5. **Web UI**: React-based dashboard for cluster monitoring and management
-6. **Authentication Service**: JWT-based authentication for secure access
+---
 
-## 🚀 Deployment
+## What AWARE Is
 
-The system has been successfully deployed with Docker Compose and is available at:
+AWARE is evolving into an **open-source agentic AI security control plane** — the open alternative to Microsoft Agent 365 and Okta Agent Gateway.
 
-- **Backend API Service**: http://localhost:3000
-- **Frontend UI Service**: http://localhost:3001
+AWARE's core primitive is **bio-inspired coordination** (ant colony optimization). This isn't a bolt-on feature — it's the foundation for how autonomous agents route tasks, share learnings, and self-organize under security constraints.
 
-### Deployment Commands
+**Core thesis:** Bio-inspired coordination algorithms are the right primitive for autonomous agent orchestration and security. Pheromone-based routing, distributed consensus, and self-healing topologies translate directly to agent governance.
 
-```bash
-# Deploy the system
-./deploy.sh
+---
 
-# View logs
-docker compose logs -f
+## Key Differentiators (AWARE Evolution Research)
 
-# Stop services
-docker compose down
+| Pattern | Description |
+|---------|-------------|
+| **Modularity with Explicit Interfaces** | Each layer (orchestrator, agent host, security, tools) evolves independently |
+| **Identity-First Security** | Every agent has NHI (Non-Human Identity) with cryptographic credentials, capability claims, and trust scoring |
+| **Explicit Tool Contracts** | Per-agent authorization specifying who can call what, under what conditions |
+| **Observable Decision Trails** | Every routing decision logged with rationale — interpretable for debugging and compliance |
+| **Quality-Gated Pheromone Evolution** | Only high-quality routing trajectories get reinforced (AMRO-S research, 4.7x speedup) |
 
-# Restart services
-docker compose down && docker compose up -d
+---
+
+## Architecture
+
+AWARE implements a layered architecture:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    ORCHESTRATOR                      │
+│         (goal decomposition, task assignment)       │
+├─────────────────────────────────────────────────────┤
+│                   AGENT HOST                         │
+│          (tool execution, context, memory)          │
+├─────────────────────────────────────────────────────┤
+│              SECURITY LAYER                          │
+│     (policy enforcement, anomaly detection)          │
+├─────────────────────────────────────────────────────┤
+│                   TOOL LAYER                        │
+│            (I/O, external APIs, computation)         │
+└─────────────────────────────────────────────────────┘
 ```
 
-## 📡 API Endpoints
+**Existing foundation (queen/worker hierarchy):** Maps cleanly to orchestrator/agent host roles. Extension is additive, not a rewrite.
 
-All API endpoints are documented in the DEPLOYMENT_SUMMARY.md file. Key endpoints include:
+---
 
-- Authentication: `/login`, `/register`
-- Cluster Management: `/api/cluster/*`
-- Node Management: `/api/nodes/*`
-- Alert Management: `/api/alerts/*`
-- Resource Management: `/api/resources/*`
+## Implementation Phases
 
-## 🔐 Authentication
+| Phase | Name | Status |
+|-------|------|--------|
+| 1a | Agent Registry + NHI Identity | In Progress |
+| 1b | Policy Engine + Per-Agent Sandboxes | Pending |
+| 2 | Pheromone-Based Routing | Pending |
+| 3 | Shadow Agent Discovery + Tool-Call Enforcement | Pending |
+| 4 | Compliance Mapping | Pending |
 
-The system uses JWT-based authentication with the following default credentials:
+**Critical path:** Phase 1a (Agent Registry) is the root dependency — all subsequent phases depend on agents being identifiable principals.
 
-- **Username**: admin
-- **Password**: password
+---
 
-## 🛠️ Technologies Used
+## Academic Backing
 
-### Backend
-- Node.js with Express.js
-- JWT for authentication
-- Raft consensus algorithm for leader election
-- Ant colony-inspired algorithms for resource coordination
+**AMRO-S** (arXiv:2603.12933) — Efficient and Interpretable Multi-Agent LLM Routing via Ant Colony Optimisation:
 
-### Frontend
-- React with Material-UI
-- Responsive design for desktop and tablet
-- Real-time cluster monitoring dashboard
+- Pheromone-based path selection across layered AI agent graphs
+- Task-specific pheromone specialists prevent cross-task interference
+- Quality-gated evolution reinforces only high-quality routing trajectories
+- **4.7x speedup** over existing multi-agent routing with better accuracy
 
-### Infrastructure
-- Docker for containerization
-- Docker Compose for orchestration
-- Nginx for frontend serving
+What AMRO-S does NOT address (AWARE's differentiation): security heuristics, identity governance, kill switches, compliance mapping, blast radius containment.
 
-## 📋 Key Features
+---
 
-### 1. Cluster Management Dashboard
-- Real-time cluster health overview
-- Node status visualization
-- System metrics display
-- Alert notifications
+## Enterprise Context
 
-### 2. Node Discovery Service
-- Automatic node discovery in the network
-- Node status tracking (connected/disconnected)
-- Node role identification (leader/follower)
-- Response time monitoring
+| Vendor | Product | AWARE Advantage |
+|--------|---------|-----------------|
+| Microsoft Agent 365 | NHI management, shadow AI detection, universal agent logout | Bio-inspired coordination at core, not bolted on |
+| Okta Agent Gateway | Agent-as-identity, tool-call authorisation, kill switch | Distributed kill-switch via Raft consensus (vs centralized) |
+| Galileo Agent Control | Open-source runtime control plane, hot-reloadable policies | Pheromone routing + compliance mapping on top |
 
-### 3. Leader Election Mechanism
-- Raft consensus-based leader election
-- Automatic failover when leader goes offline
-- Term-based voting system
-- Heartbeat mechanism for leader health checks
+---
 
-### 4. Resource Management
-- Distributed computing resource coordination
-- Ant colony-inspired allocation algorithms
-- Resource status monitoring
-- Utilization tracking
+## Status
 
-### 5. Alert System
-- Cluster event notifications
-- System health alerts
-- Node status changes
-- Resource utilization warnings
+- [x] Phase 1: Research (complete)
+- [x] Phase 2: Architecture (complete)
+- [ ] Phase 3: Implementation (Phase 1a in progress)
+- [ ] Phase 4: Review
+- [ ] Phase 5: Testing
+- [ ] Phase 6: Documentation
 
-### 6. Authentication & Authorization
-- JWT-based secure authentication
-- Role-based access control
-- Session management
-- Credential validation
+---
 
-## 📄 Documentation
+## Quick Links
 
-Detailed documentation for each component is available in the project's documentation files:
+- [Evolution Brief](docs/EVOLUTION-BRIEF.md) — Full project direction and research
+- [Architecture](AWARE-architect.md) — Detailed technical architecture
+- [OpenAPI Spec](docs/openapi.yaml) — API reference
+- [Compliance Matrix](docs/compliance-matrix.md) — Security and compliance mapping
+- [Changelog](CHANGELOG.md) — Version history
 
-- System Architecture: `docs/system-architecture.md`
-- API Documentation: `docs/api-documentation.md`
-- Deployment Guide: `docs/deployment-guide.md`
-- User Manual: `docs/user-manual.md`
+---
 
-## 🤝 Contributing
+## Stack
 
-Contributions are welcome! Please read our contributing guidelines before submitting pull requests.
-
-## 📄 License
-
-This project is licensed under the GPL-3.0 License - see the LICENSE file for details.
+Node.js · Express.js · React · Material-UI · Docker · Nginx · Raft Consensus · Ant Colony Optimization
