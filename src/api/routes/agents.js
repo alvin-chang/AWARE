@@ -8,6 +8,14 @@ const { Agent, AgentState } = require('../models/Agent');
 
 const router = express.Router();
 
+// Authorization middleware - requires admin role for sensitive operations
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required for this operation' });
+  }
+  next();
+};
+
 // Validation middleware
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -201,10 +209,11 @@ router.put('/:id',
   }
 );
 
-// POST /api/agents/:id/rotate-credentials - Rotate agent credentials
+// POST /api/agents/:id/rotate-credentials - Rotate agent credentials (admin only)
 router.post('/:id/rotate-credentials',
   param('id').isUUID(),
   validate,
+  requireAdmin,
   (req, res) => {
     try {
       const agent = Agent.findById(req.params.id);
@@ -264,10 +273,11 @@ router.post('/:id/heartbeat',
   }
 );
 
-// POST /api/agents/:id/suspend - Suspend agent
+// POST /api/agents/:id/suspend - Suspend agent (admin only)
 router.post('/:id/suspend',
   param('id').isUUID(),
   validate,
+  requireAdmin,
   (req, res) => {
     try {
       const agent = Agent.findById(req.params.id);
@@ -326,13 +336,14 @@ router.post('/:id/activate',
   }
 );
 
-// POST /api/agents/:id/revoke - Revoke agent
+// POST /api/agents/:id/revoke - Revoke agent (admin only)
 router.post('/:id/revoke',
   [
     param('id').isUUID(),
     body('reason').optional().isString()
   ],
   validate,
+  requireAdmin,
   (req, res) => {
     try {
       const agent = Agent.findById(req.params.id);
@@ -362,10 +373,11 @@ router.post('/:id/revoke',
   }
 );
 
-// DELETE /api/agents/:id - Decommission agent (soft delete)
+// DELETE /api/agents/:id - Decommission agent (soft delete, admin only)
 router.delete('/:id',
   param('id').isUUID(),
   validate,
+  requireAdmin,
   (req, res) => {
     try {
       const agent = Agent.findById(req.params.id);

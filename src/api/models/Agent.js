@@ -5,6 +5,46 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// Credential hashing configuration
+const CREDENTIAL_HASH_ITERATIONS = 100000;
+const CREDENTIAL_HASH_KEYLEN = 64;
+const CREDENTIAL_HASH_DIGEST = 'sha512';
+const CREDENTIAL_SALT_LEN = 32;
+
+// Salt for hashing (in production, use a per-deployment secret)
+const CREDENTIALPepper = process.env.AWARE_CREDENTIAL_PEPPER || 'aware-agent-credential-secret';
+
+// Hash a credential using PBKDF2
+function hashCredential(credential) {
+  const salt = crypto.randomBytes(CREDENTIAL_SALT_LEN);
+  const hash = crypto.pbkdf2Sync(
+    credential + CREDENTIALPepper,
+    salt,
+    CREDENTIAL_HASH_ITERATIONS,
+    CREDENTIAL_HASH_KEYLEN,
+    CREDENTIAL_HASH_DIGEST
+  );
+  return salt.toString('hex') + ':' + hash.toString('hex');
+}
+
+// Verify a credential against a stored hash
+function verifyCredential(credential, storedHash) {
+  const parts = storedHash.split(':');
+  if (parts.length !== 2) {
+    return false;
+  }
+  const salt = Buffer.from(parts[0], 'hex');
+  const originalHash = parts[1];
+  const hash = crypto.pbkdf2Sync(
+    credential + CREDENTIALPepper,
+    salt,
+    CREDENTIAL_HASH_ITERATIONS,
+    CREDENTIAL_HASH_KEYLEN,
+    CREDENTIAL_HASH_DIGEST
+  );
+  return crypto.timingSafeEqual(Buffer.from(originalHash, 'hex'), hash);
+}
+
 // Define the path for the agents data file
 const AGENTS_DATA_FILE = path.join(__dirname, '..', '..', 'data', 'agents.json');
 
@@ -54,22 +94,33 @@ class Agent {
 
   // Generate a new credential for this agent
   generateCredential() {
-    const credential = crypto.randomBytes(32).toString('hex');
+    const rawCredential = crypto.randomBytes(32).toString('hex');
+    const hashedCredential = hashCredential(rawCredential);
     const previous = this.credentials.current;
     
     this.credentials = {
-      current: credential,
+      current: hashedCredential, // Store HASH, not plaintext
       previous: previous,
       rotatedAt: new Date().toISOString()
     };
     this.updatedAt = new Date().toISOString();
     
-    return credential;
+    return rawCredential; // Return raw for initial provisioning only
   }
 
   // Rotate credentials
   rotateCredentials() {
     return this.generateCredential();
+  }
+
+  // Verify a raw credential against stored hash
+  static verifyCredential(rawCredential, storedHash) {
+    return verifyCredential(rawCredential, storedHash);
+  }
+
+  // Check if raw credential matches stored hash
+  checkCredential(rawCredential) {
+    return verifyCredential(rawCredential, this.credentials.current);
   }
 
   // Update trust score
