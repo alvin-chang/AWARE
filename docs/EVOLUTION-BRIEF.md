@@ -3,7 +3,7 @@
 
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
-**Primary Repo (Gitea):** http://192.168.1.204:3000/alvin/AWARE
+**Primary Repo (Gitea):** http://openclaw.local:3000/alvin/AWARE
 **Public Mirror (GitHub):** https://github.com/alvin-chang/AWARE
 **Licence:** GPL-3.0
 **Stack:** Node.js, Express.js, React, Material-UI, Docker, Nginx
@@ -176,7 +176,7 @@ A March 2026 paper validates this direction:
 
 ## CONSTRAINTS (ALL AGENTS MUST FOLLOW)
 
-1. **All pushes go to Gitea** (http://192.168.1.204:3000/alvin/AWARE). Never push to GitHub directly.
+1. **All pushes go to Gitea** (http://openclaw.local:3000/alvin/AWARE). Never push to GitHub directly.
 2. Do NOT break existing AWARE functionality. All current tests must continue to pass.
 3. Maintain backward compatibility: existing node management, leader election, and resource coordination must work unchanged.
 4. All new code must have tests before review.

@@ -4,7 +4,7 @@
 
 **Project Key:** `aware`  
 **Root:** `~/src/AWARE`  
-**Gitea (primary):** http://192.168.1.204:3000/alvin/AWARE  
+**Gitea (primary):** http://openclaw.local:3000/alvin/AWARE  
 **GitHub (read-only mirror):** https://github.com/alvin-chang/AWARE  
 **License:** GPL-3.0
 
