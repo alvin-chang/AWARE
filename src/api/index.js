@@ -14,9 +14,13 @@ const ClusterService = require('./services/cluster-service');
 
 class APIGateway {
   constructor(config = {}) {
+    // CRITICAL: Secret key is required - no defaults allowed
+    if (!config.secretKey) {
+      throw new Error('FATAL: API Gateway requires config.secretKey. No default value allowed.');
+    }
     this.app = express();
     this.port = config.port || 3000;
-    this.secretKey = config.secretKey || 'default_secret_for_dev';
+    this.secretKey = config.secretKey;
     this.nodeDiscovery = config.nodeDiscovery;
     this.electionManager = config.electionManager;
     this.server = null;

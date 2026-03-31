@@ -12,7 +12,11 @@ const DEFAULT_TTL_SECONDS = 3600;
 
 class IdentityProvider {
   constructor(config = {}) {
-    this.secretKey = config.secretKey || 'aware_agent_secret_key_dev';
+    // CRITICAL: Secret key is required - no defaults allowed
+    if (!config.secretKey) {
+      throw new Error('FATAL: identity-provider requires config.secretKey. No default value allowed.');
+    }
+    this.secretKey = config.secretKey;
     this.issuer = config.issuer || 'aware-ca';
     this.ttlSeconds = config.ttlSeconds || DEFAULT_TTL_SECONDS;
     this.registry = new AgentRegistry(config.registryConfig);
