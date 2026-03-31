@@ -8,6 +8,7 @@ const clusterRouter = require('./routes/cluster');
 const nodesRouter = require('./routes/nodes');
 const alertsRouter = require('./routes/alerts');
 const resourcesRouter = require('./routes/resources');
+const agentsRouter = require('./routes/agents');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
 
@@ -186,6 +187,7 @@ class APIGateway {
     this.app.use('/api/nodes', nodesRouter);
     this.app.use('/api/alerts', alertsRouter);
     this.app.use('/api/resources', resourcesRouter);
+    this.app.use('/api/agents', agentsRouter);
     
     // Catch-all for undefined routes
     this.app.use('*', (req, res) => {
