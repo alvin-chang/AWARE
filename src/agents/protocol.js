@@ -28,10 +28,38 @@ class AgentProtocol {
     this.messageHandlers = new Map();
     this.isListening = false;
     
+    // CRITICAL: Shared secret is required for HMAC signing - no defaults allowed
+    if (!config.sharedSecret) {
+      throw new Error('FATAL: AgentProtocol requires config.sharedSecret for HMAC signing. No default value allowed.');
+    }
+    this.sharedSecret = config.sharedSecret;
+    
     // Callbacks for different message types
     this.onAgentAnnounce = config.onAgentAnnounce || null;
     this.onAgentRevoke = config.onAgentRevoke || null;
     this.onAgentHeartbeat = config.onAgentHeartbeat || null;
+  }
+
+  // Generate HMAC-SHA256 signature for a message
+  signMessage(message) {
+    const payload = JSON.stringify(message);
+    const hmac = crypto.createHmac('sha256', this.sharedSecret);
+    hmac.update(payload);
+    return hmac.digest('hex');
+  }
+
+  // Verify HMAC signature of a message
+  verifySignature(message, signature) {
+    if (!signature) return false;
+    const expectedSignature = this.signMessage(message);
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(signature, 'hex'),
+        Buffer.from(expectedSignature, 'hex')
+      );
+    } catch (e) {
+      return false;
+    }
   }
 
   // Initialize the socket
@@ -84,6 +112,16 @@ class AgentProtocol {
       
       // Don't process our own messages
       if (message.agentId === this.agentId) {
+        return;
+      }
+      
+      // CRITICAL: Verify HMAC signature before processing any message
+      const signature = message.signature;
+      const messageForVerification = { ...message };
+      delete messageForVerification.signature;
+      
+      if (!this.verifySignature(messageForVerification, signature)) {
+        console.warn(`Rejected message from ${rinfo.address}:${rinfo.port} - invalid signature`);
         return;
       }
       
@@ -163,6 +201,13 @@ class AgentProtocol {
     this.emit(MessageType.AGENT_RESPONSE, message, rinfo);
   }
 
+  // Sign and broadcast a message
+  signAndBroadcast(message) {
+    const signature = this.signMessage(message);
+    const signedMessage = { ...message, signature };
+    return this.broadcast(signedMessage);
+  }
+
   // Send AGENT_ANNOUNCE broadcast
   sendAgentAnnounce(agentInfo) {
     const message = {
@@ -177,7 +222,7 @@ class AgentProtocol {
       trustScore: agentInfo.trustScore || 0.5
     };
     
-    return this.broadcast(message);
+    return this.signAndBroadcast(message);
   }
 
   // Send AGENT_REVOKE broadcast
@@ -191,7 +236,7 @@ class AgentProtocol {
       blastRadius: this.calculateBlastRadius()
     };
     
-    return this.broadcast(message);
+    return this.signAndBroadcast(message);
   }
 
   // Send AGENT_HEARTBEAT broadcast
@@ -204,7 +249,7 @@ class AgentProtocol {
       trustScore: 0.5 // Would get this from registry
     };
     
-    return this.broadcast(message);
+    return this.signAndBroadcast(message);
   }
 
   // Query for agents (broadcast AGENT_QUERY and wait for responses)
@@ -229,7 +274,7 @@ class AgentProtocol {
         targetAgentId: null // Broadcast query
       };
       
-      this.broadcast(message);
+      this.signAndBroadcast(message);
     });
   }
 
@@ -245,9 +290,15 @@ class AgentProtocol {
       version: '1.0.0'
     };
     
-    return this.send(message, targetRinfo);
+    return this.sendSignedMessage(message, targetRinfo);
   }
 
+  // Sign and send a unicast message
+  sendSignedMessage(message, targetRinfo) {
+    const signature = this.signMessage(message);
+    const signedMessage = { ...message, signature };
+    return this.send(signedMessage, targetRinfo);
+  }
   // Broadcast a message to all agents
   broadcast(message) {
     const msgBuffer = Buffer.from(JSON.stringify(message));
