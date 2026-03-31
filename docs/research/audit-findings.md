@@ -5,7 +5,7 @@
 **Phase:** Step 1 — Audit (Researcher: Scout)  
 **Date:** 2026-03-31  
 **Status:** COMPLETE — Ready for Archimedes Step 2 (Architecture)  
-**Gitea:** http://192.168.1.204:3000/alvin/AWARE
+**Gitea:** http://openclaw.local:3000/alvin/AWARE
 
 ---
 
