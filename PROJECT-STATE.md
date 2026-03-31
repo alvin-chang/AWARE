@@ -97,8 +97,19 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 |-----------|------|--------|
 | 1.1 | Agent Identity Layer | ✅ COMPLETE |
 | 1.2 | Per-Agent Sandbox Policies | ✅ COMPLETE |
-| 1.3 | Behavioural Baseline & Anomaly Detection | ⏳ Pending |
+| 1.3 | Behavioural Baseline & Anomaly Detection | 🔄 IN PROGRESS (Forge) |
 | 1.4 | Kill Switch (Raft consensus) | ⏳ Pending |
+
+## Phase 2: PHEROMONE-BASED AGENT ROUTING — STARTED
+
+| Sub-phase | Name | Status |
+|-----------|------|--------|
+| 2.1 | Task-Specific Pheromone Specialists | 🔄 IN PROGRESS (Archimedes ADR, Scout research) |
+| 2.2 | Security-Weighted Heuristic Function | ⏳ Pending |
+| 2.3 | Quality-Gated Reinforcement | ⏳ Pending |
+| 2.4 | Interpretable Routing Audit | ⏳ Pending |
+
+**Team notified:** All 6 agents active on Phase 1.3 and Phase 2.1
 
 ---
 
