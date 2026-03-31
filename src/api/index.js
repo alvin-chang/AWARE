@@ -9,6 +9,7 @@ const nodesRouter = require('./routes/nodes');
 const alertsRouter = require('./routes/alerts');
 const resourcesRouter = require('./routes/resources');
 const agentsRouter = require('./routes/agents');
+const policiesRouter = require('./routes/policies');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
 
@@ -30,6 +31,16 @@ class APIGateway {
       nodeDiscovery: this.nodeDiscovery,
       electionManager: this.electionManager
     });
+    
+    // H-01 FIX: Enforce HTTPS in production
+    if (process.env.NODE_ENV === 'production') {
+      this.app.use((req, res, next) => {
+        if (!req.secure && req.get('X-Forwarded-Proto') !== 'https') {
+          return res.status(403).json({ error: 'HTTPS required for agent operations' });
+        }
+        next();
+      });
+    }
     
     // Security middleware
     this.app.use(helmet({  // Security headers
@@ -192,6 +203,7 @@ class APIGateway {
     this.app.use('/api/alerts', alertsRouter);
     this.app.use('/api/resources', resourcesRouter);
     this.app.use('/api/agents', agentsRouter);
+    this.app.use('/api/policies', policiesRouter);
     
     // Catch-all for undefined routes
     this.app.use('*', (req, res) => {
