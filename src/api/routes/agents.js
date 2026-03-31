@@ -4,9 +4,19 @@
 
 const express = require('express');
 const { body, param, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const { Agent, AgentState } = require('../models/Agent');
 
 const router = express.Router();
+
+// M-02 FIX: Rate limiting for agent routes
+const agentRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // 10 requests per minute per source IP
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Authorization middleware - requires admin role for sensitive operations
 const requireAdmin = (req, res, next) => {
@@ -118,6 +128,7 @@ router.get('/agentId/:agentId',
 
 // POST /api/agents - Register a new agent (onboarding)
 router.post('/',
+  agentRateLimit, // M-02: Rate limiting
   [
     body('agentId').isString().notEmpty().withMessage('agentId is required'),
     body('name').isString().notEmpty().withMessage('name is required'),
@@ -242,11 +253,24 @@ router.post('/:id/rotate-credentials',
 );
 
 // POST /api/agents/:id/heartbeat - Agent heartbeat (update last seen)
+// H-02 FIX: Agent must authenticate with its own JWT; agentId in JWT must match :id
 router.post('/:id/heartbeat',
+  agentRateLimit, // M-02: Rate limiting
   param('id').isUUID(),
   validate,
   (req, res) => {
     try {
+      // H-02: Verify the JWT is for an agent, and agentId matches the requested agent
+      if (!req.user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (req.user.type !== 'agent') {
+        return res.status(403).json({ error: 'Agents only' });
+      }
+      if (req.user.agentId !== req.params.id) {
+        return res.status(403).json({ error: 'Cannot heartbeat for another agent' });
+      }
+      
       const agent = Agent.findById(req.params.id);
       
       if (!agent) {

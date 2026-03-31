@@ -11,8 +11,15 @@ const CREDENTIAL_HASH_KEYLEN = 64;
 const CREDENTIAL_HASH_DIGEST = 'sha512';
 const CREDENTIAL_SALT_LEN = 32;
 
-// Salt for hashing (in production, use a per-deployment secret)
-const CREDENTIALPepper = process.env.AWARE_CREDENTIAL_PEPPER || 'aware-agent-credential-secret';
+// M-01 FIX: No static fallback for pepper — derive from SECRET_KEY if not provided
+const CREDENTIALPepper = process.env.AWARE_CREDENTIAL_PEPPER 
+  || (process.env.SECRET_KEY 
+    ? crypto.createHash('sha256').update(process.env.SECRET_KEY).digest('hex')
+    : (() => { 
+        console.error('FATAL: Either AWARE_CREDENTIAL_PEPPER or SECRET_KEY must be set'); 
+        process.exit(1); 
+      })()
+    );
 
 // Hash a credential using PBKDF2
 function hashCredential(credential) {

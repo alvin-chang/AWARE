@@ -5,6 +5,26 @@
 const { Agent, AgentState } = require('../api/models/Agent');
 const crypto = require('crypto');
 
+// M-03 FIX: Audit logging for agent lifecycle events
+const auditLog = [];
+const audit = (event, initiator, target, result, metadata = {}) => {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    event,
+    initiator,
+    target,
+    result,
+    metadata
+  };
+  auditLog.push(entry);
+  // In production, this would also integrate with the AWARE alert system
+  console.log(`[AUDIT] ${entry.timestamp} ${event} ${result} target=${target} initiator=${initiator}`);
+  return entry;
+};
+
+// Get audit log (for testing/verification)
+const getAuditLog = () => [...auditLog];
+
 class AgentRegistry {
   constructor(config = {}) {
     this.config = {
@@ -30,6 +50,12 @@ class AgentRegistry {
         registrationSource: agentData.registrationSource || 'api'
       },
       state: AgentState.ACTIVE
+    });
+
+    // M-03: Audit AGENT_REGISTERED
+    audit('AGENT_REGISTERED', agentData.registeredBy || 'system', agent.agentId, 'SUCCESS', {
+      type: agent.type,
+      clearance: agent.clearance
     });
 
     return agent;
@@ -103,13 +129,16 @@ class AgentRegistry {
   revoke(agentId, reason = 'manual') {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
+      audit('AGENT_REVOKED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
       return { success: false, error: 'Agent not found' };
     }
     
     try {
       const revoked = Agent.revoke(agent.id, reason);
+      audit('AGENT_REVOKED', 'system', agent.agentId, 'SUCCESS', { reason });
       return { success: true, agent: revoked };
     } catch (error) {
+      audit('AGENT_REVOKED', 'system', agent.agentId, 'FAILURE', { error: error.message });
       return { success: false, error: error.message };
     }
   }
@@ -118,14 +147,17 @@ class AgentRegistry {
   suspend(agentId) {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
+      audit('AGENT_SUSPENDED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
       return { success: false, error: 'Agent not found' };
     }
     
     try {
       agent.transitionTo(AgentState.SUSPENDED);
       Agent.saveAgent(agent);
+      audit('AGENT_SUSPENDED', 'system', agent.agentId, 'SUCCESS');
       return { success: true, agent };
     } catch (error) {
+      audit('AGENT_SUSPENDED', 'system', agent.agentId, 'FAILURE', { error: error.message });
       return { success: false, error: error.message };
     }
   }
@@ -134,14 +166,17 @@ class AgentRegistry {
   activate(agentId) {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
+      audit('AGENT_ACTIVATED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
       return { success: false, error: 'Agent not found' };
     }
     
     try {
       agent.transitionTo(AgentState.ACTIVE);
       Agent.saveAgent(agent);
+      audit('AGENT_ACTIVATED', 'system', agent.agentId, 'SUCCESS');
       return { success: true, agent };
     } catch (error) {
+      audit('AGENT_ACTIVATED', 'system', agent.agentId, 'FAILURE', { error: error.message });
       return { success: false, error: error.message };
     }
   }
@@ -150,10 +185,12 @@ class AgentRegistry {
   decommission(agentId) {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
+      audit('AGENT_DECOMMISSIONED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
       return { success: false, error: 'Agent not found' };
     }
     
     const decommissioned = Agent.decommission(agent.id);
+    audit('AGENT_DECOMMISSIONED', 'system', agent.agentId, 'SUCCESS');
     return { success: true, agent: decommissioned };
   }
 
@@ -179,15 +216,18 @@ class AgentRegistry {
   rotateCredentials(agentId) {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
+      audit('CREDENTIAL_ROTATED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
       return { success: false, error: 'Agent not found' };
     }
     
     if (agent.state !== AgentState.ACTIVE) {
+      audit('CREDENTIAL_ROTATED', 'system', agent.agentId, 'FAILURE', { error: `Cannot rotate for ${agent.state} agent` });
       return { success: false, error: `Cannot rotate credentials for agent in ${agent.state} state` };
     }
     
     const newCredential = agent.rotateCredentials();
     Agent.saveAgent(agent);
+    audit('CREDENTIAL_ROTATED', 'system', agent.agentId, 'SUCCESS');
     
     return {
       success: true,
@@ -220,3 +260,4 @@ class AgentRegistry {
 }
 
 module.exports = AgentRegistry;
+module.exports.getAuditLog = getAuditLog;

@@ -271,6 +271,57 @@ Phase 1.4 (Kill Switch) ──────────────────�
 
 ---
 
+## 5b. Scout's Security Findings (Prerequisites for Phase 1.2)
+
+**Source:** Scout's Step 1 Audit (`docs/research/audit-findings.md`)
+**Date:** 2026-03-31
+**Status:** Must be addressed before Phase 1.2 begins
+
+### CRITICAL Findings (Must Fix)
+
+| ID | Finding | Location | Status |
+|----|---------|----------|--------|
+| **C-01** | Hardcoded JWT secret fallback (`'default_secret_for_dev'`) | `src/api/middleware/auth.js:4` | **STILL VALID** — NOT FIXED |
+| **C-02** | Plaintext credentials storage | `src/api/models/Agent.js` | ✅ FIXED — PBKDF2 (100k iterations) |
+| **C-03** | Unauthenticated UDP discovery | `src/agents/protocol.js` | ✅ FIXED — HMAC-SHA256 signing |
+
+### HIGH Findings (Must Fix)
+
+| ID | Finding | Location | Status |
+|----|---------|----------|--------|
+| **H-01** | Credential transmission over HTTP | `src/api/routes/agents.js` | NOT FIXED — needs HTTPS enforcement |
+| **H-02** | Agent heartbeat endpoint not authenticated | `src/api/routes/agents.js` (POST /:id/heartbeat) | NOT FIXED — JWT doesn't include agent identity |
+
+### MEDIUM Findings (Should Fix)
+
+| ID | Finding | Location | Status |
+|----|---------|----------|--------|
+| **M-01** | Credential pepper has fallback | `src/api/models/Agent.js:15` | NOT FIXED — fallback exists |
+| **M-02** | No rate limiting on agent routes | `src/api/routes/agents.js` | NOT FIXED — global limiter only |
+| **M-03** | No audit logging for agent lifecycle | `src/agents/registry.js`, `src/api/routes/agents.js` | NOT FIXED — integrate with alert system |
+
+### Implementation Notes
+
+| Finding | Architecture Fix Required |
+|---------|------------------------|
+| **C-01** | Remove fallback from `auth.js`; require `SECRET_KEY` env var at startup (fail-closed); minimum 32-char secret |
+| **H-01** | Enforce HTTPS for all agent endpoints; add TLS certificate validation |
+| **H-02** | Agents use own JWT from Identity Provider; heartbeat validates `req.agent.agentId === req.params.id` |
+| **M-01** | Remove fallback from `Agent.js` pepper; require `AWARE_CREDENTIAL_PEPPER` env var |
+| **M-02** | Add per-agent rate limiter to agent routes (e.g., 10 reg/min per source, 60 heartbeat/min per agent) |
+| **M-03** | Add audit logging for all agent lifecycle events; integrate with existing AWARE alert system |
+
+### Prerequisites Summary
+
+**Before Phase 1.2 begins:**
+1. ✅ C-02 (plaintext credentials) — FIXED
+2. ✅ C-03 (UDP auth) — FIXED
+3. ❌ **C-01** — MUST FIX before Phase 1.2
+4. ❌ **H-02** — MUST FIX as part of Phase 1.1 closure
+5. ❌ **M-03** — Integrate into Phase 1.2 architecture (audit logging for agent lifecycle)
+
+---
+
 ## 6. Extension Point Detail
 
 ### 6.1 etcd Schema Extensions
@@ -334,9 +385,15 @@ New keys (Phase 1):
 
 ## 7. Implementation Order
 
+**Prerequisites before Phase 1.2:**
+- C-01 MUST be fixed (hardcoded secret in auth.js) — blocking
+- H-02 MUST be fixed (heartbeat auth) — blocking
+- M-03 (audit logging) should be integrated into Phase 1.2
+
 1. **Phase 1.1 (Agent Registry)** — First; all other phases depend on agent identity
-2. **Phase 1.2 (Policy Engine)** and **Phase 1.3 (Anomaly Detection)** — Parallel after 1.1
-3. **Phase 1.4 (Kill Switch)** — Last; depends on 1.1 and 1.3
+2. **Fix C-01 + H-02** — Must complete before Phase 1.2
+3. **Phase 1.2 (Policy Engine)** and **Phase 1.3 (Anomaly Detection)** — Parallel after 1.1 + security fixes
+4. **Phase 1.4 (Kill Switch)** — Last; depends on 1.1 and 1.3
 
 ---
 
