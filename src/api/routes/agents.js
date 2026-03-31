@@ -417,7 +417,7 @@ router.post('/:id/verify',
       }
       
       const { credential } = req.body;
-      const isValid = agent.credentials.current === credential;
+      const isValid = agent.checkCredential(credential);
       
       if (isValid) {
         agent.touch();
