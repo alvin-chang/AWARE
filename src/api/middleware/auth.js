@@ -2,7 +2,16 @@
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 
-const SECRET_KEY = process.env.SECRET_KEY || 'default_secret_for_dev';
+// C-01 FIX: SECRET_KEY is REQUIRED - fail-closed if not set or too short
+const SECRET_KEY = process.env.SECRET_KEY;
+if (!SECRET_KEY) {
+  console.error('FATAL: SECRET_KEY environment variable is required');
+  process.exit(1);
+}
+if (SECRET_KEY.length < 32) {
+  console.error('FATAL: SECRET_KEY must be at least 32 characters');
+  process.exit(1);
+}
 
 // Rate limiting for authentication endpoints
 const authLimiter = rateLimit({
