@@ -402,8 +402,142 @@ const AGENT_REVOKE = 'AGENT_REVOKE';
 
 **Files to create:**
 - `src/agents/revocation.js` — Revocation logic with Raft integration
+- `src/election/revocation-entry.js` — RevocationEntry type for Raft log
 
 **Dependency:** Requires C-03 fix (production Raft consensus) — see below.
+
+### Scout Phase 1.4 Audit Findings — Architecture Specifications
+
+*Addressing 3 CRITICAL findings from Scout's audit (commit 598e4fb): C-01, C-02, C-03*
+
+---
+
+#### C-01: RevocationEntry Type for Raft Log
+
+**Problem:** State machine only supports `CommandEntry`. No `RevocationEntry` type.
+
+**Architecture fix:** Define `RevocationEntry` as a distinct Raft log entry type:
+
+```javascript
+// src/election/revocation-entry.js
+const EntryType = {
+  COMMAND: 0,
+  REVOCATION: 1,  // NEW: dedicated revocation entry type
+};
+
+class RevocationEntry {
+  constructor(agentId, reason, issuedBy, issuedAt) {
+    this.type = EntryType.REVOCATION;
+    this.agentId = agentId;
+    this.reason = reason;           // 'security_breach' | 'policy_violation' | 'manual'
+    this.issuedBy = issuedBy;        // admin identity
+    this.issuedAt = issuedAt;        // ISO timestamp
+    this.id = crypto.uuid();         // idempotency key
+  }
+}
+```
+
+**State machine integration:**
+```javascript
+// state-machine.js — applyRevocation()
+applyRevocation(entry) {
+  const agent = registry.get(entry.agentId);
+  if (!agent) return;  // already removed
+  agent.state = AgentState.REVOKED;
+  agent.revokedAt = entry.issuedAt;
+  agent.revocationReason = entry.reason;
+  registry.update(agent);
+  closeAgentConnections(entry.agentId);  // close protocol connections
+}
+```
+
+---
+
+#### C-02: Distributed Consensus on Revocation
+
+**Problem:** Leader acts unilaterally on revocation — no majority quorum.
+
+**Architecture fix:** Revocations MUST achieve Raft consensus before execution:
+
+```
+Revocation Flow (with consensus):
+1. Admin → DELETE /api/agents/:id
+2. APIGateway validates admin JWT
+3. RevocationRequest → ElectionManager
+4. [LEADER ONLY] 
+   a. Create RevocationEntry with idempotency ID
+   b. Append to Raft log via startLogReplication(entries=[RevocationEntry])
+   c. Wait for commitIndex >= this entry's index (majority ack)
+   d. ONCE CONSENSUS REACHED → apply to state machine
+   e. Broadcast committed entry via next heartbeat
+5. [FOLLOWERS] Receive heartbeat with committed RevocationEntry
+   a. Apply to local state machine
+   b. Update agent registry
+   c. Close connections
+6. [ORIGINATOR] Receive success response only AFTER commit confirmed
+```
+
+**Critical invariant:** Revocation is executed ONLY after `commitIndex >= entry.index` confirmed by majority of nodes. Leader MUST NOT apply revocation locally before consensus.
+
+**Rollback:** If leader changes during replication, committed revocations persist (log is durable). New leader resumes replication of any uncommitted entries.
+
+---
+
+#### C-03: Stale Leader Detection (Election Timeout Fix)
+
+**Problem:** Math.random() in vote granting — followers cannot reliably detect stale leader.
+
+**Architecture fix (per C-03 finding):**
+
+```javascript
+// ElectionManager.js — requestVote() replacement
+async requestVote(nodeId, lastLogIndex, lastLogTerm) {
+  // Standard Raft vote granting: Grant vote if:
+  // 1. Candidate's log is at least as up-to-date as voter's
+  // 2. Voter hasn't voted for another candidate this term
+  // 3. Candidate's term >= voter's current term
+  
+  if (candidateTerm < this.currentTerm) {
+    return { granted: false, term: this.currentTerm };
+  }
+  
+  if (this.votedFor && this.votedFor !== candidateId) {
+    return { granted: false, term: this.currentTerm };  // already voted
+  }
+  
+  const myLastLogTerm = this.log.getLastEntryTerm();
+  const candidateLogOk = lastLogTerm > myLastLogTerm ||
+    (lastLogTerm === myLastLogTerm && lastLogIndex >= this.log.size());
+  
+  if (!candidateLogOk) {
+    return { granted: false, term: this.currentTerm };
+  }
+  
+  this.votedFor = candidateId;
+  return { granted: true, term: this.currentTerm };
+}
+```
+
+**Heartbeat timeout for stale leader detection:**
+- Leader sends AppendEntries with heartbeat interval: 50ms (configurable)
+- If follower receives no heartbeat for `electionTimeout` (150-300ms randomized), follower assumes leader dead → starts election
+- Randomized timeout prevents multiple simultaneous elections
+
+**Integration with Kill Switch:** Phase 1.4 heartbeat protocol is used for both:
+1. Regular leader → follower heartbeats (prevents unnecessary elections)
+2. Committed revocation broadcasts (Kill Switch propagation)
+
+---
+
+#### Phase 1.4 Implementation Dependencies
+
+| Finding | Fix Required | Owner |
+|---------|-------------|-------|
+| C-01 | Define RevocationEntry type + state machine apply | Forge |
+| C-02 | Majority quorum before revocation execution | Forge |
+| C-03 | Production Raft RPC (vote granting + heartbeat timeout) | Forge |
+
+**Implementation order:** C-03 first (foundation), then C-01, then C-02 can be implemented in parallel with Phase 1.4 revocation logic.
 
 ---
 
