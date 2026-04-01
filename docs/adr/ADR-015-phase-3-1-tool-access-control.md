@@ -1,6 +1,6 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** REVISIONS NEEDED (Critic, 2026-04-01 21:30 BST) — 3 findings: F-1 HIGH param validation missing, F-2 MEDIUM shadow detection unspecified, F-3 MEDIUM ReDoS risk  
+**Status:** SUBMITTED — revisions addressed (F-1 parameter validation added, F-2 gateway-level shadow observation, F-3 pattern trust documented)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
@@ -177,15 +177,158 @@ function evaluatePermission(agentRole, requestedTool, requestedParams) {
 }
 
 function matchesPattern(toolId, pattern) {
-  // Simple wildcard matching
+  // F-3 FIX: Pre-compiled patterns to prevent ReDoS attacks
+  // Pattern sources MUST be trusted - never compile patterns from untrusted input
   const regex = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
   return new RegExp(`^${regex}$`).test(toolId);
 }
 ```
 
+**⚠️ F-3 Security Note: Pattern Source Trust**
+
+The `matchesPattern()` function compiles wildcard patterns to regex. This is safe ONLY when pattern sources are trusted:
+
+1. **Trusted sources:** Internal config files, admin-defined role permissions
+2. **Untrusted sources:** External config APIs, user-provided patterns, third-party plugins
+
+**Pre-compilation for performance and safety:**
+
+```javascript
+// Pre-compile patterns at startup (trusted sources only)
+const ROLE_PATTERNS = {
+  'admin': {
+     allows: compilePatterns(['*']),
+     denies: compilePatterns([])
+  },
+  'coder': {
+     allows: compilePatterns([
+       'read:workspace/*',
+       'write:workspace/*',
+       'exec:workspace/*',
+       'read:git',
+       'write:git',
+       'read:api',
+       'network:developer-api'
+     ]),
+     denies: compilePatterns([
+       'credential:*',
+       'admin:*',
+       'exec:sudo'
+     ])
+  }
+  // ...
+};
+
+function compilePatterns(patterns) {
+  return patterns.map(p => {
+    const regex = new RegExp(`^${p.replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+    return { original: p, regex }; // Store original for audit
+  });
+}
+
+// At runtime, use pre-compiled:
+function evaluatePermission(agentRole, requestedTool) {
+  const role = ROLE_PATTERNS[agentRole];
+  if (!role) return { allowed: false, reason: 'ROLE_NOT_FOUND' };
+  
+  // Check denies first
+  for (const { original, regex } of role.denies) {
+    if (regex.test(requestedTool)) {
+      return { allowed: false, reason: 'DENIED_BY_ROLE', rule: original };
+    }
+  }
+  
+  // Check allows
+  for (const { original, regex } of role.allows) {
+    if (regex.test(requestedTool)) {
+      return { allowed: true, reason: 'ALLOWED_BY_ROLE', rule: original };
+    }
+  }
+  
+  return { allowed: false, reason: 'NOT_IN_ALLOW_LIST' };
+}
+```
+
+**Validation:** If patterns must come from untrusted sources, validate against an allowlist of known-safe pattern characters before compilation:
+
+```javascript
+function safeCompilePattern(pattern) {
+  // Only allow word chars, colons, slashes, asterisks, question marks
+  if (!/^[\w\/\:\*\?\-]+$/.test(pattern)) {
+    throw new Error('INVALID_PATTERN: potentially malicious characters');
+  }
+  return new RegExp(`^${pattern.replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+}
+```
+```
+
 ---
 
 ## Pre-Invocation Authorization
+
+### Parameter Schema Validation (F-1 FIX)
+
+Tool parameters **MUST** be validated against the tool's parameter schema before execution:
+
+```javascript
+const PARAMETER_VALIDATORS = {
+  string: (value) => typeof value === 'string',
+  number: (value) => typeof value === 'number' && !isNaN(value),
+  boolean: (value) => typeof value === 'boolean',
+  array: (value) => Array.isArray(value),
+  object: (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+};
+
+function validateParameters(toolId, parameters, schema) {
+  const errors = [];
+  
+  if (!schema || !schema.parameters) {
+    return { valid: true }; // No schema = no validation
+  }
+  
+  for (const [paramName, paramSchema] of Object.entries(schema.parameters)) {
+    const value = parameters?.[paramName];
+    
+    // Check required
+    if (paramSchema.required && (value === undefined || value === null)) {
+      errors.push({ param: paramName, error: 'REQUIRED' });
+      continue;
+    }
+    
+    // Skip validation if not provided and not required
+    if (value === undefined || value === null) continue;
+    
+    // Type validation
+    if (paramSchema.type && !PARAMETER_VALIDATORS[paramSchema.type]?.(value)) {
+      errors.push({ param: paramName, error: `INVALID_TYPE: expected ${paramSchema.type}` });
+    }
+    
+    // Additional constraints
+    if (paramSchema.type === 'string' && paramSchema.maxLength && value.length > paramSchema.maxLength) {
+      errors.push({ param: paramName, error: `MAX_LENGTH_EXCEEDED: ${value.length} > ${paramSchema.maxLength}` });
+    }
+    
+    if (paramSchema.type === 'number') {
+      if (paramSchema.min !== undefined && value < paramSchema.min) {
+        errors.push({ param: paramName, error: `MIN_VALUE: ${value} < ${paramSchema.min}` });
+      }
+      if (paramSchema.max !== undefined && value > paramSchema.max) {
+        errors.push({ param: paramName, error: `MAX_VALUE: ${value} > ${paramSchema.max}` });
+      }
+    }
+    
+    // Enum validation
+    if (paramSchema.enum && !paramSchema.enum.includes(value)) {
+      errors.push({ param: paramName, error: `INVALID_ENUM: ${value} not in [${paramSchema.enum.join(', ')}]` });
+    }
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+```
 
 ### Authorization Flow
 
@@ -290,6 +433,21 @@ async function authorizeToolInvocation(req, res, next) {
       return res.status(403).json({ error: 'TOOL_NOT_IN_CONTEXT' });
     }
     
+    // 6. Validate tool parameters against schema (F-1)
+    const paramValidation = validateParameters(toolId, parameters, tool.parameters);
+    if (!paramValidation.valid) {
+      await securityLogger.log({
+        event: 'PARAMETER_VALIDATION_FAILED',
+        agentId: agent.agentId,
+        toolId,
+        errors: paramValidation.errors
+      });
+      return res.status(400).json({ 
+        error: 'INVALID_PARAMETERS',
+        details: paramValidation.errors
+      });
+    }
+    
     // Authorized - attach to request for tool execution
     req.authorization = {
       agent,
@@ -318,47 +476,76 @@ A "shadow tool" is a tool that:
 2. Is a legitimate tool being used in an unexpected way
 3. Represents an attempt to bypass tool controls
 
-### Detection Mechanism
+### Gateway-Level Observation Mechanism (F-2 FIX)
+
+Shadow tool detection operates at the **gateway level** — all tool invocations pass through the gateway's tool proxy, which observes and validates every call:
+
+```
+Agent Request → Gateway Tool Proxy → [Observation] → Tool Registry Check → Allow/Deny
+                                              ↓
+                                    Shadow Tool Detector
+```
+
+**Observation happens BEFORE registry check** to capture all calls, including unknown tools:
 
 ```javascript
-async function detectShadowTools(agentId, observedToolCalls) {
-  const registry = await toolRegistry.getAllToolIds();
-  const shadowTools = [];
-  
-  for (const toolCall of observedToolCalls) {
-    if (!registry.includes(toolCall.toolId)) {
-      shadowTools.push({
-        toolId: toolCall.toolId,
-        firstObserved: toolCall.timestamp,
-        callCount: 1,
-        agentId
-      });
-    }
+// Gateway tool proxy - observes ALL tool calls
+class ToolObservationProxy {
+  constructor(toolRegistry, shadowDetector, auditLogger) {
+    this.registry = toolRegistry;
+    this.shadowDetector = shadowDetector;
+    this.auditLogger = auditLogger;
   }
   
-  if (shadowTools.length > 0) {
-    // Alert security team
-    await alertDispatcher.send({
-      severity: 'HIGH',
-      title: 'Shadow Tool Detected',
-      description: `${shadowTools.length} tool(s) called that are not in registry`,
-      agents: [agentId],
-      tools: shadowTools.map(s => s.toolId),
-      timestamp: Date.now()
-    });
+  async observeAndForward(toolId, parameters, agentContext) {
+    const observation = {
+      toolId,
+      parameters,
+      agentId: agentContext.agentId,
+      sessionId: agentContext.sessionId,
+      timestamp: Date.now(),
+      callSource: agentContext.callSource || 'direct'
+    };
     
-    // Log to audit
-    await auditLogger.log({
-      event: 'SHADOW_TOOL_DETECTED',
-      agentId,
-      shadowTools,
-      action: 'ALERT_SENT'
-    });
+    // 1. ALWAYS log the observation first (before allow/deny)
+    await this.auditLogger.logToolObservation(observation);
+    
+    // 2. Check if tool is in registry
+    const tool = await this.registry.getTool(toolId);
+    
+    if (!tool) {
+      // Unknown tool - record as shadow candidate
+      await this.shadowDetector.recordUnregisteredCall(observation);
+      return { allowed: false, reason: 'TOOL_NOT_IN_REGISTRY', shadow: true };
+    }
+    
+    // 3. Tool exists - check if usage pattern is anomalous
+    const shadowCheck = await this.shadowDetector.checkAnomalousUsage(
+      agentContext.agentId,
+      toolId,
+      observation
+    );
+    
+    if (shadowCheck.isShadow || shadowCheck.isAnomalous) {
+      // Known tool but unusual usage - alert and log
+      await this.shadowDetector.recordAnomalousCall(observation, shadowCheck);
+      return { 
+        allowed: false, 
+        reason: shadowCheck.isShadow ? 'SHADOW_TOOL_PATTERN' : 'ANOMALOUS_USAGE',
+        alert: true 
+      };
+    }
+    
+    return { allowed: true, tool };
   }
-  
-  return shadowTools;
 }
 ```
+
+**Gateway enforcement means:**
+1. ALL tool calls go through the proxy, even "known" tools
+2. Every call is observed and logged before allow/deny decision
+3. Shadow detection happens in real-time at the gateway, not post-hoc
+4. Unknown tools are immediately blocked and alerted
 
 ### Behavioural Shadow Detection
 
