@@ -138,14 +138,14 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 
 | Sub-phase | Name | Status |
 |-----------|------|--------|
-| 1.4 | Kill Switch (Raft consensus) | ⏳ Pending |
+| 1.4 | Kill Switch (Raft consensus) | 🔄 Step 1 (Scout) — STARTED 2026-04-01 |
 
 ## Phase 2: PHEROMONE-BASED AGENT ROUTING — STARTED
 
 | Sub-phase | Name | Status |
 |-----------|------|--------|
 | 2.1 | Task-Specific Pheromone Specialists | 🔄 IN PROGRESS (Archimedes ADR, Scout research) |
-| 2.2 | Security-Weighted Heuristic Function | ⏳ Pending |
+| 2.2 | Security-Weighted Heuristic Function | 🔄 IN PROGRESS (Archimedes) — STARTED 2026-04-01 |
 | 2.3 | Quality-Gated Reinforcement | ⏳ Pending |
 | 2.4 | Interpretable Routing Audit | ⏳ Pending |
 
