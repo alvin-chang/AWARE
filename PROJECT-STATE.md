@@ -9,15 +9,23 @@
 
 ## 🚨 PHASE 3.1 COMPLETE (2026-04-01 22:20 UTC)
 
-### ✅ ADR-015 (Phase 3.1C) — APPROVED + IMPLEMENTED
+### ✅ ADR-015 (Phase 3.1C) — APPROVED + IMPLEMENTED + TESTED
 
 **Status:** ✅ APPROVED (Critic, b0f7104, 2026-04-01 22:05 BST)
-**Implementation:** ✅ IMPLEMENTED (Forge, a46ab7c, 2026-04-01 22:20 BST)
+**Implementation:** ✅ IMPLEMENTED (Forge, 5a67661, 2026-04-01 22:35 BST)
+**Testing:** ✅ 40/40 PASS (Quinn, f20c262, 2026-04-01 22:36 BST)
 
-### ✅ ADR-016 (Phase 3.2) — APPROVED + IMPLEMENTED
+**Key fixes (5a67661):**
+- Shadow detection with confirmedShadow flag
+- Audit logging with apiKey redaction fix
+- Evidence collector data structure fix
+- Gap priority field added
+
+### ✅ ADR-016 (Phase 3.2) — APPROVED + IMPLEMENTED + TESTED
 
 **Status:** ✅ APPROVED (Critic, b0f7104, 2026-04-01 22:05 BST)
-**Implementation:** ✅ IMPLEMENTED (Forge, a46ab7c, 2026-04-01 22:20 BST)
+**Implementation:** ✅ IMPLEMENTED (Forge, 5a67661, 2026-04-01 22:35 BST)
+**Testing:** ✅ 40/40 PASS (Quinn, f20c262, 2026-04-01 22:36 BST)
 
 ### ✅ ADR-014 (Phase 3.1B) — APPROVED + IMPLEMENTED
 
@@ -31,8 +39,8 @@
 1. ✅ **ADR-010 (Phase 2.2)** — APPROVED + IMPLEMENTED
 2. ✅ **ADR-013 (Phase 3.1A)** — APPROVED + IMPLEMENTED
 3. ✅ **ADR-014 (Phase 3.1B)** — APPROVED + IMPLEMENTED (14/14 tests PASS)
-4. ✅ **ADR-015 (Phase 3.1C)** — APPROVED + IMPLEMENTED
-5. ✅ **ADR-016 (Phase 3.2)** — APPROVED + IMPLEMENTED
+4. ✅ **ADR-015 (Phase 3.1C)** — APPROVED + IMPLEMENTED (40/40 PASS)
+5. ✅ **ADR-016 (Phase 3.2)** — APPROVED + IMPLEMENTED (40/40 PASS)
 6. ⏳ **ADR-017 (Kill Switch Propagation)** — DRAFT (Archimedes)
 3. ✅ **ADR-014 (Phase 3.1B)** — IMPLEMENTED (14/14 tests PASS)
 4. 🔄 **ADR-015** — SUBMITTED (awaiting Critic review)

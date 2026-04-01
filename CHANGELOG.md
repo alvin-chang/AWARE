@@ -6,19 +6,29 @@ All notable changes to AWARE Evolution are documented here.
 
 ## [1.2.1] — 2026-04-01 — Phase 3.1 Implementation
 
-### ADR-015/016: Phase 3.1C/3.2 — APPROVED + IMPLEMENTED ✅
+### ADR-015/016: Phase 3.1C/3.2 — APPROVED + IMPLEMENTED + TESTED ✅
 
-**Status:** APPROVED (Critic, 2026-04-01 22:05 BST, commit b0f7104) | IMPLEMENTED (Forge, 2026-04-01 22:20 BST, commit a46ab7c)
+**Status:** APPROVED (Critic, 2026-04-01 22:05 BST, commit b0f7104) | IMPLEMENTED (Forge, 2026-04-01 22:35 BST, commit 5a67661) | TESTED (Quinn, 2026-04-01 22:36 BST, commit f20c262)
+
+**Testing:** 40/40 PASS ✅
+
+**Implementation fixes (5a67661):**
+- shadow-detector.js: Add confirmedShadow flag for shadow state detection
+- tool-audit-logger.js: Fix apiKey redaction (added lowercase 'apikey' to sensitiveKeys)
+- evidence-collector.js: Fix custom collector data structure (spread result directly)
+- posture-calculator.js: Add priority field to recordGap with severityToPriority mapping
 
 **ADR-015: Tool Access Control & Enforcement**
-- RBAC roles (admin, coder, researcher, tester)
-- Gateway-level shadow tool detection
-- Parameter schema validation
+- RBAC with 5 roles (admin, coder, researcher, tester, scribe)
+- Gateway-level shadow tool detection with confirmedShadow flag
+- Parameter schema validation (type/enum/range)
+- Audit logging with sensitive data redaction
 
 **ADR-016: Compliance Mapping & Reporting**
 - CSA AI CM, NIST AI RMF, ISO 27001, DORA mapping
-- Automatic evidence collection
-- Compliance score calculation
+- Automatic evidence collection with custom collector support
+- Gap tracking with severity-based priority
+- Compliance posture calculation and report generation
 
 ---
 
@@ -175,8 +185,8 @@ Original AWARE was a distributed systems platform using ant colony-inspired algo
 | 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
 | 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
 | 3.1B | Behavioural Anomaly Detection | ✅ IMPLEMENTED (ADR-014) |
-| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED (ADR-015) |
-| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED (ADR-016) |
+| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-015, 40/40 PASS) |
+| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-016, 40/40 PASS) |
 | 3.2 | Kill Switch Propagation | ⏳ DRAFT (ADR-017) |
 
 ---
