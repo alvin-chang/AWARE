@@ -2,29 +2,7 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [1.1.1] — 2026-04-01 — Phase 1.4 Kill Switch
-
-### Phase 1.4 — Kill Switch (Raft consensus) ✅
-
-**Architecture (Scout's C-01/C-02/C-03 findings):**
-- **C-01:** Define RevocationEntry type for Raft log
-- **C-02:** Majority quorum consensus before revocation execution
-- **C-03:** Production Raft RPC (vote granting + stale leader detection)
-
-**Added:**
-- **RevocationEntry** — `src/election/revocation-entry.js` — Distinct Raft log entry type (C-01)
-- **Revocation Service** — `src/kill-switch/revocation-service.js` — Revocation orchestration via Raft consensus (C-02)
-- **ElectionManager** — `src/election/ElectionManager.js` — C-03 fix: proper Raft RPC vote granting (no more Math.random())
-- **Kill Switch Routes** — `src/kill-switch/api/kill-switch-routes.js` — DELETE /api/kill-switch/agents/:agentId
-- **Agent Registry** — `src/agents/registry.js` — Extended with revoke(), isRevoked(), reinstate()
-- **State Machine** — `src/election/state-machine.js` — Handles RevocationEntry and ReinstatementEntry
-
-**Key Fix:**
-- **C-03:** Replaced Math.random() vote granting with proper Raft RPC per Raft paper
-- Proper term comparison, log up-to-date check, votedFor check
-
-**Testing:** 10/10 kill-switch tests PASSED | 75 total passed, 17 pre-existing failures
-**Commits:** `a31cd35`, `d693dd8`, `9dc6f3e`, `f83c5cc`
+## [Unreleased] — Phase 1.4 (Pending)
 
 ## [1.1.0] — 2026-04-01 — Phase 1 Complete
 
