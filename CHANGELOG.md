@@ -2,7 +2,7 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased] — Phase 3.1 COMPLETE ✅ | ADR-017 DRAFT
+## [Unreleased] — Phase 3 COMPLETE ✅ | ADR-017 APPROVED ✅
 
 ## [1.2.1] — 2026-04-01 — Phase 3.1 Implementation
 
@@ -29,6 +29,26 @@ All notable changes to AWARE Evolution are documented here.
 - Automatic evidence collection with custom collector support
 - Gap tracking with severity-based priority
 - Compliance posture calculation and report generation
+
+---
+
+### ADR-017: Phase 3.2 — Kill Switch Propagation & Emergency Shutdown ✅ APPROVED
+
+**Status:** APPROVED (Critic, 2026-04-01 22:38 BST, commit 192db34) | IMPLEMENTED (Archimedes, commit be5b430)
+
+**Findings fixed:**
+- F-1 [MEDIUM]: Acknowledgment etcd write verification with retry
+- F-2 [MEDIUM]: Override/Cancel Authority Matrix defined for all severity levels
+
+**Key features:**
+- Kill Switch Trigger Types (LOCAL/DOMAIN/GLOBAL severity levels)
+- Raft-based broadcast propagation mechanism
+- GRACEFUL and FORCED shutdown procedures
+- Acknowledgment protocol with etcd write verification
+- Post-emergency recovery and re-onboarding
+- Override/Cancel Authority Matrix (GLOBAL kills require 3 C-level approvers)
+- API endpoints for kill switch management
+- Compliance mapping (CSA AI CM, NIST AI RMF, ISO 27001, DORA)
 
 ---
 
@@ -187,7 +207,7 @@ Original AWARE was a distributed systems platform using ant colony-inspired algo
 | 3.1B | Behavioural Anomaly Detection | ✅ IMPLEMENTED (ADR-014) |
 | 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-015, 40/40 PASS) |
 | 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-016, 40/40 PASS) |
-| 3.2 | Kill Switch Propagation | ⏳ DRAFT (ADR-017) |
+| 3.2 | Kill Switch Propagation | ✅ APPROVED (ADR-017) |
 
 ---
 
