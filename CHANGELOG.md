@@ -23,8 +23,8 @@ All notable changes to AWARE Evolution are documented here.
 - `DECISION_FINGERPRINT` — Prompt injection detection (beyond spec)
 
 **Review:** ✅ Critic APPROVED (2026-04-01)
-**Testing:** 65 passing | 17 pre-existing failures (election module)
-**Commits:** `d679ec6`, `f7e7427`, `a3ceaec`, `e0c0fd2`, `653ba7a`, `8159cf7`, `1bc02ce`
+**Testing:** 47/52 passing | 6 pre-existing auth failures (api.test.js)
+**Commits:** `d679ec6`, `e0c0fd2`, `a3ceaec`, `f7e7427`, `653ba7a`, `8159cf7`, `1bc02ce`
 
 ---
 
