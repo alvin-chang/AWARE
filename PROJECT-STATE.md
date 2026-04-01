@@ -2,32 +2,38 @@
 
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
-**Last Updated:** 2026-04-01 21:24 UTC
-**Status:** ADR-014 IMPLEMENTED ✅ | ADR-015/016 SUBMITTED 🔄
+**Last Updated:** 2026-04-01 22:20 UTC
+**Status:** Phase 3.1 COMPLETE ✅ | ADR-017 DRAFT ⏳
 
 ---
 
-## 🚨 FINAL PUSH STATUS (2026-04-01 21:24 UTC)
+## 🚨 PHASE 3.1 COMPLETE (2026-04-01 22:20 UTC)
 
-### ✅ ADR-014 (Phase 3.1B) — IMPLEMENTED
+### ✅ ADR-015 (Phase 3.1C) — APPROVED + IMPLEMENTED
+
+**Status:** ✅ APPROVED (Critic, b0f7104, 2026-04-01 22:05 BST)
+**Implementation:** ✅ IMPLEMENTED (Forge, a46ab7c, 2026-04-01 22:20 BST)
+
+### ✅ ADR-016 (Phase 3.2) — APPROVED + IMPLEMENTED
+
+**Status:** ✅ APPROVED (Critic, b0f7104, 2026-04-01 22:05 BST)
+**Implementation:** ✅ IMPLEMENTED (Forge, a46ab7c, 2026-04-01 22:20 BST)
+
+### ✅ ADR-014 (Phase 3.1B) — APPROVED + IMPLEMENTED
 
 **Status:** ✅ APPROVED (Critic, 06c983e, 2026-04-01 21:10 BST)
 **Implementation:** ✅ IMPLEMENTED (Forge, 85b04a1, 2026-04-01 21:24 BST)
 **Testing:** 14/14 tests PASS ✅
 
-### ✅ ADR-015 (Tool Access Control) — SUBMITTED
-
-**Status:** 🔄 SUBMITTED for Critic review (38f174a, 2026-04-01 21:22 BST)
-
-### ✅ ADR-016 (Compliance Mapping) — SUBMITTED
-
-**Status:** 🔄 SUBMITTED for Critic review (38f174a, 2026-04-01 21:22 BST)
-
 ---
 
 **Priority pipeline:**
-1. ✅ **ADR-010 (Phase 2.2)** — APPROVED
-2. ✅ **ADR-013 (Phase 3.1A)** — COMPLETE
+1. ✅ **ADR-010 (Phase 2.2)** — APPROVED + IMPLEMENTED
+2. ✅ **ADR-013 (Phase 3.1A)** — APPROVED + IMPLEMENTED
+3. ✅ **ADR-014 (Phase 3.1B)** — APPROVED + IMPLEMENTED (14/14 tests PASS)
+4. ✅ **ADR-015 (Phase 3.1C)** — APPROVED + IMPLEMENTED
+5. ✅ **ADR-016 (Phase 3.2)** — APPROVED + IMPLEMENTED
+6. ⏳ **ADR-017 (Kill Switch Propagation)** — DRAFT (Archimedes)
 3. ✅ **ADR-014 (Phase 3.1B)** — IMPLEMENTED (14/14 tests PASS)
 4. 🔄 **ADR-015** — SUBMITTED (awaiting Critic review)
 5. 🔄 **ADR-016** — SUBMITTED (awaiting Critic review)
