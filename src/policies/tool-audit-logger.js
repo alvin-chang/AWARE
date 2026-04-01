@@ -259,8 +259,9 @@ class ToolAuditLogger extends EventEmitter {
     if (!parameters) return {};
 
     const sensitiveKeys = [
-      'password', 'secret', 'token', 'apiKey', 'api_key',
-      'credential', 'privateKey', 'private_key', 'authorization'
+      'password', 'secret', 'token', 'api_key', 'apikey',
+      'credential', 'private_key', 'privatekey', 'authorization',
+      'bearer', 'passwd', 'passw0rd'
     ];
 
     const sanitized = {};

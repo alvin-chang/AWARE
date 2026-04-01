@@ -74,7 +74,7 @@ class GapTracker extends EventEmitter {
       MEDIUM: 3,
       LOW: 4
     };
-    return priorities[severity] || 5;
+    return priorities[severity] ?? 5;
   }
 
   /**
