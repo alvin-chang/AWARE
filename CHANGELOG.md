@@ -2,19 +2,46 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased] — Phase 1b (Pending)
+## [Unreleased] — Phase 1.4 (Pending)
 
-### Added
-- **Policy Engine core** (Phase 1b scope)
-- **Per-Agent Sandboxes** — sandbox policy schema (YAML: tools, network, trust level)
+## [1.1.0] — 2026-04-01 — Phase 1 Complete
+
+### Phase 1.3 — Behavioural Baseline & Anomaly Detection
+
+**Added:**
+- **Metrics Collector** — `src/monitoring/metrics-collector.js` — Singleton service aggregating agent metrics
+- **Baseline Service** — `src/monitoring/baseline-service.js` — Rolling 7-day window, z-score computation, statistics (mean, stddev, p50-p99)
+- **Anomaly Detector** — `src/monitoring/anomaly-detector.js` — Z-score thresholds (CRITICAL >4σ, HIGH >3σ, MEDIUM >2.5σ, LOW >2σ)
+- **Fingerprint Service** — `src/monitoring/fingerprint-service.js` — Prompt injection detection (beyond Phase 1.3 spec)
+- **Metrics Store** — `src/monitoring/store.js` — JSON persistence with atomic writes, 30-day retention
+- **Metrics Router** — `src/api/routes/metrics.js` — 11 REST API endpoints
+
+**Metric Types:**
+- `TOOL_CALL_FREQUENCY` — Tool usage tracking per agent
+- `RESPONSE_LATENCY` — Response time distribution
+- `ERROR_RATE` — Error frequency per agent
+- `DECISION_FINGERPRINT` — Prompt injection detection (beyond spec)
+
+**Review:** ✅ Critic APPROVED (2026-04-01)
+**Testing:** 65 passing | 17 pre-existing failures (election module)
+**Commits:** `d679ec6`, `f7e7427`, `a3ceaec`, `e0c0fd2`, `653ba7a`, `8159cf7`, `1bc02ce`
+
+---
+
+### Phase 1.2 — Per-Agent Sandbox Policies ✅
+
+**Status:** Complete (2026-03-31)
+
+**Added:**
+- **Policy Engine core** — Model, Tool Catalog, Policy Store, Policy Engine, Policy Routes
+- **Per-Agent Sandboxes** — sandbox policy schema (tools, network, trust level)
 - **Tool Contract Registry**
 - **Runtime policy reload without restart**
 
-### Security Fixes (Phase 1b)
+**Security Fixes (Phase 1b):**
 - Heartbeat spoofing prevention — Policy Engine verifies caller owns slot before heartbeat accepted
 
-### Known Gaps
-- Heartbeat verification method (token? signature? session context?) — needs Forge input
+**Commits:** `92a9443`
 
 ---
 
@@ -56,8 +83,9 @@ Original AWARE was a distributed systems platform using ant colony-inspired algo
 | Phase | Name | Status |
 |-------|------|--------|
 | 1a | Agent Registry + NHI Identity | ✅ Complete |
-| 1b | Policy Engine + Per-Agent Sandboxes | ⏳ Pending |
-| 2 | Pheromone-Based Routing | ⏳ Pending |
+| 1b | Policy Engine + Per-Agent Sandboxes | ✅ Complete |
+| 1c | Behavioural Baseline & Anomaly Detection | ✅ Complete |
+| 2 | Pheromone-Based Routing | 🔄 In Progress |
 | 3 | Shadow Agent Discovery + Tool-Call Enforcement | ⏳ Pending |
 | 4 | Compliance Mapping | ⏳ Pending |
 

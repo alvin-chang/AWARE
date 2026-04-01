@@ -62,13 +62,16 @@ AWARE implements a layered architecture:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1a | Agent Registry + NHI Identity | In Progress |
-| 1b | Policy Engine + Per-Agent Sandboxes | Pending |
-| 2 | Pheromone-Based Routing | Pending |
-| 3 | Shadow Agent Discovery + Tool-Call Enforcement | Pending |
-| 4 | Compliance Mapping | Pending |
+| 1a | Agent Registry + NHI Identity | ✅ Complete |
+| 1b | Policy Engine + Per-Agent Sandboxes | ✅ Complete |
+| 1c | Behavioural Baseline & Anomaly Detection | ✅ Complete |
+| 2 | Pheromone-Based Routing | 🔄 In Progress |
+| 3 | Shadow Agent Discovery + Tool-Call Enforcement | ⏳ Pending |
+| 4 | Compliance Mapping | ⏳ Pending |
 
-**Critical path:** Phase 1a (Agent Registry) is the root dependency — all subsequent phases depend on agents being identifiable principals.
+**Phase 1 is complete** — all 3 sub-phases (1a, 1b, 1c) delivered and tested.
+
+**Critical path:** Phase 2 (Pheromone-Based Routing) is now active.
 
 ---
 
@@ -99,10 +102,10 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 
 - [x] Phase 1: Research (complete)
 - [x] Phase 2: Architecture (complete)
-- [ ] Phase 3: Implementation (Phase 1a in progress)
-- [ ] Phase 4: Review
-- [ ] Phase 5: Testing
-- [ ] Phase 6: Documentation
+- [x] Phase 3: Implementation (Phase 1a/b/c — all complete)
+- [x] Phase 4: Review (all sub-phases approved by Critic)
+- [x] Phase 5: Testing (65 passing, 17 pre-existing failures)
+- [x] Phase 6: Documentation (Chronicler Step 6 complete)
 
 ---
 
