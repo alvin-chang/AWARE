@@ -1,4 +1,6 @@
 // src/election/ElectionManager.js
+// Phase 1.4: Kill Switch — integrated with StateMachine for unified log management
+
 const EventEmitter = require('events');
 
 class ElectionManager extends EventEmitter {
@@ -9,11 +11,6 @@ class ElectionManager extends EventEmitter {
     this.state = 'follower'; // 'follower', 'candidate', 'leader'
     this.currentTerm = 0;
     this.votedFor = null;
-    this.log = config.log || [];
-    this.commitIndex = 0;
-    this.lastApplied = 0;
-    this.nextIndex = {};
-    this.matchIndex = {};
     this.leaderId = null;
     this.timeout = null;
     this.electionTimeout = null;
@@ -22,15 +19,49 @@ class ElectionManager extends EventEmitter {
     this.heartbeatIntervalMs = config.heartbeatInterval || 100; // ms
     this.electionTimeoutRange = config.electionTimeoutRange || [300, 600]; // ms range
     
+    // StateMachine integration — ElectionManager delegates to StateMachine for log management
+    // Phase 1.4: This ensures revocation entries go through the same Raft log as command entries
+    this.stateMachine = config.stateMachine || null;
+    
     // Initialize nextIndex and matchIndex for each node
-    this.nodes.forEach(nodeId => {
-      if (nodeId !== this.nodeId) {
-        this.nextIndex[nodeId] = this.log.length;
-        this.matchIndex[nodeId] = 0;
-      }
-    });
+    if (this.stateMachine) {
+      this.nextIndex = {};
+      this.matchIndex = {};
+      this.nodes.forEach(nodeId => {
+        if (nodeId !== this.nodeId) {
+          this.nextIndex[nodeId] = this.stateMachine.log.length;
+          this.matchIndex[nodeId] = 0;
+        }
+      });
+    }
     
     this.startElectionTimer();
+  }
+
+  // Get the shared log from StateMachine (Phase 1.4 integration)
+  get log() {
+    return this.stateMachine ? this.stateMachine.log : [];
+  }
+
+  // Get commitIndex from StateMachine
+  get commitIndex() {
+    return this.stateMachine ? this.stateMachine.commitIndex : 0;
+  }
+
+  // Get lastApplied from StateMachine
+  get lastApplied() {
+    return this.stateMachine ? this.stateMachine.lastApplied : 0;
+  }
+
+  // Get current term from StateMachine
+  get currentTerm() {
+    return this.stateMachine ? this.stateMachine.term : 0;
+  }
+
+  set currentTerm(term) {
+    if (this.stateMachine) {
+      this.stateMachine.term = term;
+    }
   }
 
   // Start the election timer (randomized timeout to prevent conflicts)
