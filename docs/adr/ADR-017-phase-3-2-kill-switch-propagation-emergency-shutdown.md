@@ -1,6 +1,7 @@
 # ADR-017: Phase 3.2 — Kill Switch Propagation & Emergency Shutdown
 
-**Status:** DRAFT  
+**Status:** REVISIONS NEEDED (Critic, 2026-04-01 22:36 BST)
+**Critic review:** REVISIONS NEEDED — 2 blocking findings (F-1, F-2)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.4 (Kill Switch); Scout Audit findings (C-01, C-02, C-03); ADR-013 (Identity); ADR-014 (Behavioural); ADR-015 (Tool Control)  
