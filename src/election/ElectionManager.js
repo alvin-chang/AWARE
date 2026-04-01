@@ -257,10 +257,26 @@ class ElectionManager extends EventEmitter {
     if (this.state !== 'leader') {
       throw new Error('Only leader can propose revocations');
     }
-    
+
     console.log(`[RAFT] Broadcasting revocation entry ${logEntry.id} via heartbeat`);
-    
+
     // Send heartbeat with the revocation entry to all followers
+    this.nodes.forEach(targetNodeId => {
+      if (targetNodeId !== this.nodeId) {
+        this.sendHeartbeatToNode(targetNodeId, [logEntry]);
+      }
+    });
+  }
+
+  // Propose a kill signal entry to be broadcast via heartbeat (Phase 3.2)
+  proposeKillSignal(logEntry) {
+    if (this.state !== 'leader') {
+      throw new Error('Only leader can propose kill signals');
+    }
+
+    console.log(`[RAFT] Broadcasting kill signal entry ${logEntry.killSignalId} via heartbeat`);
+
+    // Send heartbeat with the kill signal entry to all followers
     this.nodes.forEach(targetNodeId => {
       if (targetNodeId !== this.nodeId) {
         this.sendHeartbeatToNode(targetNodeId, [logEntry]);

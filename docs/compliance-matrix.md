@@ -168,7 +168,7 @@ Controls are marked:
 - Unit: `test/routing/heuristic-calculator.test.js`
 - Integration: `test/routing/security-heuristic.test.js`
 
-**Status:** ✅ APPROVED + IMPLEMENTED — ADR-010 Phase 2.2 complete (2026-04-01, 9/9 tests PASS, commit 9ce5e11)
+**Status:** ✅ APPROVED + IMPLEMENTED — ADR-010 Phase 2.2 (commit 39bc2be, 2026-04-01, 9/9 tests PASS)
 
 ---
 
@@ -245,7 +245,7 @@ Controls are marked:
 **Test References:**
 - Integration: 27/27 PASS (commit 706f5b5)
 
-**Status:** ✅ APPROVED + IMPLEMENTED (ADR-013, 2026-04-01, commit b61fda3)
+**Status:** ✅ APPROVED + IMPLEMENTED — ADR-013 Phase 3.1A (commit b61fda3, 2026-04-01, 27/27 tests PASS)
 
 ---
 
