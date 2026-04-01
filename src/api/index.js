@@ -11,8 +11,13 @@ const resourcesRouter = require('./routes/resources');
 const agentsRouter = require('./routes/agents');
 const policiesRouter = require('./routes/policies');
 const metricsRouter = require('./routes/metrics');
+const killSwitchRouter = require('./kill-switch/api/kill-switch-routes');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
+
+// Phase 1.4: Import kill-switch components
+const killSwitchRouter = require('../kill-switch/api/kill-switch-routes');
+const { RevocationService } = require('../kill-switch');
 
 class APIGateway {
   constructor(config = {}) {
@@ -26,13 +31,13 @@ class APIGateway {
     this.nodeDiscovery = config.nodeDiscovery;
     this.electionManager = config.electionManager;
     this.server = null;
-    
+
     // Initialize cluster service
     this.clusterService = new ClusterService({
       nodeDiscovery: this.nodeDiscovery,
       electionManager: this.electionManager
     });
-    
+
     // H-01 FIX: Enforce HTTPS in production
     if (process.env.NODE_ENV === 'production') {
       this.app.use((req, res, next) => {
@@ -42,7 +47,7 @@ class APIGateway {
         next();
       });
     }
-    
+
     // Security middleware
     this.app.use(helmet({  // Security headers
       contentSecurityPolicy: {
@@ -59,7 +64,7 @@ class APIGateway {
         preload: true
       }
     }));
-    
+
     // Rate limiting for all requests
     const generalLimiter = rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
@@ -69,32 +74,32 @@ class APIGateway {
       legacyHeaders: false,
     });
     this.app.use(generalLimiter);
-    
+
     // CORS middleware
     this.app.use(cors({
       origin: process.env.ALLOWED_ORIGINS?.split(',') || [process.env.FRONTEND_URL || 'http://localhost:3001'],
       credentials: true,
       optionsSuccessStatus: 200
     }));
-    
+
     // Body parsing middleware
-    this.app.use(express.json({ 
+    this.app.use(express.json({
       limit: '10mb'  // Limit request size
     }));
-    this.app.use(express.urlencoded({ 
+    this.app.use(express.urlencoded({
       extended: true,
       limit: '10mb'  // Limit request size
     }));
-    
+
     // Make services available to routes
     this.app.set('nodeDiscovery', this.nodeDiscovery);
     this.app.set('electionManager', this.electionManager);
     this.app.set('clusterService', this.clusterService);
-    
+
     // Public routes (no authentication required)
     this.app.use('/health', (req, res) => {
-      res.status(200).json({ 
-        status: 'healthy', 
+      res.status(200).json({
+        status: 'healthy',
         timestamp: new Date().toISOString(),
         version: '1.0.0'
       });
@@ -103,26 +108,26 @@ class APIGateway {
     // Login route with rate limiting
     this.app.post('/login', authLimiter, (req, res) => {
       const { username, password } = req.body;
-      
+
       // Import User model locally to avoid circular dependencies
       const User = require('./models/User');
-      
+
       // Validate user credentials against the user database
       const user = User.validateCredentials(username, password);
-      
+
       if (user) {
         const token = jwt.sign(
-          { 
+          {
             userId: user.id,
-            username: user.username, 
+            username: user.username,
             permissions: user.role === 'admin' ? ['read', 'write', 'admin'] : ['read', 'write'],
             role: user.role
-          }, 
-          this.secretKey, 
+          },
+          this.secretKey,
           { expiresIn: process.env.TOKEN_EXPIRY || '24h' }
         );
-        
-        res.json({ 
+
+        res.json({
           token,
           user: {
             id: user.id,
@@ -133,8 +138,8 @@ class APIGateway {
         });
       } else {
         // Invalid credentials
-        res.status(401).json({ 
-          error: 'Invalid username or password' 
+        res.status(401).json({
+          error: 'Invalid username or password'
         });
       }
     });
@@ -142,42 +147,42 @@ class APIGateway {
     // User registration route with rate limiting
     this.app.post('/register', authLimiter, (req, res) => {
       const { username, email, password, role } = req.body;
-      
+
       // Import User model locally to avoid circular dependencies
       const User = require('./models/User');
-      
+
       // Validate input
       if (!username || !email || !password) {
-        return res.status(400).json({ 
-          error: 'Username, email, and password are required' 
+        return res.status(400).json({
+          error: 'Username, email, and password are required'
         });
       }
-      
+
       // Check if user already exists
       const existingUser = User.findByUsername(username);
       if (existingUser) {
-        return res.status(409).json({ 
-          error: 'Username already exists' 
+        return res.status(409).json({
+          error: 'Username already exists'
         });
       }
-      
+
       try {
         // Create new user (default role is 'user')
         const newUser = User.create(username, email, password, role || 'user');
-        
+
         // Generate token for the new user
         const token = jwt.sign(
-          { 
+          {
             userId: newUser.id,
-            username: newUser.username, 
+            username: newUser.username,
             permissions: newUser.role === 'admin' ? ['read', 'write', 'admin'] : ['read', 'write'],
             role: newUser.role
-          }, 
-          this.secretKey, 
+          },
+          this.secretKey,
           { expiresIn: process.env.TOKEN_EXPIRY || '24h' }
         );
-        
-        res.status(201).json({ 
+
+        res.status(201).json({
           message: 'User registered successfully',
           token,
           user: {
@@ -189,15 +194,15 @@ class APIGateway {
         });
       } catch (error) {
         console.error('Error registering user:', error);
-        res.status(500).json({ 
-          error: 'Failed to register user' 
+        res.status(500).json({
+          error: 'Failed to register user'
         });
       }
     });
 
     // Protected routes (authentication required)
     this.app.use(authenticateToken);
-    
+
     // API routes
     this.app.use('/api/cluster', clusterRouter);
     this.app.use('/api/nodes', nodesRouter);
@@ -206,7 +211,8 @@ class APIGateway {
     this.app.use('/api/agents', agentsRouter);
     this.app.use('/api/policies', policiesRouter);
     this.app.use('/api/metrics', metricsRouter);
-    
+    this.app.use('/api/kill-switch', killSwitchRouter);
+
     // Catch-all for undefined routes
     this.app.use('*', (req, res) => {
       res.status(404).json({ error: 'Route not found' });
@@ -215,7 +221,7 @@ class APIGateway {
     // Error handling middleware
     this.app.use((err, req, res, next) => {
       console.error(err.stack);
-      
+
       // Don't expose stack traces in production
       if (process.env.NODE_ENV === 'production') {
         res.status(500).json({ error: 'Internal server error' });
