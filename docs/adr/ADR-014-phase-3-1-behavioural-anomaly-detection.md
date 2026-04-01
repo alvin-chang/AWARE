@@ -1,6 +1,6 @@
 # ADR-014: Phase 3.1 — Behavioural Anomaly Detection & Baseline
 
-**Status:** SUBMITTED — revisions addressed (Critor, 2026-04-01 18:39 BST)  
+**Status:** APPROVED (Critic, 2026-04-01 21:10 BST) ✅  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.3 (Behavioural Baseline); ADR-010 (Trust Score); ADR-013 (Identity Framework); Scout Audit findings  
