@@ -62,16 +62,20 @@ AWARE implements a layered architecture:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1a | Agent Registry + NHI Identity | ✅ Complete |
-| 1b | Policy Engine + Per-Agent Sandboxes | ✅ Complete |
-| 1c | Behavioural Baseline & Anomaly Detection | ✅ Complete |
-| 2 | Pheromone-Based Routing | 🔄 In Progress |
-| 3 | Shadow Agent Discovery + Tool-Call Enforcement | ⏳ Pending |
-| 4 | Compliance Mapping | ⏳ Pending |
+| 1.1 | Agent Identity Layer | ✅ Complete |
+| 1.2 | Per-Agent Sandbox Policies | ✅ Complete |
+| 1.3 | Behavioural Baseline | ✅ Complete |
+| 1.4 | Kill Switch (Raft Consensus) | ✅ Complete |
+| 2.1 | Pheromone Specialists | 🔄 In Progress |
+| 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
+| 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
+| 3.1B | Behavioural Anomaly Detection | ⚠️ REVISIONS NEEDED (ADR-014) |
+| 3.1C | Tool Access Control | ⏳ Pending (ADR-015) |
+| 3.2 | Compliance Mapping + Kill Switch Propagation | ⏳ Pending (ADR-016, ADR-017) |
 
-**Phase 1 is complete** — all 3 sub-phases (1a, 1b, 1c) delivered and tested.
+**Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
 
-**Critical path:** Phase 2 (Pheromone-Based Routing) is now active.
+**Critical path:** Phase 2.1 (Pheromone Specialists) is active.
 
 ---
 
@@ -100,12 +104,11 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 
 ## Status
 
-- [x] Phase 1: Research (complete)
-- [x] Phase 2: Architecture (complete)
-- [x] Phase 3: Implementation (Phase 1a/b/c — all complete)
-- [x] Phase 4: Review (all sub-phases approved by Critic)
-- [x] Phase 5: Testing (65 passing, 17 pre-existing failures)
-- [x] Phase 6: Documentation (Chronicler Step 6 complete)
+- [x] Phase 1: Complete (1.1–1.4 all delivered and tested)
+- [x] Phase 2.2: APPROVED (ADR-010, security-weighted heuristic)
+- [x] Phase 3.1A: APPROVED (ADR-013, agent identity framework)
+- [ ] Phase 3.1B: REVISIONS NEEDED (ADR-014, Archimedes fixing)
+- [ ] ADR-015, ADR-016, ADR-017: Pending submission
 
 ---
 
