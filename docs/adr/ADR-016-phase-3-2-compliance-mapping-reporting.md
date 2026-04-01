@@ -1,6 +1,6 @@
 # ADR-016: Phase 3.2 — Compliance Mapping & Reporting
 
-**Status:** SUBMITTED  
+**Status:** REVISIONS NEEDED (Critic, 2026-04-01 21:30 BST) — 2 findings: F-1 HIGH report access control unspecified, F-2 MEDIUM control weights unspecified  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-009 through ADR-015; CSA AI Control Matrix; NIST AI RMF; ISO 27001; DORA  
