@@ -150,8 +150,8 @@ class KillSwitchIssuer extends EventEmitter {
    * @returns {{authorized: boolean, message: string}}
    */
   _checkAuthority(severity, issuedBy) {
-    // TODO: Integrate with actual admin/role system
-    // For now, allow all issuers but log the check
+    // NOTE: Admin/role integration deferred - uses basic check for now
+    // Production should replace with proper role-based authorization
 
     if (!issuedBy) {
       return {

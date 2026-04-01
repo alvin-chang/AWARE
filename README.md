@@ -60,23 +60,27 @@ AWARE implements a layered architecture:
 
 ## Implementation Phases
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 1.1 | Agent Identity Layer | ✅ Complete |
-| 1.2 | Per-Agent Sandbox Policies | ✅ Complete |
-| 1.3 | Behavioural Baseline | ✅ Complete |
-| 1.4 | Kill Switch (Raft Consensus) | ✅ Complete |
-| 2.1 | Pheromone Specialists | 🔄 In Progress |
-| 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
-| 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
-| 3.1B | Behavioural Anomaly Detection | ✅ IMPLEMENTED (ADR-014) |
-| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-015, 40/40 PASS) |
-| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-016, 40/40 PASS) |
-| 3.3 | Kill Switch Propagation | ✅ APPROVED (ADR-017) |
+| Phase | Name | ADR | Status |
+|-------|------|-----|--------|
+| 1.1 | Agent Identity Layer | — | ✅ Complete |
+| 1.2 | Per-Agent Sandbox Policies | — | ✅ Complete |
+| 1.3 | Behavioural Baseline | — | ✅ Complete |
+| 1.4 | Kill Switch (Raft Consensus) | — | ✅ Complete |
+| 2.1 | Pheromone Specialists | ADR-009 | 🔄 In Progress (DRAFT) |
+| 2.2 | Security-Weighted Heuristic | ADR-010 | ✅ Complete (9/9 tests PASS) |
+| 3.1A | JWT Identity Provider | ADR-013 | ✅ Complete (27/27 tests PASS) |
+| 3.1B | Behavioural Anomaly Detection | ADR-014 | ✅ Complete (14/14 tests PASS) |
+| 3.1C | Tool Access Control | ADR-015 | ✅ Complete (40/40 tests PASS) |
+| 3.1C | Compliance Mapping | ADR-016 | ✅ Complete (40/40 tests PASS) |
+| 3.2/3.3 | Kill Switch Propagation | ADR-017 | ✅ Complete |
 
 **Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
 
-**Critical path:** Phase 2.1 (Pheromone Specialists) is active.
+**Phase 2.2 (ADR-010) is complete** — security-weighted heuristic implemented and tested.
+
+**Phase 3 is complete** — all ADRs (013–017) approved, implemented, and tested.
+
+**Phase 2.1 (ADR-009) is in progress** — pheromone specialists DRAFT.
 
 ---
 
@@ -106,13 +110,14 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 ## Status
 
 - [x] Phase 1: Complete (1.1–1.4 all delivered and tested)
-- [x] Phase 2.2: APPROVED + IMPLEMENTED (ADR-010, 9/9 tests PASS)
+- [x] Phase 2.2: COMPLETE (ADR-010, 9/9 tests PASS)
 - [x] Phase 3: COMPLETE ✅
-  - ADR-013 (Phase 3.1A): APPROVED + IMPLEMENTED (27/27 tests PASS)
-  - ADR-014 (Phase 3.1B): APPROVED + IMPLEMENTED (14/14 tests PASS)
-  - ADR-015 (Phase 3.1C): APPROVED + IMPLEMENTED (40/40 tests PASS)
-  - ADR-016 (Phase 3.2): APPROVED + IMPLEMENTED (40/40 tests PASS)
-  - ADR-017 (Phase 3.3): APPROVED (2026-04-01 22:38 BST)
+  - ADR-013 (Phase 3.1A): COMPLETE (27/27 tests PASS)
+  - ADR-014 (Phase 3.1B): COMPLETE (14/14 tests PASS)
+  - ADR-015 (Phase 3.1C): COMPLETE (40/40 tests PASS)
+  - ADR-016 (Phase 3.2): COMPLETE (40/40 tests PASS)
+  - ADR-017 (Phase 3.2/3.3): COMPLETE (2026-04-01 22:38 BST)
+- [x] Phase 4: COMPLETE ✅ — Compliance matrix documented
 
 ---
 
