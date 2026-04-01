@@ -14,25 +14,25 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       const mapper = new FrameworkMapper();
       const mapping = mapper.getComponentMapping('identity-provider');
 
-      expect(mapping)not.toBeNull();
-      expect(mapping.CSA_AI_CM)toContain('AI.ID-01');
-      expect(mapping.CSA_AI_CM)toContain('AI.ID-02');
+      expect(mapping).not.toBeNull();
+      expect(mapping.CSA_AI_CM).toContain('AI.ID-01');
+      expect(mapping.CSA_AI_CM).toContain('AI.ID-02');
     });
 
     it('F-2: maps components to NIST AI RMF controls', () => {
       const mapper = new FrameworkMapper();
       const mapping = mapper.getComponentMapping('identity-provider');
 
-      expect(mapping.NIST_AI_RMF)toContain('PR.AC');
-      expect(mapping.NIST_AI_RMF)toContain('PR.AA');
+      expect(mapping.NIST_AI_RMF).toContain('PR.AC');
+      expect(mapping.NIST_AI_RMF).toContain('PR.AA');
     });
 
     it('T1: generates compliance matrix', () => {
       const mapper = new FrameworkMapper();
       const matrix = mapper.generateComplianceMatrix();
 
-      expect(matrix['identity-provider'])not.toBeUndefined();
-      expect(matrix['identity-provider'].CSA_AI_CM)not.toBeUndefined();
+      expect(matrix['identity-provider']).not.toBeUndefined();
+      expect(matrix['identity-provider'].CSA_AI_CM).not.toBeUndefined();
       expect(matrix['identity-provider'].CSA_AI_CM.frameworkName).toBe('CSA AI Control Matrix');
     });
 
@@ -40,7 +40,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       const mapper = new FrameworkMapper();
       const controls = mapper.getFrameworkControls('CSA_AI_CM');
 
-      expect(controls.length)toBeGreaterThan(0);
+      expect(controls.length).toBeGreaterThan(0);
     });
 
     it('T3: componentCoversControl returns true for mapped control', () => {
@@ -63,7 +63,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       const evidence = await collector.collectEvidence('AI.ID-01');
 
       expect(evidence.status).toBe('COLLECTED');
-      expect(evidence.data)not.toBeUndefined();
+      expect(evidence.data).not.toBeUndefined();
     });
 
     it('F-2: returns failed status for unregistered controls', async () => {
@@ -79,7 +79,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       await collector.collectEvidence('AI.ID-01');
 
       const latest = collector.getLatestEvidence('AI.ID-01');
-      expect(latest)not.toBeNull();
+      expect(latest).not.toBeNull();
       expect(latest.controlId).toBe('AI.ID-01');
     });
 
@@ -111,7 +111,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       });
 
       const posture = calculator.calculateFrameworkPosture('CSA_AI_CM');
-      expect(posture.score)toBeGreaterThan(0);
+      expect(posture.score).toBeGreaterThan(0);
     });
 
     it('F-2: records compliance gaps', () => {
@@ -135,7 +135,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       });
 
       const overall = calculator.calculateOverallPosture();
-      expect(overall.overallScore)toBeGreaterThan(0);
+      expect(overall.overallScore).toBeGreaterThan(0);
     });
 
     it('T2: gap severity determines priority', () => {
@@ -170,8 +170,8 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
         title: 'Test Gap'
       });
 
-      expect(gapId)not.toBeUndefined();
-      expect(tracker.getGap(gapId))not.toBeNull();
+      expect(gapId).not.toBeUndefined();
+      expect(tracker.getGap(gapId)).not.toBeNull();
     });
 
     it('F-2: updates gap status', () => {
@@ -217,7 +217,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
 
       const gap = tracker.getGap(gapId);
       expect(gap.status).toBe(GapStatus.REMEDIATED);
-      expect(gap.remediatedAt)not.toBeNull();
+      expect(gap.remediatedAt).not.toBeNull();
     });
 
     it('T3: gets gap statistics', () => {
@@ -245,16 +245,16 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       const generator = new ReportGenerator();
       const report = generator.generateExecutiveSummary();
 
-      expect(report.reportId)not.toBeUndefined();
+      expect(report.reportId).not.toBeUndefined();
       expect(report.type).toBe(ReportType.EXECUTIVE_SUMMARY);
-      expect(report.summary)not.toBeUndefined();
+      expect(report.summary).not.toBeUndefined();
     });
 
     it('F-2: generates gap status report', () => {
       const generator = new ReportGenerator();
       const report = generator.generateGapStatusReport();
 
-      expect(report.reportId)not.toBeUndefined();
+      expect(report.reportId).not.toBeUndefined();
       expect(report.type).toBe(ReportType.GAP_STATUS);
     });
 
@@ -263,7 +263,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       const report = generator.generateExecutiveSummary();
 
       const retrieved = generator.getReport(report.reportId);
-      expect(retrieved)not.toBeNull();
+      expect(retrieved).not.toBeNull();
       expect(retrieved.reportId).toBe(report.reportId);
     });
 
@@ -273,7 +273,7 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
       generator.generateGapStatusReport();
 
       const reports = generator.listReports();
-      expect(reports.length)toBeGreaterThanOrEqual(2);
+      expect(reports.length).toBeGreaterThanOrEqual(2);
     });
   });
 
