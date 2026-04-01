@@ -3,7 +3,7 @@
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
 **Last Updated:** 2026-04-01 22:20 UTC
-**Status:** Phase 3.1 COMPLETE ✅ | ADR-017 DRAFT ⏳
+**Status:** Phase 3 COMPLETE ✅ | ADR-017 APPROVED ✅
 
 ---
 
@@ -41,11 +41,11 @@
 3. ✅ **ADR-014 (Phase 3.1B)** — APPROVED + IMPLEMENTED (14/14 tests PASS)
 4. ✅ **ADR-015 (Phase 3.1C)** — APPROVED + IMPLEMENTED (40/40 PASS)
 5. ✅ **ADR-016 (Phase 3.2)** — APPROVED + IMPLEMENTED (40/40 PASS)
-6. ⏳ **ADR-017 (Kill Switch Propagation)** — DRAFT (Archimedes)
+6. ✅ **ADR-017 (Kill Switch Propagation)** — APPROVED (Critor, 192db34, 2026-04-01 22:38 BST)
 3. ✅ **ADR-014 (Phase 3.1B)** — IMPLEMENTED (14/14 tests PASS)
 4. 🔄 **ADR-015** — SUBMITTED (awaiting Critic review)
 5. 🔄 **ADR-016** — SUBMITTED (awaiting Critic review)
-6. ⏳ **ADR-017** — PENDING
+6. ✅ **ADR-017** — APPROVED ✅
 
 ---
 
@@ -231,8 +231,9 @@ All sub-phases (1.1, 1.2, 1.3, 1.4) complete with full pipeline (Steps 1-6).
 **ADR-015:** Tool Access Control
 **ADR-016:** Compliance Mapping
 
-### Phase 3.2 (ADR-017) — Kill Switch Propagation ⏳
-**Status:** Research complete, ADR pending
+### Phase 3.2 (ADR-017) — Kill Switch Propagation ✅ APPROVED
+**Status:** ✅ APPROVED (Critic, 192db34, 2026-04-01 22:38 BST)
+**Findings fixed:** F-1 (etcd write verification), F-2 (override authority undefined)
 
 ---
 
