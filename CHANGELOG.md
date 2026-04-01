@@ -2,9 +2,19 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased] — ADR-014 Revisions Needed
+## [Unreleased] — All Phase 3 ADRs Approved ✅
 
 ## [1.2.0] — 2026-04-01 — ADR Approvals
+
+### ADR-014: Phase 3.1B — Behavioural Anomaly Detection ✅
+
+**Status:** APPROVED (Critic, 2026-04-01 21:10 BST)
+**Commit:** `06c983e`
+
+**Findings resolved:**
+- F-1: Penalty formula now INCREASES with anomaly (was decreasing/inverted)
+- F-2: stddev=0 guard prevents NaN in computeZScore()
+- F-3: classifySeverity() uses BOTH anomaly AND trust score
 
 ### ADR-013: Phase 3.1A — Agent Identity & Authentication Framework ✅
 
@@ -137,7 +147,7 @@ Original AWARE was a distributed systems platform using ant colony-inspired algo
 | 2.1 | Pheromone Specialists | 🔄 In Progress |
 | 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
 | 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
-| 3.1B | Behavioural Anomaly Detection | ⚠️ REVISIONS NEEDED (ADR-014) |
+| 3.1B | Behavioural Anomaly Detection | ✅ APPROVED (ADR-014) |
 | 3.1C | Tool Access Control | ⏳ Pending (ADR-015) |
 | 3.2 | Compliance Mapping | ⏳ Pending (ADR-016) |
 | 3.2 | Kill Switch Propagation | ⏳ Pending (ADR-017) |
