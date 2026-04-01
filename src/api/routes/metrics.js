@@ -4,10 +4,10 @@
 
 const express = require('express');
 const router = express.Router();
-const { getCollector, MetricType, Severity } = require('../monitoring/metrics-collector');
-const { getBaselineService } = require('../monitoring/baseline-service');
-const { getDetector } = require('../monitoring/anomaly-detector');
-const { FingerprintService, getFingerprintService } = require('../monitoring/fingerprint-service');
+const { getCollector, MetricType, Severity } = require('../../monitoring/metrics-collector');
+const { getBaselineService } = require('../../monitoring/baseline-service');
+const { getDetector } = require('../../monitoring/anomaly-detector');
+const { FingerprintService, getFingerprintService } = require('../../monitoring/fingerprint-service');
 
 // Initialize services
 const collector = getCollector();
