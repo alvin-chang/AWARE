@@ -138,46 +138,11 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 **Test Results:** 65 passing | 17 pre-existing failures (election module)
 **Commits:** `d679ec6`, `f7e7427`, `a3ceaec`, `e0c0fd2`, `653ba7a`, `8159cf7`, `1bc02ce`
 
-## Phase 1.4 — Kill Switch (Raft consensus) ✅
+## Phase 1.4 — Kill Switch (Raft consensus)
 
-**Status:** COMPLETE (2026-04-01)
-
-**Architecture (Scout's C-01/C-02/C-03 findings):**
-- **C-01:** Define RevocationEntry type for Raft log
-- **C-02:** Majority quorum consensus before revocation execution
-- **C-03:** Production Raft RPC (vote granting + stale leader detection)
-
-**Implemented Components:**
-| Component | File | Purpose |
-|-----------|------|---------|
-| RevocationEntry | `src/election/revocation-entry.js` | Distinct Raft log entry type (C-01) |
-| Revocation Service | `src/kill-switch/revocation-service.js` | Revocation orchestration via Raft consensus (C-02) |
-| ElectionManager | `src/election/ElectionManager.js` | C-03 fix — proper Raft RPC vote granting |
-| Kill Switch Routes | `src/kill-switch/api/kill-switch-routes.js` | DELETE /api/kill-switch/agents/:id |
-| Agent Registry | `src/agents/registry.js` | Extended with revoke(), isRevoked(), reinstate() |
-| State Machine | `src/election/state-machine.js` | Handles RevocationEntry and ReinstatementEntry |
-
-**Key Fix:**
-- **C-03:** Replaced `Math.random()` vote granting with proper Raft RPC per Raft paper
-- Proper term comparison, log up-to-date check, votedFor check
-
-**API Endpoint:** `DELETE /api/kill-switch/agents/:agentId` — Revoke agent via Raft consensus
-
-**Critor Review:** ✅ APPROVED (per Forge)
-**Test Results:** 10/10 kill-switch tests PASSED | 75 total passed, 17 pre-existing failures
-**Commits:** `a31cd35`, `d693dd8`, `9dc6f3e`, `f83c5cc`
-
-**Pipeline Status (Steps 1-6):**
-| Step | Agent | Deliverable | Status |
-|------|-------|-------------|--------|
-| 1 | Scout | Audit findings | ✅ COMPLETE |
-| 2 | Archimedes | Architecture map | ✅ COMPLETE |
-| 3 | Forge | Implementation | ✅ COMPLETE |
-| 4 | Critor | Review | ✅ APPROVED |
-| 5 | Quinn | Testing | ✅ COMPLETE — 10/10 kill-switch PASSED |
-| 6 | Chronicler | Documentation | ✅ COMPLETE — `c62719f` |
-
-**Phase 1.4: ✅ COMPLETE**
+| Sub-phase | Name | Status |
+|-----------|------|--------|
+| 1.4 | Kill Switch (Raft consensus) | 🔄 Step 1 (Scout) — STARTED 2026-04-01 |
 
 ## Phase 2: PHEROMONE-BASED AGENT ROUTING — STARTED
 
