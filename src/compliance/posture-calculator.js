@@ -75,11 +75,18 @@ class PostureCalculator {
   recordGap(gap) {
     const id = gap.id || `gap-${gap.controlId}-${Date.now()}`;
 
+    // Convert severity to priority number
+    const severityToPriority = (severity) => {
+      const priorities = { CRITICAL: 1, HIGH: 2, MEDIUM: 3, LOW: 4 };
+      return priorities[severity] ?? 5;
+    };
+
     this.gaps.set(id, {
       id,
       controlId: gap.controlId,
       frameworkId: gap.frameworkId,
       severity: gap.severity || GapSeverity.MEDIUM,
+      priority: severityToPriority(gap.severity || GapSeverity.MEDIUM),
       description: gap.description,
       remediation: gap.remediation || '',
       status: gap.status || 'OPEN',

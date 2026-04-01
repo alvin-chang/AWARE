@@ -56,7 +56,8 @@ class ShadowDetector extends EventEmitter {
       this.unregisteredCalls.set(agentId, {
         count: 0,
         firstSeen: timestamp,
-        tools: new Set()
+        tools: new Set(),
+        confirmedShadow: false
       });
     }
 
@@ -80,15 +81,15 @@ class ShadowDetector extends EventEmitter {
       this.alerts.set(alert.id, alert);
       this.emit('shadowAlert', alert);
 
-      // Reset counter after alert
-      agentData.count = 0;
-      agentData.tools.clear();
+      // Mark as confirmed shadow - don't reset until explicitly cleared
+      agentData.confirmedShadow = true;
     }
 
     return {
       recorded: true,
       agentCallCount: agentData.count,
-      threshold: this.shadowThreshold
+      threshold: this.shadowThreshold,
+      state: agentData.confirmedShadow ? ShadowState.CONFIRMED_SHADOW : null
     };
   }
 
@@ -213,6 +214,10 @@ class ShadowDetector extends EventEmitter {
    */
   getAgentShadowState(agentId) {
     const unregistered = this.unregisteredCalls.get(agentId);
+
+    if (unregistered && unregistered.confirmedShadow) {
+      return ShadowState.CONFIRMED_SHADOW;
+    }
 
     if (unregistered && unregistered.count >= this.shadowThreshold) {
       return ShadowState.CONFIRMED_SHADOW;
