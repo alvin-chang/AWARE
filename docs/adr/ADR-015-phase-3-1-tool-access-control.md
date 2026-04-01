@@ -1,6 +1,6 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** SUBMITTED — revisions addressed (F-1 parameter validation added, F-2 gateway-level shadow observation, F-3 pattern trust documented)  
+**Status:** APPROVED (Critic, 2026-04-01 22:05 BST) ✅  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
