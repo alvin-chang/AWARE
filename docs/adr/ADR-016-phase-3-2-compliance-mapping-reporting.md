@@ -1,6 +1,6 @@
 # ADR-016: Phase 3.2 — Compliance Mapping & Reporting
 
-**Status:** DRAFT  
+**Status:** SUBMITTED  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-009 through ADR-015; CSA AI Control Matrix; NIST AI RMF; ISO 27001; DORA  
