@@ -144,6 +144,30 @@ class StateMachine extends EventEmitter {
     return logEntry;
   }
 
+  // Add a kill signal entry to the log (Phase 3.2)
+  addKillSignalEntry(killSignalEntry) {
+    if (this.state !== 'leader') {
+      throw new Error('Only leaders can add kill signal entries');
+    }
+
+    const logEntry = killSignalEntry.toLogEntry(this.term, this.log.length);
+    this.log.push(logEntry);
+    console.log(`[STATE-MACHINE] Added kill signal entry: ${logEntry.killSignalId} severity=${logEntry.severity}`);
+    return logEntry;
+  }
+
+  // Add a cancel request entry to the log (Phase 3.2)
+  addCancelRequestEntry(cancelRequestEntry) {
+    if (this.state !== 'leader') {
+      throw new Error('Only leaders can add cancel request entries');
+    }
+
+    const logEntry = cancelRequestEntry.toLogEntry(this.term, this.log.length);
+    this.log.push(logEntry);
+    console.log(`[STATE-MACHINE] Added cancel request entry: ${logEntry.killSignalId}`);
+    return logEntry;
+  }
+
   // Get log entries from a specific index
   getLogEntries(fromIndex = 0) {
     return this.log.slice(fromIndex);
@@ -180,6 +204,7 @@ class StateMachine extends EventEmitter {
 
   // Apply a single entry to the state machine
   // C-01: Extended to handle RevocationEntry and ReinstatementEntry types
+  // Phase 3.2: Extended to handle KillSignalEntry and CancelRequestEntry
   applyEntry(entry) {
     // Handle revocation entries
     if (entry.type === EntryType.REVOCATION) {
@@ -188,14 +213,28 @@ class StateMachine extends EventEmitter {
       this.emit('applyRevocation', entry);
       return true;
     }
-    
+
     // Handle reinstatement entries
     if (entry.type === EntryType.REINSTATEMENT) {
       console.log(`[STATE-MACHINE] Applying REINSTATEMENT entry: ${entry.id} for agent ${entry.agentId}`);
       this.emit('applyReinstatement', entry);
       return true;
     }
-    
+
+    // Handle kill signal entries (Phase 3.2)
+    if (entry.type === 'KILL_SIGNAL') {
+      console.log(`[STATE-MACHINE] Applying KILL_SIGNAL entry: ${entry.killSignalId} severity=${entry.severity}`);
+      this.emit('applyKillSignal', entry);
+      return true;
+    }
+
+    // Handle cancel request entries (Phase 3.2)
+    if (entry.type === 'CANCEL_REQUEST') {
+      console.log(`[STATE-MACHINE] Applying CANCEL_REQUEST entry: ${entry.killSignalId}`);
+      this.emit('applyCancelRequest', entry);
+      return true;
+    }
+
     // Original command entry handling
     console.log(`Applying entry at index ${entry.index}:`, entry.command);
     return true;
