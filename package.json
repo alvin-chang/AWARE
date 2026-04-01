@@ -1,6 +1,6 @@
 {
   "name": "aware",
-  "version": "1.0.0",
+  "version": "1.0.0-phase4-complete",
   "description": "AWARE - Autonomous Warehouse Automated Resource Engine",
   "main": "src/index.js",
   "scripts": {
