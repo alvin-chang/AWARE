@@ -11,7 +11,6 @@ const resourcesRouter = require('./routes/resources');
 const agentsRouter = require('./routes/agents');
 const policiesRouter = require('./routes/policies');
 const metricsRouter = require('./routes/metrics');
-const killSwitchRouter = require('./kill-switch/api/kill-switch-routes');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
 
@@ -37,6 +36,16 @@ class APIGateway {
       nodeDiscovery: this.nodeDiscovery,
       electionManager: this.electionManager
     });
+    
+    // Phase 1.4: Initialize RevocationService
+    // Note: Full Raft infrastructure (ElectionManager, StateMachine) required for proper operation
+    // For now, initialize with undefined — routes will return 503 until properly wired
+    this.revocationService = new RevocationService({
+      electionManager: this.electionManager,
+      stateMachine: undefined,
+      registry: undefined
+    });
+    console.log('[KillSwitch] RevocationService initialized (pending Raft setup)');
 
     // H-01 FIX: Enforce HTTPS in production
     if (process.env.NODE_ENV === 'production') {
@@ -95,6 +104,7 @@ class APIGateway {
     this.app.set('nodeDiscovery', this.nodeDiscovery);
     this.app.set('electionManager', this.electionManager);
     this.app.set('clusterService', this.clusterService);
+    this.app.set('revocationService', this.revocationService);
 
     // Public routes (no authentication required)
     this.app.use('/health', (req, res) => {
@@ -211,6 +221,8 @@ class APIGateway {
     this.app.use('/api/agents', agentsRouter);
     this.app.use('/api/policies', policiesRouter);
     this.app.use('/api/metrics', metricsRouter);
+    
+    // Phase 1.4: Kill Switch routes
     this.app.use('/api/kill-switch', killSwitchRouter);
 
     // Catch-all for undefined routes
