@@ -45,6 +45,8 @@ Thumbs.db
 tmp/
 temp/
 temp.*
+*.tmp
+*.temp
 
 # Local development
 *.local
