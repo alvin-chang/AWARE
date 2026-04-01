@@ -62,14 +62,15 @@ AWARE implements a layered architecture:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1a | Agent Registry + NHI Identity | ✅ Complete |
-| 1b | Policy Engine + Per-Agent Sandboxes | ✅ Complete |
-| 1c | Behavioural Baseline & Anomaly Detection | ✅ Complete |
+| 1.1 | Agent Registry + NHI Identity | ✅ Complete |
+| 1.2 | Policy Engine + Per-Agent Sandboxes | ✅ Complete |
+| 1.3 | Behavioural Baseline & Anomaly Detection | ✅ Complete |
+| 1.4 | Kill Switch (Raft consensus) | ✅ Complete |
 | 2 | Pheromone-Based Routing | 🔄 In Progress |
 | 3 | Shadow Agent Discovery + Tool-Call Enforcement | ⏳ Pending |
 | 4 | Compliance Mapping | ⏳ Pending |
 
-**Phase 1 is complete** — all 3 sub-phases (1a, 1b, 1c) delivered and tested.
+**Phase 1 is complete** — all 4 sub-phases (1.1, 1.2, 1.3, 1.4) delivered and tested.
 
 **Critical path:** Phase 2 (Pheromone-Based Routing) is now active.
 
