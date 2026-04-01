@@ -19,8 +19,8 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 | 2 | Archimedes | Architecture map | ✅ COMPLETE |
 | 3 | Forge | Implementation | ✅ COMPLETE |
 | 4 | Critic | Review | ✅ APPROVED |
-| 5 | Quinn | Testing | ✅ COMPLETE |
-| 6 | Chronicler | Documentation | 🔄 IN PROGRESS |
+| 5 | Quinn | Testing | ✅ COMPLETE — 65 passing, 17 pre-existing failures |
+| 6 | Chronicler | Documentation | ✅ COMPLETE |
 
 **Phase 1: ✅ COMPLETE (2026-04-01)**
 
@@ -97,13 +97,47 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 
 ---
 
-## Phase 1 Scope (Remaining)
+## Phase 1 Scope (Complete)
 
 | Sub-phase | Name | Status |
 |-----------|------|--------|
 | 1.1 | Agent Identity Layer | ✅ COMPLETE |
 | 1.2 | Per-Agent Sandbox Policies | ✅ COMPLETE |
-| 1.3 | Behavioural Baseline & Anomaly Detection | 🔄 IN PROGRESS (Forge) |
+| 1.3 | Behavioural Baseline & Anomaly Detection | ✅ COMPLETE |
+
+## Phase 1.3 — Behavioural Baseline & Anomaly Detection ✅
+
+**Status:** COMPLETE (2026-04-01)
+
+**Implemented Components:**
+| Component | File | Purpose |
+|-----------|------|---------|
+| Metrics Collector | `src/monitoring/metrics-collector.js` | Aggregates agent metrics, singleton pattern |
+| Baseline Service | `src/monitoring/baseline-service.js` | Rolling 7-day window, z-score computation, statistics |
+| Anomaly Detector | `src/monitoring/anomaly-detector.js` | Z-score thresholds (4/3/2.5/2 stddev) |
+| Fingerprint Service | `src/monitoring/fingerprint-service.js` | Prompt injection detection (beyond spec) |
+| Metrics Store | `src/monitoring/store.js` | JSON persistence, atomic writes, cleanup policies |
+| Metrics Router | `src/api/routes/metrics.js` | 11 REST API endpoints |
+
+**Metric Types Tracked:**
+- `TOOL_CALL_FREQUENCY` — Tool usage per agent
+- `RESPONSE_LATENCY` — Response time distribution (p50, p75, p90, p95, p99)
+- `ERROR_RATE` — Error frequency per agent
+- `DECISION_FINGERPRINT` — Prompt injection detection (beyond Phase 1.3 spec)
+
+**Anomaly Detection:**
+- Z-score thresholds: CRITICAL (>4σ), HIGH (>3σ), MEDIUM (>2.5σ), LOW (>2σ)
+- 7-day rolling baseline window
+- 30-day metric retention, 90-day anomaly retention
+
+**Critor Review:** ✅ APPROVED (2026-04-01)
+**Test Results:** 65 passing | 17 pre-existing failures (election module)
+**Commits:** `d679ec6`, `f7e7427`, `a3ceaec`, `e0c0fd2`, `653ba7a`, `8159cf7`, `1bc02ce`
+
+## Phase 1.4 — Kill Switch (Raft consensus)
+
+| Sub-phase | Name | Status |
+|-----------|------|--------|
 | 1.4 | Kill Switch (Raft consensus) | ⏳ Pending |
 
 ## Phase 2: PHEROMONE-BASED AGENT ROUTING — STARTED
