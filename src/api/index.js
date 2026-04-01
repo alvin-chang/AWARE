@@ -204,6 +204,7 @@ class APIGateway {
     this.app.use('/api/resources', resourcesRouter);
     this.app.use('/api/agents', agentsRouter);
     this.app.use('/api/policies', policiesRouter);
+    this.app.use('/api/metrics', metricsRouter);
     
     // Catch-all for undefined routes
     this.app.use('*', (req, res) => {
@@ -245,4 +246,4 @@ class APIGateway {
   }
 }
 
-module.exports = APIGateway;
+module.exports = APIGateway;y;
