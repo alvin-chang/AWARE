@@ -160,7 +160,7 @@ class IdentityProviderV2 {
     
     return jwt.sign(payload, this.secretKey, {
       algorithm: 'HS256',
-      keyid: agent.id
+      keyid: String(agent.id)
     });
   }
 
