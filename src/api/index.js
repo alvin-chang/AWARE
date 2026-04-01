@@ -10,6 +10,7 @@ const alertsRouter = require('./routes/alerts');
 const resourcesRouter = require('./routes/resources');
 const agentsRouter = require('./routes/agents');
 const policiesRouter = require('./routes/policies');
+const metricsRouter = require('./routes/metrics');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
 
