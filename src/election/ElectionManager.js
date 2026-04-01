@@ -93,9 +93,10 @@ class ElectionManager extends EventEmitter {
     console.log(`Node ${this.nodeId} requesting votes for term ${this.currentTerm}`);
     
     // Request votes from all other nodes
+    const lastLogInfo = this.stateMachine.getLastLogInfo();
     const votePromises = this.nodes
       .filter(nodeId => nodeId !== this.nodeId)
-      .map(nodeId => this.requestVote(nodeId));
+      .map(nodeId => this.requestVote(nodeId, this.currentTerm, lastLogInfo.index, lastLogInfo.term));
     
     try {
       const results = await Promise.allSettled(votePromises);
@@ -127,54 +128,50 @@ class ElectionManager extends EventEmitter {
   }
 
   // Request vote from another node
-  // C-03: FIX — Replace Math.random() with proper Raft vote granting
-  // Based on Raft paper: grant vote if candidate's log is at least as up-to-date as voter's
-  async requestVote(nodeId) {
-    console.log(`[RAFT RPC] Sending RequestVote to ${nodeId}, term ${this.currentTerm}`);
-    
-    const lastLogInfo = this.stateMachine.getLastLogInfo();
+  // C-03: FIX — Proper Raft vote granting based on Raft paper
+  // Grant vote if: candidateTerm >= currentTerm AND log is up-to-date AND haven't voted else this term
+  async requestVote(candidateId, candidateTerm, candidateLastLogIndex, candidateLastLogTerm) {
+    console.log(`[RAFT RPC] RequestVote: candidate=${candidateId} term=${candidateTerm} logIndex=${candidateLastLogIndex}/${candidateLastLogTerm}`);
     
     return new Promise((resolve) => {
       // Simulate network RPC call
       setTimeout(() => {
         // C-03 FIX: Proper Raft vote granting logic
-        // Grant vote if:
-        // 1. Candidate's term >= voter's current term
-        // 2. Voter hasn't voted for another candidate this term
-        // 3. Candidate's log is at least as up-to-date as voter's
-        
-        if (this.currentTerm < this.currentTerm) {
-          // Voter has newer term — don't vote
-          console.log(`[RAFT RPC] ${nodeId} denied vote: stale term`);
+        // 1. Reply false if candidateTerm < currentTerm
+        if (candidateTerm < this.currentTerm) {
+          console.log(`[RAFT RPC] Denied vote to ${candidateId}: stale candidate term ${candidateTerm} < currentTerm ${this.currentTerm}`);
           resolve({ granted: false, term: this.currentTerm });
           return;
         }
         
-        if (this.votedFor && this.votedFor !== this.nodeId) {
-          // Already voted for someone else this term
-          console.log(`[RAFT RPC] ${nodeId} denied vote: already voted for ${this.votedFor}`);
+        // 2. If candidateTerm > currentTerm, update term and step down
+        if (candidateTerm > this.currentTerm) {
+          this.currentTerm = candidateTerm;
+          this.state = 'follower';
+          this.votedFor = null;
+          console.log(`[RAFT RPC] ${candidateId} has higher term ${candidateTerm}, stepping down`);
+        }
+        
+        // 3. If votedFor is null or candidateId, and log is up-to-date, grant vote
+        const lastLogInfo = this.stateMachine.getLastLogInfo();
+        const logOk = (candidateLastLogTerm > lastLogInfo.term) ||
+                       (candidateLastLogTerm === lastLogInfo.term && candidateLastLogIndex >= lastLogInfo.index);
+        
+        if (this.votedFor && this.votedFor !== candidateId) {
+          console.log(`[RAFT RPC] Denied vote to ${candidateId}: already voted for ${this.votedFor}`);
           resolve({ granted: false, term: this.currentTerm });
           return;
         }
-        
-        // Check if candidate's log is at least as up-to-date as voter's
-        // lastLogInfo.index >= candidate's lastLogIndex means voter is at least as up-to-date
-        const voterLastLogTerm = lastLogInfo.term;
-        const voterLastLogIndex = lastLogInfo.index;
-        
-        // Candidate should provide their last log index and term
-        // For now, assume candidate's log is compatible if we're granting the vote
-        const logOk = true; // In real impl, candidate would provide this
         
         if (!logOk) {
-          console.log(`[RAFT RPC] ${nodeId} denied vote: candidate log not up-to-date`);
+          console.log(`[RAFT RPC] Denied vote to ${candidateId}: candidate log not up-to-date`);
           resolve({ granted: false, term: this.currentTerm });
           return;
         }
         
         // Grant the vote
-        this.votedFor = nodeId;
-        console.log(`[RAFT RPC] ${nodeId} GRANTED vote for term ${this.currentTerm}`);
+        this.votedFor = candidateId;
+        console.log(`[RAFT RPC] GRANTED vote to ${candidateId} for term ${this.currentTerm}`);
         
         // Reset election timer
         this.startElectionTimer();
