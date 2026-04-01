@@ -2,36 +2,36 @@
 
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
-**Last Updated:** 2026-04-01 20:07 UTC
-**Status:** Phase 3.1A COMPLETE ✅ | ADR-014 BLOCKED ⚠️
+**Last Updated:** 2026-04-01 21:24 UTC
+**Status:** ADR-014 IMPLEMENTED ✅ | ADR-015/016 SUBMITTED 🔄
 
 ---
 
-## 🚨 FINAL PUSH STATUS (2026-04-01 20:07 UTC)
+## 🚨 FINAL PUSH STATUS (2026-04-01 21:24 UTC)
 
-### ✅ Phase 3.1A (ADR-013) — COMPLETE
+### ✅ ADR-014 (Phase 3.1B) — IMPLEMENTED
 
-**Status:** ✅ APPROVED by Critic (commit b61fda3, 2026-04-01 14:00 BST)
-**Testing:** 27/27 tests passing (identity-v2.test.js) ✅
-**Documentation:** CHANGELOG.md updated ✅
+**Status:** ✅ APPROVED (Critic, 06c983e, 2026-04-01 21:10 BST)
+**Implementation:** ✅ IMPLEMENTED (Forge, 85b04a1, 2026-04-01 21:24 BST)
+**Testing:** 14/14 tests PASS ✅
 
-### ✅ Phase 2.2 (ADR-010) — APPROVED
+### ✅ ADR-015 (Tool Access Control) — SUBMITTED
 
-**Status:** ✅ APPROVED by Critic (commit 39bc2be, 2026-04-01 20:39 BST)
-**Findings resolved:** F-2, F-5, F-6
+**Status:** 🔄 SUBMITTED for Critic review (38f174a, 2026-04-01 21:22 BST)
 
-### ⚠️ ADR-014 (Phase 3.1B) — REVISIONS NEEDED
+### ✅ ADR-016 (Compliance Mapping) — SUBMITTED
 
-**Status:** ⚠️ REVISIONS NEEDED (Critic, commit 121a7e0, 18:39 BST)
-**Findings:** 3 CRITICAL — Archimedes needs to fix and resubmit
+**Status:** 🔄 SUBMITTED for Critic review (38f174a, 2026-04-01 21:22 BST)
 
 ---
 
 **Priority pipeline:**
-1. ✅ **Phase 3.1A (ADR-013)** — COMPLETE
-2. ✅ **Phase 2.2 (ADR-010)** — APPROVED
-3. ⚠️ **ADR-014** — BLOCKED on Archimedes (3 CRITICAL findings)
-4. ⏳ **ADR-015, ADR-016, ADR-017** — Pending submission
+1. ✅ **ADR-010 (Phase 2.2)** — APPROVED
+2. ✅ **ADR-013 (Phase 3.1A)** — COMPLETE
+3. ✅ **ADR-014 (Phase 3.1B)** — IMPLEMENTED (14/14 tests PASS)
+4. 🔄 **ADR-015** — SUBMITTED (awaiting Critic review)
+5. 🔄 **ADR-016** — SUBMITTED (awaiting Critic review)
+6. ⏳ **ADR-017** — PENDING
 
 ---
 
