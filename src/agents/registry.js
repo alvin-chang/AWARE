@@ -126,7 +126,8 @@ class AgentRegistry {
   }
 
   // Revoke agent (kill switch)
-  revoke(agentId, reason = 'manual') {
+  // Extended to support Raft consensus options (Phase 1.4 C-02)
+  revoke(agentId, reason = 'manual', options = {}) {
     const agent = Agent.findByAgentId(agentId);
     if (!agent) {
       audit('AGENT_REVOKED', 'system', agentId, 'FAILURE', { error: 'Agent not found' });
@@ -135,10 +136,62 @@ class AgentRegistry {
     
     try {
       const revoked = Agent.revoke(agent.id, reason);
-      audit('AGENT_REVOKED', 'system', agent.agentId, 'SUCCESS', { reason });
+      
+      // Store revocation metadata if provided
+      if (options.revocationId) {
+        revoked.revocationId = options.revocationId;
+        Agent.saveAgent(revoked);
+      }
+      
+      // Extended audit with Raft metadata
+      audit('AGENT_REVOKED', options.issuedBy || 'system', agent.agentId, 'SUCCESS', { 
+        reason,
+        revocationId: options.revocationId,
+        source: options.source || 'direct'
+      });
       return { success: true, agent: revoked };
     } catch (error) {
-      audit('AGENT_REVOKED', 'system', agent.agentId, 'FAILURE', { error: error.message });
+      audit('AGENT_REVOKED', options.issuedBy || 'system', agent.agentId, 'FAILURE', { error: error.message });
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Check if agent is revoked (Phase 1.4)
+  isRevoked(agentId) {
+    const agent = Agent.findByAgentId(agentId);
+    if (!agent) return false;
+    return agent.state === AgentState.REVOKED;
+  }
+
+  // Get revocation ID for an agent (Phase 1.4)
+  getRevocationId(agentId) {
+    const agent = Agent.findByAgentId(agentId);
+    if (!agent) return null;
+    return agent.revocationId || null;
+  }
+
+  // Reinstate a revoked agent (Phase 1.4 M-03)
+  reinstate(agentId, options = {}) {
+    const agent = Agent.findByAgentId(agentId);
+    if (!agent) {
+      audit('AGENT_REINSTATED', options.issuedBy || 'system', agentId, 'FAILURE', { error: 'Agent not found' });
+      return { success: false, error: 'Agent not found' };
+    }
+    
+    if (agent.state !== AgentState.REVOKED) {
+      return { success: false, error: 'Agent is not revoked' };
+    }
+    
+    try {
+      agent.transitionTo(AgentState.ACTIVE);
+      delete agent.revocationId;
+      Agent.saveAgent(agent);
+      audit('AGENT_REINSTATED', options.issuedBy || 'system', agent.agentId, 'SUCCESS', {
+        originalRevocationId: options.originalRevocationId
+      });
+      return { success: true, agent };
+    } catch (error) {
+      audit('AGENT_REINSTATED', options.issuedBy || 'system', agent.agentId, 'FAILURE', { error: error.message });
       return { success: false, error: error.message };
     }
   }

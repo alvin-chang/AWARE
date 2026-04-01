@@ -1,6 +1,13 @@
 // src/election/state-machine.js
-class StateMachine {
-  constructor() {
+// Phase 1.4: Kill Switch — extended with revocation entry types
+
+const EventEmitter = require('events');
+const { EntryType } = require('./revocation-entry');
+
+class StateMachine extends EventEmitter {
+  constructor(nodeId = 'node-1') {
+    super();
+    this.nodeId = nodeId;
     this.state = 'follower';
     this.term = 0;
     this.votedFor = null;
@@ -113,6 +120,30 @@ class StateMachine {
     return logEntry;
   }
 
+  // Add a revocation entry to the log (C-01: new entry type)
+  addRevocationEntry(revocationEntry) {
+    if (this.state !== 'leader') {
+      throw new Error('Only leaders can add revocation entries');
+    }
+
+    const logEntry = revocationEntry.toLogEntry(this.term, this.log.length);
+    this.log.push(logEntry);
+    console.log(`[STATE-MACHINE] Added revocation entry: ${logEntry.id} for agent ${logEntry.agentId}`);
+    return logEntry;
+  }
+
+  // Add a reinstatement entry to the log (M-03: rollback mechanism)
+  addReinstatementEntry(reinstatementEntry) {
+    if (this.state !== 'leader') {
+      throw new Error('Only leaders can add reinstatement entries');
+    }
+
+    const logEntry = reinstatementEntry.toLogEntry(this.term, this.log.length);
+    this.log.push(logEntry);
+    console.log(`[STATE-MACHINE] Added reinstatement entry: ${logEntry.id} for agent ${logEntry.agentId}`);
+    return logEntry;
+  }
+
   // Get log entries from a specific index
   getLogEntries(fromIndex = 0) {
     return this.log.slice(fromIndex);
@@ -148,16 +179,31 @@ class StateMachine {
   }
 
   // Apply a single entry to the state machine
+  // C-01: Extended to handle RevocationEntry and ReinstatementEntry types
   applyEntry(entry) {
-    // In a real implementation, this would apply the command to the actual state machine
-    // For example, updating cluster configuration, node status, etc.
+    // Handle revocation entries
+    if (entry.type === EntryType.REVOCATION) {
+      console.log(`[STATE-MACHINE] Applying REVOCATION entry: ${entry.id} for agent ${entry.agentId}`);
+      // Emit event for listeners to handle actual revocation
+      this.emit('applyRevocation', entry);
+      return true;
+    }
+    
+    // Handle reinstatement entries
+    if (entry.type === EntryType.REINSTATEMENT) {
+      console.log(`[STATE-MACHINE] Applying REINSTATEMENT entry: ${entry.id} for agent ${entry.agentId}`);
+      this.emit('applyReinstatement', entry);
+      return true;
+    }
+    
+    // Original command entry handling
     console.log(`Applying entry at index ${entry.index}:`, entry.command);
     return true;
   }
 
-  // Get the current node ID (to be implemented by extending classes)
+  // Get the current node ID
   getNodeId() {
-    throw new Error('getNodeId must be implemented by extending class');
+    return this.nodeId;
   }
 }
 
