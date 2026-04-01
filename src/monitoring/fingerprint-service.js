@@ -202,13 +202,28 @@ class FingerprintService {
       novelOutputs: novelOutputs.length,
       diversityScore: Math.round(diversityScore * 1000) / 1000,
       isSuspicious: repeats.length > recentOutputs.length * 0.5 || diversityScore < 0.3,
-      alertLevel: repeats.length > recentOutputs.length * 0.7 ? 'HIGH' : 
-                  repeats.length > recentOutputs.length * 0.5 ? 'MEDIUM' : 
+      alertLevel: repeats.length > recentOutputs.length * 0.7 ? 'HIGH' :
+                  repeats.length > recentOutputs.length * 0.5 ? 'MEDIUM' :
                   'LOW',
       timestamp: new Date().toISOString()
     };
   }
 }
+
+// Singleton
+let fingerprintServiceInstance = null;
+
+function getFingerprintService() {
+  if (!fingerprintServiceInstance) {
+    fingerprintServiceInstance = new FingerprintService();
+  }
+  return fingerprintServiceInstance;
+}
+
+module.exports = {
+  FingerprintService,
+  getFingerprintService
+};
 
 module.exports = {
   FingerprintService,
