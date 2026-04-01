@@ -1,6 +1,7 @@
 # ADR-010: Phase 2.2 — Security-Weighted Heuristic Function
 
 **Status:** APPROVED (Critor, 2026-04-01 20:39 BST) ✅  
+**Fixes applied:** F-2 (NaN/Infinity weight validation), F-5 (ALPHA/BETA explicitly defined), F-6 (heuristicSum=0 guard)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.2; ADR-009 Phase 2.1 (Pheromone Specialists)  
@@ -15,6 +16,15 @@ ADR-009 established task-specific pheromone specialist matrices (τ^t) and the A
 ```
 P(agent) ∝ pheromone^α × heuristic^β
 ```
+
+**F-5 [CRITICAL] AMRO-S Parameters — explicitly defined:**
+
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| `ALPHA` (α) | `1.0` (default) | Pheromone exponent — controls pheromone influence. `α=0` → ignore pheromone history, pure heuristic. `α=1` → standard fusion. |
+| `BETA` (β) | `1.0` (default) | Heuristic exponent — controls real-time signal influence. `β=0` → pure pheromone, ignore heuristic. `β=1` → standard fusion. |
+
+Both are configurable via environment variables (`AMRO_ALPHA`, `AMRO_BETA`) or `config/heuristic-weights.yaml`.
 
 Phase 2.2 defines the **heuristic function** η(agent, task) that supplements pheromone强度 in routing decisions. This is the "security-weighted" component of AWARE's routing intelligence.
 
@@ -188,12 +198,24 @@ function selectAgent(taskCategory: TaskCategory, task: Task, weights: HeuristicW
 ### config/heuristic-weights.yaml
 
 ```yaml
+# AMRO-S Exponents (F-5 fix)
+ALPHA: 1.0              # Pheromone exponent — controls pheromone influence
+                        # ALPHA=0 → pure heuristic (no pheromone history)
+                        # ALPHA=1 → standard fusion (balanced)
+BETA: 1.0               # Heuristic exponent — controls heuristic influence
+                        # BETA=0 → pure pheromone (no real-time signals)
+                        # BETA=1 → standard fusion (balanced)
+
+# Security Heuristic Weights
 weights:
   w1_capability: 0.30
   w2_load_balance: 0.20
   w3_trust_score: 0.25
   w4_data_clearance: 0.15
   w5_blast_radius_inverse: 0.10
+
+# Global Trust Floor (F-5 fix)
+GLOBAL_MIN_TRUST_SCORE: 0.3   # Absolute minimum trust score for ANY routing
 
 # Per-category overrides (optional)
 category_overrides:
