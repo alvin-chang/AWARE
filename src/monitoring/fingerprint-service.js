@@ -224,8 +224,3 @@ module.exports = {
   FingerprintService,
   getFingerprintService
 };
-
-module.exports = {
-  FingerprintService,
-  getFingerprintService
-};
