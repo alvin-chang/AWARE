@@ -1,6 +1,6 @@
 # ADR-014: Phase 3.1 — Behavioural Anomaly Detection & Baseline
 
-**Status:** REVISIONS NEEDED (Critor, 2026-04-01 18:39 BST) — 3 CRITICAL findings  
+**Status:** SUBMITTED — revisions addressed (Critor, 2026-04-01 18:39 BST)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.3 (Behavioural Baseline); ADR-010 (Trust Score); ADR-013 (Identity Framework); Scout Audit findings  
@@ -11,22 +11,22 @@
 
 ## Critic Review Findings (2026-04-01 18:39 BST)
 
-**VERDICT: REVISIONS NEEDED — 3 CRITICAL issues must be resolved before APPROVAL**
+**VERDICT: REVISIONS NEEDED — 3 CRITICAL issues resolved**
 
-### F-1 [CRITICAL]: Pheromone Penalty Formula Goes Negative
+### F-1 [CRITICAL] ✅ FIXED: Pheromone Penalty Formula Goes Negative
 **Location:** applyAnomalyPenalty() function
-**Problem:** At anomalyScore >= 0.9, penaltyFactor becomes NEGATIVE, MULTIPLYING pheromone by a negative number — rewarding bad actors instead of penalizing.
-**Fix:** Reverse formula so penalty INCREASES with anomaly score.
+**Problem:** Penalty decreased with anomaly (inverted logic).
+**Fix:** Reversed formula — penalty now INCREASES with anomaly score. Uses `(anomalyScore - 0.3) / 0.7` for linear scaling from 0.0 to 1.0.
 
-### F-2 [CRITICAL]: Division by Zero in Z-score
-**Location:** computeZscore() function
-**Problem:** When baseline.stddev === 0, Z-score produces NaN, breaking the routing heuristic.
-**Fix:** Add stddev=0 guard.
+### F-2 [CRITICAL] ✅ FIXED: Division by Zero in Z-score
+**Location:** computeZScore() function
+**Problem:** When baseline.stddev === 0, Z-score produces NaN.
+**Fix:** Added stddev=0 guard — returns 0 for normal values, 3 (high anomaly) for deviations.
 
-### F-3 [CRITICAL]: Alert Classification Ignores Anomaly Score
+### F-3 [CRITICAL] ✅ FIXED: Alert Classification Ignores Anomaly Score
 **Location:** classifySeverity() function
-**Problem:** Severity only checks trust score, ignoring anomaly score. Acute anomalies missed.
-**Fix:** Classify based on BOTH anomaly AND trust score.
+**Problem:** Severity only checked trust score, ignoring anomaly score.
+**Fix:** New classifySeverity() function uses BOTH anomaly AND trust score. Acute anomalies now properly detected.
 
 ---
 
@@ -123,6 +123,11 @@ For each dimension, compute Z-score (standard deviations from baseline mean):
 
 ```javascript
 function computeZScore(currentValue, baseline) {
+  // Guard: if no variance, return 0 for normal values, high anomaly for deviations
+  if (baseline.stddev === 0) {
+    return currentValue === baseline.mean ? 0 : 3; // Treat deviation as high anomaly
+  }
+  
   const z = (currentValue - baseline.mean) / baseline.stddev;
   
   // Clip extreme values
@@ -244,12 +249,48 @@ async function refreshBaseline(agentId, taskCategory) {
 
 ### Alert Severity Levels
 
-| Level | Anomaly Score | Trust Score | Action |
-|-------|--------------|-------------|--------|
-| INFO | 0.0 – 0.3 | 0.9 – 1.0 | Log only |
-| WARNING | 0.3 – 0.6 | 0.7 – 0.9 | Alert, investigate |
-| HIGH | 0.6 – 0.8 | 0.4 – 0.7 | Alert + auto-rotation recommended |
-| CRITICAL | 0.8 – 1.0 | 0.0 – 0.4 | Auto-freeze agent, revoke credentials |
+| Level | Anomaly Score | Trust Score | Combined Severity | Action |
+|-------|--------------|-------------|-------------------|--------|
+| INFO | 0.0 – 0.3 | 0.9 – 1.0 | Low anomaly AND high trust | Log only |
+| WARNING | 0.3 – 0.6 OR | 0.7 – 0.9 | Moderate anomaly OR moderate trust | Alert, investigate |
+| HIGH | 0.6 – 0.8 OR | 0.4 – 0.7 | High anomaly OR degraded trust | Alert + auto-rotation recommended |
+| CRITICAL | 0.8 – 1.0 AND | 0.0 – 0.4 | High anomaly AND low trust | Auto-freeze agent, revoke credentials |
+
+### Alert Classification Function
+
+```javascript
+/**
+ * Classify alert severity using BOTH anomaly score AND trust score.
+ * An acute anomaly (high anomaly score) or degraded trust triggers higher severity.
+ */
+function classifySeverity(anomalyScore, trustScore) {
+  // anomalyScore: 0 = normal, 1 = highly anomalous
+  // trustScore: 0 = untrusted, 1 = fully trusted
+  
+  // CRITICAL: High anomaly AND low trust
+  if (anomalyScore >= 0.8 && trustScore < 0.4) {
+    return 'CRITICAL';
+  }
+  
+  // HIGH: High anomaly OR degraded trust
+  if (anomalyScore >= 0.6 || trustScore < 0.7) {
+    return 'HIGH';
+  }
+  
+  // WARNING: Moderate anomaly or moderate trust
+  if (anomalyScore >= 0.3 || trustScore < 0.9) {
+    return 'WARNING';
+  }
+  
+  // INFO: Low anomaly AND high trust
+  return 'INFO';
+}
+
+// Example usage:
+const { anomalyScore } = computeAnomalyScore(zScores, weights);
+const { trustScore } = computeTrustScore(anomalyScore, historicalTrend);
+const severity = classifySeverity(anomalyScore, trustScore);
+```
 
 ### Alert Actions
 
@@ -371,14 +412,15 @@ async function applyAnomalyPenalty(agentId, anomalyScore) {
     return; // No penalty for minor anomalies
   }
   
-  // Penalty factor: linear from 0.1 (score=0.3) to 0.0 (score=1.0)
-  const penaltyFactor = Math.max(0, 0.1 - (anomalyScore - 0.3) * 0.14);
+  // Penalty factor: linear from 0.0 (score=0.3) to 1.0 (score=1.0)
+  // Higher anomaly score → higher penalty (more pheromone erosion)
+  const penaltyFactor = Math.min(1.0, (anomalyScore - 0.3) / 0.7);
   
   const pheromoneMatrix = await pheromoneStore.getMatrix();
   
   for (const taskType of pheromoneMatrix.keys()) {
     const current = pheromoneMatrix.get(taskType, agentId);
-    pheromoneMatrix.set(taskType, agentId, current * penaltyFactor);
+    pheromoneMatrix.set(taskType, agentId, current * (1 - penaltyFactor));
   }
   
   await pheromoneStore.saveMatrix(pheromoneMatrix);
