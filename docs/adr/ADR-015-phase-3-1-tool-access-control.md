@@ -1,6 +1,6 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** SUBMITTED  
+**Status:** REVISIONS NEEDED (Critic, 2026-04-01 21:30 BST) — 3 findings: F-1 HIGH param validation missing, F-2 MEDIUM shadow detection unspecified, F-3 MEDIUM ReDoS risk  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
