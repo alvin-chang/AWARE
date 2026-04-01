@@ -2,9 +2,25 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased] — ADR-014 IMPLEMENTED | ADR-015/016 SUBMITTED
+## [Unreleased] — Phase 3.1 COMPLETE ✅ | ADR-017 DRAFT
 
-## [1.2.1] — 2026-04-01 — ADR-014 Implementation
+## [1.2.1] — 2026-04-01 — Phase 3.1 Implementation
+
+### ADR-015/016: Phase 3.1C/3.2 — APPROVED + IMPLEMENTED ✅
+
+**Status:** APPROVED (Critic, 2026-04-01 22:05 BST, commit b0f7104) | IMPLEMENTED (Forge, 2026-04-01 22:20 BST, commit a46ab7c)
+
+**ADR-015: Tool Access Control & Enforcement**
+- RBAC roles (admin, coder, researcher, tester)
+- Gateway-level shadow tool detection
+- Parameter schema validation
+
+**ADR-016: Compliance Mapping & Reporting**
+- CSA AI CM, NIST AI RMF, ISO 27001, DORA mapping
+- Automatic evidence collection
+- Compliance score calculation
+
+---
 
 ### ADR-014: Phase 3.1B — Behavioural Anomaly Detection ✅ IMPLEMENTED
 
@@ -16,12 +32,6 @@ All notable changes to AWARE Evolution are documented here.
 - computeZScore(): stddev=0 guard (F-2 fix)
 - computeAnomalyScore(): corrected penalty formula (F-1 fix)
 - classifySeverity(): uses BOTH anomaly AND trust score (F-3 fix)
-
----
-
-### ADR-015/016: Submitted for Review
-
-**Status:** SUBMITTED for Critic review (commit 38f174a)
 
 ### ADR-014: Phase 3.1B — Behavioural Anomaly Detection ✅
 
@@ -165,9 +175,9 @@ Original AWARE was a distributed systems platform using ant colony-inspired algo
 | 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
 | 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
 | 3.1B | Behavioural Anomaly Detection | ✅ IMPLEMENTED (ADR-014) |
-| 3.1C | Tool Access Control | 🔄 SUBMITTED (ADR-015) |
-| 3.2 | Compliance Mapping | 🔄 SUBMITTED (ADR-016) |
-| 3.2 | Kill Switch Propagation | ⏳ Pending (ADR-017) |
+| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED (ADR-015) |
+| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED (ADR-016) |
+| 3.2 | Kill Switch Propagation | ⏳ DRAFT (ADR-017) |
 
 ---
 
