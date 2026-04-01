@@ -70,8 +70,8 @@ AWARE implements a layered architecture:
 | 2.2 | Security-Weighted Heuristic | ✅ APPROVED (ADR-010) |
 | 3.1 | Agent Identity & Authentication | ✅ APPROVED (ADR-013) |
 | 3.1B | Behavioural Anomaly Detection | ✅ IMPLEMENTED (ADR-014) |
-| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED (ADR-015) |
-| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED (ADR-016) |
+| 3.1C | Tool Access Control | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-015, 40/40 PASS) |
+| 3.2 | Compliance Mapping | ✅ APPROVED + IMPLEMENTED + TESTED (ADR-016, 40/40 PASS) |
 | 3.2 | Kill Switch Propagation | ⏳ DRAFT (ADR-017) |
 
 **Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
@@ -109,8 +109,8 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 - [x] Phase 2.2: APPROVED + IMPLEMENTED (ADR-010, 9/9 tests PASS)
 - [x] Phase 3.1A: APPROVED + IMPLEMENTED (ADR-013, 27/27 tests PASS)
 - [x] Phase 3.1B: APPROVED + IMPLEMENTED (ADR-014, 14/14 tests PASS)
-- [x] Phase 3.1C: APPROVED + IMPLEMENTED (ADR-015)
-- [x] Phase 3.2: APPROVED + IMPLEMENTED (ADR-016)
+- [x] Phase 3.1C: APPROVED + IMPLEMENTED (ADR-015, 40/40 tests PASS)
+- [x] Phase 3.2: APPROVED + IMPLEMENTED (ADR-016, 40/40 tests PASS)
 - [ ] ADR-017: DRAFT (pending submission)
 
 ---
