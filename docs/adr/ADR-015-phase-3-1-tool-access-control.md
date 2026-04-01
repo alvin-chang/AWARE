@@ -1,6 +1,6 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** DRAFT  
+**Status:** SUBMITTED  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
