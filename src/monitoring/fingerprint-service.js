@@ -209,3 +209,8 @@ class FingerprintService {
     };
   }
 }
+
+module.exports = {
+  FingerprintService,
+  getFingerprintService
+};
