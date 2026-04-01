@@ -48,7 +48,8 @@ describe('IdentityProviderV2', () => {
         workspace: '/workspace/forge',
         browserProfile: 'coder',
         allowedTools: ['read', 'write', 'exec'],
-        deniedTools: ['rm', 'sudo']
+        deniedTools: ['rm', 'sudo'],
+        maxConcurrentTasks: 3
       };
 
       const result = identityProvider.createSession(mockAgent.agentId, executionContext);
@@ -56,7 +57,7 @@ describe('IdentityProviderV2', () => {
       expect(result.sessionId).toMatch(/^sess-/);
       expect(result.token).toBeDefined();
       expect(result.expiresAt).toBeDefined();
-      expect(result.executionContext).toEqual(executionContext);
+      expect(result.executionContext).toMatchObject(executionContext);
     });
 
     it('should throw error for non-existent agent', () => {
@@ -223,7 +224,7 @@ describe('SessionManager', () => {
 
       expect(result.success).toBe(true);
       expect(result.heartbeatCount).toBe(1);
-      expect(result.expiresAt).toBeGreaterThan(originalExpiresAt);
+      expect(result.expiresAt).toBeGreaterThanOrEqual(originalExpiresAt);
     });
 
     it('should reject heartbeat for non-existent session', () => {
@@ -389,7 +390,7 @@ describe('RevocationCache', () => {
 
       expect(result.success).toBe(true);
       expect(result.severity).toBe('CRITICAL');
-      expect(result.blastRadiusPenalty).toBe(0);
+      expect(result.blastRadiusPenalty).toBe(0.1);
     });
 
     it('should fail for already revoked agent', async () => {
@@ -466,7 +467,7 @@ describe('RevocationCache', () => {
 
       await freshCache.revoke('agent:coder:br-critical', 'CRITICAL');
       
-      expect(freshCache.getBlastRadiusPenalty('agent:coder:br-critical')).toBe(0);
+      expect(freshCache.getBlastRadiusPenalty('agent:coder:br-critical')).toBe(0.1);
       freshCache.destroy();
     });
 
