@@ -316,14 +316,43 @@ The kill signal issuer needs to know if ALL targeted agents received and acted o
 ```javascript
 // Agent side
 async function acknowledgeKillSignal(killSignalId, agentId) {
-  await etcd.put(
+  const ackData = {
+    agentId,
+    acknowledgedAt: Date.now(),
+    status: 'KILLED'
+  };
+  
+  // Write to etcd with verification
+  const putResult = await etcd.put(
     `/aware/kill-signals/${killSignalId}/acks/${agentId}`,
-    {
-      agentId,
-      acknowledgedAt: Date.now(),
-      status: 'KILLED'
-    }
+    ackData
   );
+  
+  // Verify write succeeded before considering ack complete
+  if (!putResult || !putResult.succeeded) {
+    // Retry once with backoff
+    await sleep(100);
+    const retryResult = await etcd.put(
+      `/aware/kill-signals/${killSignalId}/acks/${agentId}`,
+      ackData
+    );
+    
+    if (!retryResult || !retryResult.succeeded) {
+      // Log critical failure — this agent may be falsely "missing"
+      await auditLogger.log({
+        event: 'ACK_WRITE_FAILURE',
+        agentId,
+        killSignalId,
+        timestamp: Date.now(),
+        severity: 'CRITICAL'
+      });
+      
+      // Still throw — issuer must know about this
+      throw new Error(`ACK_WRITE_FAILED: Agent ${agentId} failed to persist acknowledgment for ${killSignalId}`);
+    }
+  }
+  
+  return { success: true, killSignalId, agentId };
 }
 
 // Issuer side
@@ -475,9 +504,48 @@ async function estimateBlastRadius(target) {
 | `/api/kill-switch/:killSignalId` | GET | Get kill signal status |
 | `/api/kill-switch/:killSignalId/acks` | GET | Get acknowledgments |
 | `/api/kill-switch/:killSignalId/progress` | GET | Get propagation progress |
-| `/api/kill-switch/:killSignalId/cancel` | POST | Cancel kill signal (admin only) |
+| `/api/kill-switch/:killSignalId/cancel` | POST | Cancel kill signal (see authority matrix) |
 | `/api/recovery/:agentId/onboard` | POST | Re-onboard killed agent (admin only) |
 | `/api/recovery/:agentId/estimate-blast-radius` | POST | Estimate blast radius before issuing |
+
+### Override/Cancel Authority Matrix
+
+| Severity | Cancel Authority | Override Requirements |
+|----------|-----------------|---------------------|
+| **LOCAL** | Domain admin | Single approval |
+| **DOMAIN** | Domain admin + CISO | Two approvals required |
+| **GLOBAL** | Board/C-level only (CEO, CTO, CISO) | Three approvals required, majority of board quorum |
+
+**GLOBAL Kill Signal Cancel Requirements:**
+- Minimum 3 C-level approvers required
+- Majority of available board quorum (e.g., 3 of 5, 4 of 7)
+- All approvers must be独立 (independent, not same team)
+- Cancel request must include written justification
+- Cancel is logged and auditable
+
+```javascript
+const GLOBAL_KILL_CANCEL_AUTHORITY = {
+  requiredApprovers: 3,
+  eligibleRoles: ['CEO', 'CTO', 'CISO', 'BOARD_MEMBER'],
+  minBoardQuorum: 0.6,  // 60% of board must be represented
+  requireIndependentApproval: true,  // approvers from different departments
+  cancelCooldown: 5 * 60 * 1000,  // 5 min between cancel attempts
+  requiresWrittenJustification: true
+};
+
+// Cancel request structure
+{
+  killSignalId: 'ks-uuid',
+  requestedBy: 'ceo@goodciso.org',
+  justification: 'False positive confirmed — no actual compromise',
+  approvers: [
+    { role: 'CEO', approvedAt: Date.now() },
+    { role: 'CTO', approvedAt: Date.now() },
+    { role: 'CISO', approvedAt: Date.now() }
+  ],
+  boardQuorumMet: true
+}
+```
 
 ---
 
@@ -498,13 +566,11 @@ async function estimateBlastRadius(target) {
 
 1. **Automatic escalation:** Should LOCAL kills automatically escalate to DOMAIN if multiple occur in short window? (Risk vs disruption trade-off)
 
-2. **Override authority:** Who can override a GLOBAL kill signal? (Only board/C-level?)
+2. **Recovery waiting period:** Should there be a mandatory waiting period before re-onboarding after a kill? (Prevent rapid re-compromise)
 
-3. **Recovery waiting period:** Should there be a mandatory waiting period before re-onboarding after a kill? (Prevent rapid re-compromise)
+3. **Partial recovery:** Should agents be able to re-onboard with reduced permissions first? (Gradual trust restoration)
 
-4. **Partial recovery:** Should agents be able to re-onboard with reduced permissions first? (Gradual trust restoration)
-
-5. **Communication during shutdown:** Should killed agents be allowed to send ONE message before shutting down? (e.g., to alert humans)
+4. **Communication during shutdown:** Should killed agents be allowed to send ONE message before shutting down? (e.g., to alert humans)
 
 ---
 
@@ -523,7 +589,7 @@ async function estimateBlastRadius(target) {
 
 ## Status
 
-**DRAFT** — Last Phase 3 ADR. Ready for Critor review and Phase 1.4 integration testing.
+**REVISIONS NEEDED** — F-1 (acknowledgment write verification) and F-2 (GLOBAL kill cancel authority matrix) fixed. Ready for Critic re-review.
 
 ---
 
