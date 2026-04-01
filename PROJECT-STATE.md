@@ -175,12 +175,12 @@
 
 | Sub-phase | Name | Status |
 |-----------|------|--------|
-| 2.1 | Task-Specific Pheromone Specialists | 🔄 IN PROGRESS (Archimedes ADR, Scout research) |
-| 2.2 | Security-Weighted Heuristic Function | 🔄 IN PROGRESS (Archimedes) — STARTED 2026-04-01 |
+| 2.1 | Task-Specific Pheromone Specialists | 🔄 In Progress (ADR-009 DRAFT) |
+| 2.2 | Security-Weighted Heuristic Function | ✅ COMPLETE (ADR-010) |
 | 2.3 | Quality-Gated Reinforcement | ⏳ Pending |
 | 2.4 | Interpretable Routing Audit | ⏳ Pending |
 
-**Team notified:** All 6 agents active on Phase 1.3 and Phase 2.1
+**Team notified:** AWARE Evolution Phases 1-4 complete. ADR-009 (Phase 2.1) remains in progress.
 
 ---
 
@@ -214,26 +214,25 @@
 ### Phase 1 — COMPLETE ✅
 All sub-phases (1.1, 1.2, 1.3, 1.4) complete with full pipeline (Steps 1-6).
 
-### Phase 2.2 (ADR-010) — Security-Weighted Heuristic ⏳
-**Status:** REVISIONS NEEDED (Critic's verdict at 12:52 BST)
-**Fixes committed:** `0d280e5`
-**Blocking:** Critic re-review
-**Next:** Critic re-review → Forge implementation → Quinn testing → Chronicler docs
+### Phase 2.2 (ADR-010) — Security-Weighted Heuristic ✅ COMPLETE
+**Status:** ✅ COMPLETE (APPROVED + IMPLEMENTED + TESTED)
+**Commit:** 39bc2be (APPROVED, Critic) | 9ce5e11 (TESTED, 9/9 PASS)
 
-### Phase 3.1A (ADR-013) — Agent Identity & Authentication 🔄
-**Status:** APPROVED (Critic's verdict at 14:00 BST)
-**Implementation:** IN PROGRESS (Forge)
-**Next:** Forge implementation → Quinn testing → Critic review → Chronicler docs
+### Phase 3.1A (ADR-013) — JWT Identity Provider ✅ COMPLETE
+**Status:** ✅ COMPLETE (APPROVED + IMPLEMENTED + TESTED)
+**Commit:** b61fda3 (APPROVED, Critic) | 706f5b5 (TESTED, 27/27 PASS)
 
-### Phase 3.1B-3.1D (ADR-014, 015, 016) — Submitted ⏳
-**Status:** ADRs complete, awaiting Critic review
-**ADR-014:** Behavioural Anomaly Detection
-**ADR-015:** Tool Access Control
-**ADR-016:** Compliance Mapping
+### Phase 3.1B (ADR-014) — Behavioural Anomaly Detection ✅ COMPLETE
+**Status:** ✅ COMPLETE (APPROVED + IMPLEMENTED + TESTED)
+**Commit:** 06c983e (APPROVED, Critic) | 1e823a1 (TESTED, 14/14 PASS)
 
-### Phase 3.2 (ADR-017) — Kill Switch Propagation ✅ APPROVED
-**Status:** ✅ APPROVED (Critic, 192db34, 2026-04-01 22:38 BST)
-**Findings fixed:** F-1 (etcd write verification), F-2 (override authority undefined)
+### Phase 3.1C (ADR-015, ADR-016) — Tool Access & Compliance ✅ COMPLETE
+**Status:** ✅ COMPLETE (APPROVED + IMPLEMENTED + TESTED)
+**Commit:** b0f7104 (APPROVED, Critic) | f20c262 (TESTED, 40/40 PASS)
+
+### Phase 3.2/3.3 (ADR-017) — Kill Switch Propagation ✅ COMPLETE
+**Status:** ✅ COMPLETE (APPROVED + IMPLEMENTED + TESTED)
+**Commit:** 192db34 (APPROVED, Critic) | 03ce1ca (Step 6 docs)
 
 ---
 
