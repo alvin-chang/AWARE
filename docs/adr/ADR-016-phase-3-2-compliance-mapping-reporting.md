@@ -1,6 +1,6 @@
 # ADR-016: Phase 3.2 — Compliance Mapping & Reporting
 
-**Status:** REVISIONS NEEDED (Critic, 2026-04-01 21:30 BST) — 2 findings: F-1 HIGH report access control unspecified, F-2 MEDIUM control weights unspecified  
+**Status:** SUBMITTED — revisions addressed (F-1 compliance API access control defined, F-2 control weight methodology defined)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-009 through ADR-015; CSA AI Control Matrix; NIST AI RMF; ISO 27001; DORA  
@@ -175,30 +175,122 @@ EU regulation for financial entities' ICT risk:
 
 ### Compliance Posture Score
 
+**F-2 FIX: Control Weight Determination Methodology**
+
+Control weights are determined by a **risk-based scoring matrix** combining:
+1. **Regulatory impact** — penalty severity under each framework
+2. **Business criticality** — impact on AWARE operations
+3. **Implementation complexity** — effort to implement control
+
 ```javascript
+// Control weight determination matrix
+const WEIGHT_FACTORS = {
+  regulatoryImpact: {
+    CRITICAL_FRAMEWORK: 4,  // DORA Art. 26 (ICT incidents)
+    HIGH_FRAMEWORK: 3,       // CSA AI Control Matrix (AI.OPS*)
+    MEDIUM_FRAMEWORK: 2,     // ISO 27001 Annex A
+    LOW_FRAMEWORK: 1         // Informational controls
+  },
+  businessCriticality: {
+    CRITICAL: 4,   // Direct revenue/operations impact
+    HIGH: 3,       // Security team productivity
+    MEDIUM: 2,     // Administrative overhead
+    LOW: 1         // Nice-to-have
+  },
+  implementationComplexity: {
+    LOW: 1.0,      // Already implemented, just need evidence
+    MEDIUM: 0.8,   // Minor configuration changes
+    HIGH: 0.6,     // New component implementation
+    VERY_HIGH: 0.4 // Major architectural changes
+  }
+};
+
+// Compute control weight
+function determineControlWeight(control, framework) {
+  const regulatoryWeight = WEIGHT_FACTORS.regulatoryImpact[framework] || 1;
+  const criticalityWeight = WEIGHT_FACTORS.businessCriticality[control.criticality] || 1;
+  const complexityWeight = WEIGHT_FACTORS.implementationComplexity[control.complexity] || 0.5;
+  
+  // Normalize to 1-10 scale
+  const rawScore = regulatoryWeight * criticalityWeight * complexityWeight;
+  const normalizedWeight = Math.min(10, Math.max(1, rawScore / 2));
+  
+  return Math.round(normalizedWeight * 10) / 10; // Round to 1 decimal
+}
+
+// Framework-specific base weights
+const FRAMEWORK_BASE_WEIGHTS = {
+  CSA_AI_CM: {
+    'AI.OPS-04': { criticality: 'HIGH', complexity: 'MEDIUM' },  // Tool control
+    'AI.OPS-05': { criticality: 'HIGH', complexity: 'LOW' },     // Audit logging
+    'AI.ID-01': { criticality: 'CRITICAL', complexity: 'MEDIUM' }, // Identity
+    'AI.MT-01': { criticality: 'HIGH', complexity: 'MEDIUM' }    // Monitoring
+  },
+  NIST_AI_RMF: {
+    'PR.AC': { criticality: 'CRITICAL', complexity: 'MEDIUM' },    // Access control
+    'AU.02': { criticality: 'HIGH', complexity: 'LOW' },          // Audit events
+    'DE.AE': { criticality: 'HIGH', complexity: 'MEDIUM' }        // Anomaly detection
+  },
+  ISO_27001: {
+    'A.9.2': { criticality: 'CRITICAL', complexity: 'MEDIUM' },  // Access management
+    'A.9.4': { criticality: 'HIGH', complexity: 'HIGH' },        // Access control
+    'A.12.4': { criticality: 'HIGH', complexity: 'LOW' }         // Logging
+  },
+  DORA: {
+    'Art.26': { criticality: 'CRITICAL', complexity: 'HIGH' },     // ICT incidents
+    'Art.27': { criticality: 'HIGH', complexity: 'MEDIUM' },      // Threat intel
+    'Art.28': { criticality: 'CRITICAL', complexity: 'HIGH' }     // Resilience
+  }
+};
+
 function computeCompliancePosture(framework) {
   const controls = getFrameworkControls(framework);
+  const baseWeights = FRAMEWORK_BASE_WEIGHTS[framework] || {};
   
   let totalScore = 0;
   let maxScore = 0;
   
   for (const control of controls) {
+    // Determine weight for this control
+    const baseConfig = baseWeights[control.controlId] || { criticality: 'MEDIUM', complexity: 'LOW' };
+    const controlWeight = determineControlWeight(
+      { ...control, ...baseConfig },
+      framework.includes('CSA') ? 'HIGH_FRAMEWORK' : 
+      framework.includes('DORA') ? 'CRITICAL_FRAMEWORK' :
+      framework.includes('ISO') ? 'MEDIUM_FRAMEWORK' : 'LOW_FRAMEWORK'
+    );
+    
     const evidence = getEvidence(control.controlId);
     
     if (evidence.compliant) {
-      totalScore += control.weight;
+      totalScore += controlWeight;
     }
     
-    maxScore += control.weight;
+    maxScore += controlWeight;
   }
   
   return {
-    score: totalScore / maxScore,
+    score: maxScore > 0 ? totalScore / maxScore : 0,
     compliant: totalScore === maxScore,
-    gaps: getNonCompliantControls(framework)
+    gaps: getNonCompliantControls(framework),
+    breakdown: {
+      totalScore,
+      maxScore,
+      weights: controls.map(c => ({
+        controlId: c.controlId,
+        weight: determineControlWeight({ ...c, ...(baseWeights[framework]?.[c.controlId] || {}) }, framework)
+      }))
+    }
   };
 }
 ```
+
+**Weight determination summary:**
+- Regulatory impact (1-4): How critical this control is to passing audits
+- Business criticality (1-4): How much a failure impacts AWARE operations
+- Implementation complexity (0.4-1.0): How hard it is to implement (more complex = lower effective weight)
+
+Final weights range from 1-10, normalized by framework importance.
 
 ### Dashboard Widgets
 
@@ -264,17 +356,160 @@ IDENTIFIED → ASSESSED → REMEDIATION_PLAN → IN_PROGRESS → VERIFIED → CL
 
 ## API Endpoints
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/compliance/posture` | GET | Get overall compliance posture |
-| `/api/compliance/posture/:framework` | GET | Get posture for specific framework |
-| `/api/compliance/controls` | GET | List all controls and status |
-| `/api/compliance/controls/:controlId` | GET | Get control details and evidence |
-| `/api/compliance/evidence` | POST | Submit evidence |
-| `/api/compliance/gaps` | GET | List all compliance gaps |
-| `/api/compliance/gaps/:gapId` | PUT | Update gap status |
-| `/api/compliance/reports` | GET | List compliance reports |
-| `/api/compliance/reports/:reportId` | GET | Generate/download report |
+**F-1 FIX: Access Control for /api/compliance/* endpoints**
+
+All compliance endpoints require authentication and role-based authorization:
+
+| Endpoint | Method | Purpose | Access Control |
+|----------|--------|---------|----------------|
+| `/api/compliance/posture` | GET | Get overall compliance posture | `compliance:read` role |
+| `/api/compliance/posture/:framework` | GET | Get posture for specific framework | `compliance:read` role |
+| `/api/compliance/controls` | GET | List all controls and status | `compliance:read` role |
+| `/api/compliance/controls/:controlId` | GET | Get control details and evidence | `compliance:read` role |
+| `/api/compliance/evidence` | POST | Submit evidence | `compliance:write` role |
+| `/api/compliance/gaps` | GET | List all compliance gaps | `compliance:read` role |
+| `/api/compliance/gaps/:gapId` | PUT | Update gap status | `compliance:admin` role |
+| `/api/compliance/reports` | GET | List compliance reports | `compliance:read` role |
+| `/api/compliance/reports/:reportId` | GET | Generate/download report | `compliance:read` role |
+
+### Compliance API Middleware
+
+```javascript
+const COMPLIANCE_ROLES = {
+  'compliance:read': {
+    allows: [
+      'GET:/api/compliance/*'
+    ],
+    requires: ['agent', 'session']
+  },
+  'compliance:write': {
+    allows: [
+      'GET:/api/compliance/*',
+      'POST:/api/compliance/evidence'
+    ],
+    requires: ['agent', 'session']
+  },
+  'compliance:admin': {
+    allows: ['*:/api/compliance/*'],
+    requires: ['agent', 'session', 'mfa']
+  },
+  'executive': {
+    allows: [
+      'GET:/api/compliance/posture*',
+      'GET:/api/compliance/reports'
+    ],
+    requires: ['agent', 'session']
+  },
+  'auditor': {
+    allows: [
+      'GET:/api/compliance/*',
+      'POST:/api/compliance/evidence'
+    ],
+    requires: ['agent', 'session', 'time-limited'],
+    expiresIn: '8h' // Auditors get time-limited access
+  }
+};
+
+async function complianceAccessControl(req, res, next) {
+  const { agentId, sessionId } = req.body;
+  const requestedEndpoint = `${req.method}:/api/compliance${req.path}`;
+  
+  try {
+    // Verify session and get agent role
+    const session = await sessionManager.getSession(sessionId);
+    if (!session) {
+      return res.status(401).json({ error: 'INVALID_SESSION' });
+    }
+    
+    const agent = await agentRegistry.getAgent(session.agentId);
+    const roles = session.roles || [];
+    
+    // Check if any role grants access
+    let allowed = false;
+    let grantedBy = null;
+    
+    for (const role of roles) {
+      const roleConfig = COMPLIANCE_ROLES[role];
+      if (!roleConfig) continue;
+      
+      // Check time-limited access
+      if (roleConfig.expiresIn && session.roleGrantedAt) {
+        const elapsed = Date.now() - new Date(session.roleGrantedAt).getTime();
+        const expiresIn = parseDuration(roleConfig.expiresIn);
+        if (elapsed > expiresIn) continue; // Role expired
+      }
+      
+      // Check pattern match
+      for (const pattern of roleConfig.allows) {
+        if (matchEndpoint(requestedEndpoint, pattern)) {
+          allowed = true;
+          grantedBy = role;
+          break;
+        }
+      }
+      
+      if (allowed) break;
+    }
+    
+    if (!allowed) {
+      await auditLogger.log({
+        event: 'COMPLIANCE_ACCESS_DENIED',
+        agentId: session.agentId,
+        endpoint: requestedEndpoint,
+        roles
+      });
+      return res.status(403).json({ 
+        error: 'INSUFFICIENT_COMPLIANCE_ACCESS',
+        required: 'compliance:read or higher',
+        granted: roles
+      });
+    }
+    
+    // Attach authorization context
+    req.complianceAuth = {
+      agentId: session.agentId,
+      roles,
+      grantedBy,
+      canWrite: roles.some(r => ['compliance:write', 'compliance:admin'].includes(r)),
+      canAdmin: roles.includes('compliance:admin')
+    };
+    
+    next();
+  } catch (error) {
+    logger.error({ event: 'COMPLIANCE_AUTH_ERROR', error: error.message });
+    return res.status(500).json({ error: 'AUTHORIZATION_ERROR' });
+  }
+}
+```
+
+### Endpoint-Specific Access Examples
+
+```javascript
+// GET /api/compliance/posture — requires compliance:read
+app.get('/api/compliance/posture', complianceAccessControl, async (req, res) => {
+  // Any authenticated agent with compliance:read can view posture
+  const posture = await postureCalculator.getOverallPosture();
+  res.json(posture);
+});
+
+// PUT /api/compliance/gaps/:gapId — requires compliance:admin
+app.put('/api/compliance/gaps/:gapId', complianceAccessControl, async (req, res) => {
+  if (!req.complianceAuth.canAdmin) {
+    return res.status(403).json({ error: 'ADMIN_REQUIRED' });
+  }
+  // Only compliance:admin can update gap status
+  const { status, notes } = req.body;
+  await gapTracker.updateStatus(req.params.gapId, { status, notes, updatedBy: req.complianceAuth.agentId });
+  res.json({ success: true });
+});
+
+// GET /api/compliance/reports — requires compliance:read, executives can also access
+app.get('/api/compliance/reports', complianceAccessControl, async (req, res) => {
+  // Executives and compliance roles can view reports
+  const reports = await reportGenerator.listReports(req.complianceAuth);
+  res.json(reports);
+});
+```
 
 ---
 
