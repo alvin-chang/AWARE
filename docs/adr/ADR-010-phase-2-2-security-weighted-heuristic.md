@@ -1,6 +1,6 @@
 # ADR-010: Phase 2.2 — Security-Weighted Heuristic Function
 
-**Status:** DRAFT  
+**Status:** APPROVED (Critor, 2026-04-01 20:39 BST) ✅  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.2; ADR-009 Phase 2.1 (Pheromone Specialists)  
