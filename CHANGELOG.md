@@ -133,7 +133,7 @@ All notable changes to AWARE Evolution are documented here.
 - **Tool Contract Registry**
 - **Runtime policy reload without restart**
 
-**Security Fixes (Phase 1b):**
+**Security Fixes (Phase 1.2):**
 - Heartbeat spoofing prevention — Policy Engine verifies caller owns slot before heartbeat accepted
 
 **Commits:** `92a9443`
