@@ -1,11 +1,32 @@
 # ADR-014: Phase 3.1 — Behavioural Anomaly Detection & Baseline
 
-**Status:** DRAFT  
+**Status:** REVISIONS NEEDED (Critor, 2026-04-01 18:39 BST) — 3 CRITICAL findings  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.3 (Behavioural Baseline); ADR-010 (Trust Score); ADR-013 (Identity Framework); Scout Audit findings  
 **Depends on:** ADR-010 (Trust Score integration), ADR-013 (Identity Framework)  
 **Phase:** 3.1 (P0 — blocking for trust_score integration)  
+
+---
+
+## Critic Review Findings (2026-04-01 18:39 BST)
+
+**VERDICT: REVISIONS NEEDED — 3 CRITICAL issues must be resolved before APPROVAL**
+
+### F-1 [CRITICAL]: Pheromone Penalty Formula Goes Negative
+**Location:** applyAnomalyPenalty() function
+**Problem:** At anomalyScore >= 0.9, penaltyFactor becomes NEGATIVE, MULTIPLYING pheromone by a negative number — rewarding bad actors instead of penalizing.
+**Fix:** Reverse formula so penalty INCREASES with anomaly score.
+
+### F-2 [CRITICAL]: Division by Zero in Z-score
+**Location:** computeZscore() function
+**Problem:** When baseline.stddev === 0, Z-score produces NaN, breaking the routing heuristic.
+**Fix:** Add stddev=0 guard.
+
+### F-3 [CRITICAL]: Alert Classification Ignores Anomaly Score
+**Location:** classifySeverity() function
+**Problem:** Severity only checks trust score, ignoring anomaly score. Acute anomalies missed.
+**Fix:** Classify based on BOTH anomaly AND trust score.
 
 ---
 
