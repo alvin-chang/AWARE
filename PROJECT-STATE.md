@@ -2,8 +2,25 @@
 
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
-**Last Updated:** 2026-04-01 08:58 UTC
-**Status:** Phase 1 COMPLETE ✅ (Steps 1-6 all done)
+**Last Updated:** 2026-04-01 16:58 UTC
+**Status:** FINAL PUSH — Completing all remaining phases ASAP
+
+---
+
+## 🚨 FINAL PUSH DIRECTIVE (2026-04-01 16:55 UTC)
+
+**Alvin's directive:** Finish AWARE as soon as possible.
+
+**Priority pipeline:**
+1. ✅ **Phase 3.1A (ADR-013)** — IMPLEMENTATION IN PROGRESS (Forge)
+2. ⏳ **Phase 2.2 (ADR-010)** — Awaiting Critic re-review (BLOCKING)
+3. ⏳ **Phase 3.1B+** — Pending architecture
+
+**All agents:** Prioritize AWARE work. Report blockers immediately.
+
+---
+
+## Phase 1 Re-Run Complete
 
 ---
 
@@ -182,8 +199,35 @@ The Phase 1 re-run against `~/src/AWARE/` (Node.js/Express/React platform) is no
 
 ---
 
-## Next Steps
+## Current Phase Status (FINAL PUSH)
 
-Phase 1.3 and 1.4 pending. Pipeline will restart at Step 1 (Scout) for next phase.
+### Phase 1 — COMPLETE ✅
+All sub-phases (1.1, 1.2, 1.3, 1.4) complete with full pipeline (Steps 1-6).
+
+### Phase 2.2 (ADR-010) — Security-Weighted Heuristic ⏳
+**Status:** REVISIONS NEEDED (Critic's verdict at 12:52 BST)
+**Fixes committed:** `0d280e5`
+**Blocking:** Critic re-review
+**Next:** Critic re-review → Forge implementation → Quinn testing → Chronicler docs
+
+### Phase 3.1A (ADR-013) — Agent Identity & Authentication 🔄
+**Status:** APPROVED (Critic's verdict at 14:00 BST)
+**Implementation:** IN PROGRESS (Forge)
+**Next:** Forge implementation → Quinn testing → Critic review → Chronicler docs
+
+### Phase 3.1B-3.1D (ADR-014, 015, 016) — Submitted ⏳
+**Status:** ADRs complete, awaiting Critic review
+**ADR-014:** Behavioural Anomaly Detection
+**ADR-015:** Tool Access Control
+**ADR-016:** Compliance Mapping
+
+### Phase 3.2 (ADR-017) — Kill Switch Propagation ⏳
+**Status:** Research complete, ADR pending
+
+---
+
+## Original Next Steps (superseded by final push)
+
+~~Phase 1.3 and 1.4 pending. Pipeline will restart at Step 1 (Scout) for next phase.~~
 
 ---
