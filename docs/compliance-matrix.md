@@ -249,6 +249,33 @@ Controls are marked:
 
 ---
 
+### 3.1B Behavioural Anomaly Detection (ADR-014) ✅
+
+| Framework | Control Domain | Control ID | Control Description |
+|-----------|---------------|-----------|-------------------|
+| CSA AI CM | Threat Detection | AI-TD-01 | Anomaly detection and alerting |
+| CSA AI CM | Threat Detection | AI-TD-02 | Behavioural baseline establishment |
+| CSA AI CM | Logging & Monitoring | AI-LM-01 | Audit logging for AI decisions |
+| NIST AI RMF | Measure (ME) | ME.MI-01 | Anomaly detection and alerting |
+| NIST AI RMF | Measure (ME) | ME.MI-02 | Behavioural baseline establishment |
+| ISO 27001 | Operations Security | A.12.6.1 | Management of technical vulnerabilities |
+| ISO 27001 | Operations Security | A.12.6.2 | Restrictions on software installation |
+| DORA | ICT Risk Management | Art. 10 | ICT screen monitoring |
+
+**Implementation Evidence:**
+- Behavioural baseline establishment via metrics collector
+- Anomaly detection with severity classification (LOW/MEDIUM/HIGH/CRITICAL)
+- Shadow tool detection
+- Alert generation with audit trail
+- ADR-014 committed (85b04a1)
+
+**Test References:**
+- 14/14 PASS (commit 1e823a1)
+
+**Status:** ✅ APPROVED + IMPLEMENTED — ADR-014 Phase 3.1B (commit 06c983e, 2026-04-01, 14/14 tests PASS)
+
+---
+
 ### 3.2 Tool Access Control (ADR-015) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
@@ -389,6 +416,7 @@ This document is updated to reflect Phase 1–3 completion (2026-04-01).
 | Phase 2.2 | ✅ Complete | ADR-010 | 9/9 tests PASS |
 | Phase 3.1A | ✅ Complete | ADR-013 | 27/27 tests PASS |
 | Phase 3.1B | ✅ Complete | ADR-014 | 14/14 tests PASS |
+| Phase 3.1C | ✅ Complete | ADR-015, ADR-016 | 40/40 tests PASS |
 | Phase 3.1C | ✅ Complete | ADR-015 | 40/40 tests PASS |
 | Phase 3.2 | ✅ Complete | ADR-016 | 40/40 tests PASS |
 | Phase 3.3 | ✅ Complete | ADR-017 | Approved 2026-04-01 |
