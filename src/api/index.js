@@ -246,4 +246,4 @@ class APIGateway {
   }
 }
 
-module.exports = APIGateway;y;
+module.exports = APIGateway;
