@@ -1,6 +1,6 @@
 # ADR-013: Phase 3.1 — Agent Identity & Authentication Framework
 
-**Status:** DRAFT  
+**Status:** APPROVED (Critor, 2026-04-01 14:00 BST) ✅  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.1 (Agent Identity Layer); Scout Audit (C-01, C-02, C-03); ADR-010 (Trust Score); EVOLUTION-BRIEF.md Section on NHI  
