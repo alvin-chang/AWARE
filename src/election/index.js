@@ -1,6 +1,10 @@
 // src/election/index.js
 // Simple implementation of leader election using Raft-inspired algorithm
 
+// C-03 FIX: Static registry for simulation — maps nodeId -> ElectionManager instance
+// In real Raft, this would be RPC calls. For simulation, nodes call each other directly.
+ElectionManager.registry = {};
+
 class ElectionManager {
   constructor(nodeId, config = {}) {
     this.nodeId = nodeId;
@@ -22,6 +26,9 @@ class ElectionManager {
       this.nextIndex[nodeId] = 0;
       this.matchIndex[nodeId] = 0;
     });
+    
+    // C-03 FIX: Register this instance in the static registry for simulation
+    ElectionManager.registry[this.nodeId] = this;
     
     this.startElectionTimer();
   }
@@ -85,16 +92,29 @@ class ElectionManager {
     
     // Simulate network request to other node
     setTimeout(() => {
-      // In a real implementation, this would be an RPC call to the other node's requestVote handler
-      // The other node would then evaluate using proper Raft vote granting logic:
-      // 1. Deny if candidateTerm < currentTerm
-      // 2. Grant if votedFor is null or candidateId AND log is up-to-date
-      // For simulation, we assume the other node properly evaluates
-    
-      // For testing purposes, simulate a favorable response
-      // In real impl, the remote node decides based on its state
-      const granted = true; // Simulation assumes proper Raft logic on remote node
-      callback(granted);
+      // C-03 FIX: Actually call the remote node's requestVote handler
+      // In real Raft, this would be an RPC call
+      // For simulation, nodes are in the same process and can call each other directly
+      const remote = ElectionManager.registry[nodeId];
+      
+      if (!remote) {
+        // Remote node not found in registry — deny vote (node may have been removed)
+        console.log(`[RPC] Node ${nodeId} not found in registry, denying vote`);
+        callback(false);
+        return;
+      }
+      
+      // Call the remote node's requestVote handler with proper Raft RPC parameters
+      // This invokes the proper vote granting logic in ElectionManager.requestVote()
+      remote.requestVote(this.nodeId, this.currentTerm, lastLogIndex, lastLogTerm)
+        .then((result) => {
+          console.log(`[RPC] Vote from ${nodeId}: granted=${result.granted}`);
+          callback(result.granted);
+        })
+        .catch((err) => {
+          console.error(`[RPC] Error requesting vote from ${nodeId}:`, err.message);
+          callback(false);
+        });
     }, Math.random() * 100); // Random network delay
   }
 
