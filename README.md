@@ -64,21 +64,25 @@ AWARE implements a layered architecture:
 | 1.2 | Per-Agent Sandbox Policies | — | ✅ Complete |
 | 1.3 | Behavioural Baseline | — | ✅ Complete |
 | 1.4 | Kill Switch (Raft Consensus) | — | ✅ Complete |
-| 2.1 | Pheromone Specialists | ADR-009 | 🔄 In Progress (DRAFT) |
+| 2.1 | Pheromone Specialists | ADR-009 | ✅ Complete (APPROVED + IMPLEMENTED) |
 | 2.2 | Security-Weighted Heuristic | ADR-010 | ✅ Complete (9/9 tests PASS) |
+| 2.3 | Quality-Gated Reinforcement | ADR-011 | ✅ Complete (APPROVED + IMPLEMENTED) |
+| 2.4 | Hot-Reload Policy | ADR-012 | ✅ Complete (APPROVED + IMPLEMENTED) |
 | 3.1A | JWT Identity Provider | ADR-013 | ✅ Complete (27/27 tests PASS) |
 | 3.1B | Behavioural Anomaly Detection | ADR-014 | ✅ Complete (14/14 tests PASS) |
 | 3.1C | Tool Access Control | ADR-015 | ✅ Complete (40/40 tests PASS) |
 | 3.1C | Compliance Mapping | ADR-016 | ✅ Complete (40/40 tests PASS) |
-| 3.2/3.3 | Kill Switch Propagation | ADR-017 | ✅ Complete |
+| 3.2 | Kill Switch Propagation | ADR-017 | ✅ Complete (APPROVED) |
+| 3.3 | Decision-Chain Traceability | ADR-018 | ✅ Complete (APPROVED + IMPLEMENTED) |
+| 3.4 | GitOps Agent-as-Code | ADR-019 | ✅ Complete (APPROVED, alert-only) |
 
 **Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
 
-**Phase 2.2 (ADR-010) is complete** — security-weighted heuristic implemented and tested.
+**Phase 2 is complete** — all ADRs (009–012) approved, implemented, and tested.
 
-**Phase 3 is complete** — all ADRs (013–017) approved, implemented, and tested.
+**Phase 3 is complete** — all ADRs (013–019) approved, implemented, and tested.
 
-**Phase 2.1 (ADR-009) is in progress** — pheromone specialists DRAFT.
+**Phase 4 is complete** — compliance mapping documented.
 
 ---
 
