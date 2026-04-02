@@ -1,6 +1,6 @@
 # ADR-009: Phase 2.1 — Task-Specific Pheromone Specialists
 
-**Status:** DRAFT  
+**Status:** SUBMITTED (awaiting Critic review)  
 **Author:** Archimedes  
 **Date:** 2026-03-31  
 **Research inputs:** Scout (commit `bba2ce6`), AMRO-S paper (arXiv:2603.12933)  
