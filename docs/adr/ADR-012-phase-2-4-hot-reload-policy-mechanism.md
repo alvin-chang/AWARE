@@ -1,6 +1,6 @@
 # ADR-012: Phase 2.4 — Hot-Reload Policy Mechanism
 
-**Status:** DRAFT  
+**Status:** SUBMITTED (awaiting Critic review)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.4; Scout's routing research (AMRO-S paper); ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic); ADR-011 Phase 2.3 (Quality-Gated Reinforcement)  

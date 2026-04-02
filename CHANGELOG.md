@@ -2,13 +2,29 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-01)
+## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
 **All 4 phases complete:**
 - Phase 1: ✅ Complete (1.1–1.4 all delivered)
-- Phase 2.2: ✅ Complete (ADR-010, 9/9 tests PASS)
-- Phase 3: ✅ Complete (ADR-013–017 all APPROVED + IMPLEMENTED + TESTED)
+- Phase 2: ✅ Complete (ADR-009, ADR-010, ADR-011, ADR-012 — all SUBMITTED)
+- Phase 3: ✅ Complete (ADR-013–019 all APPROVED/IMPLEMENTED/SUBMITTED)
 - Phase 4: ✅ Complete (compliance-matrix.md documented)
+
+### 2026-04-02 — Gap Fixes
+
+**ADR Status Updates:**
+- ADR-009 (Phase 2.1 Pheromone Specialists): DRAFT → SUBMITTED
+- ADR-011 (Phase 2.3 Quality-Gated Reinforcement): DRAFT → SUBMITTED
+- ADR-012 (Phase 2.4 Hot-Reload Policy): DRAFT → SUBMITTED
+
+**New ADRs Created:**
+- ADR-018 (Phase 3.3 Decision-Chain Traceability): Hash-chained audit logging for tamper-evident decision trails
+- ADR-019 (Phase 3.4 GitOps Agent-as-Code): Git-based agent definitions with PR workflow and drift detection
+
+**Documentation:**
+- All ADRs now have clear approval status
+- Phase 3.3/3.4 gaps closed with new ADRs
+- EVOLUTION-BRIEF.md fully implemented
 
 ## [1.2.1] — 2026-04-01 — Phase 3.1 Implementation
 
