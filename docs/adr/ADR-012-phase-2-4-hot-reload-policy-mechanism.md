@@ -1,6 +1,6 @@
 # ADR-012: Phase 2.4 — Hot-Reload Policy Mechanism
 
-**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Status:** APPROVED (2026-04-02 10:21 UTC)
 **Fixes applied:**
 - F-1: Specified explicit double-buffer GC timing with reference counting and maxInFlightAge
 - F-2: Added blast-radius-matrix JSON Schema to POLICY_SCHEMAS  

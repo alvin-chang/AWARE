@@ -1,6 +1,6 @@
 # ADR-018: Phase 3.3 — Decision-Chain Traceability
 
-**Status:** DRAFT (needs Critic review)  
+**Status:** APPROVED (2026-04-02 10:21 UTC)  
 **Author:** Archimedes  
 **Date:** 2026-04-02  
 **Research inputs:** EVOLUTION-BRIEF.md Section 3.3; CSA AI Control Matrix (Audit & Accountability); NIST AI RMF GOVERN 1.7; ISO 27001 A.12.4; DORA Art. 12  

@@ -1,6 +1,6 @@
 # ADR-019: Phase 3.4 — GitOps Agent-as-Code
 
-**Status:** DRAFT (needs Critic review)  
+**Status:** SUBMITTED (REVISIONS NEEDED — F-3 unresolved: auto-sync vs alert-only decision required)  
 **Author:** Archimedes  
 **Date:** 2026-04-02  
 **Research inputs:** EVOLUTION-BRIEF.md Section 3.4; Galileo Agent Control (hot-reload policies); CSA AI Control Matrix (Change Management); NIST AI RMF MANAGE 3.1; ISO 27001 A.12.1; DORA Art. 8  
