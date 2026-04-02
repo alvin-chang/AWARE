@@ -1,66 +1,35 @@
-# ADR-009 Phase 2.1 — VERDICT
+# ADR-009 Phase 2.1 — VERDICT (RE-REVIEW)
 
 **Reviewer:** Critic ⚖️ (reviewer@openclaw.local)  
 **Date:** 2026-04-02  
-**Status:** REVISIONS NEEDED
+**Status:** APPROVED
 
 ---
 
-## Verdict: REVISIONS NEEDED
+## Verdict: APPROVED ✅
+
+All blocking issues resolved by Forge in commit 97747db.
 
 ### F-1 CRITICAL — Code Bug: evaporatePheromones() Wrong Data Structure
-**File:** ADR-009 (implementation section)  
-**Line:** ~95  
-**Issue:** `evaporatePheromones()` iterates `table.trails` but `PheromoneMatrix` interface defines `transitions` (Map<string, Map<string, number>>) and `agents` (Map<string, number>). There is no `trails` property. This would cause runtime TypeError.  
-**Fix:** Iterate `table.agents` and `table.transitions` separately:
-
-```typescript
-// For agents:
-for (const [agentId, strength] of table.agents) {
-  const evaporated = strength * (1 - decay);
-  if (evaporated < 0.01) {
-    table.agents.delete(agentId);
-  } else {
-    table.agents.set(agentId, evaporated);
-  }
-}
-
-// For transitions:
-for (const [from, toMap] of table.transitions) {
-  for (const [to, strength] of toMap) {
-    const evaporated = strength * (1 - decay);
-    if (evaporated < 0.01) {
-      toMap.delete(to);
-    } else {
-      toMap.set(to, evaporated);
-    }
-  }
-}
-```
+**Status:** ✅ FIXED  
+**Verification:** Implementation now correctly iterates `table.agents` and `table.transitions` separately. No reference to `table.trails`. Evaporation logic is sound.
 
 ### F-2 CRITICAL — Incomplete: computeHeuristic() Stub
-**File:** ADR-009  
-**Line:** ~175  
-**Issue:** `computeHeuristic()` throws "ADR-011: Security-Weighted Heuristic (pending)". But ADR-010 (Phase 2.2) is APPROVED. The security-weighted heuristic should be implementable using the weights defined in ADR-010.  
-**Fix:** Implement computeHeuristic() using ADR-010's security-weighted formula, or reference ADR-010 explicitly with the actual weight values.
+**Status:** ✅ FIXED  
+**Verification:** `computeHeuristic()` now implemented with ADR-010 approved weights (w1=0.30, w2=0.20, w3=0.25, w4=0.15, w5=0.10). References ADR-010 explicitly.
 
 ### F-3 MEDIUM — Missing Constants: ALPHA and BETA
-**File:** ADR-009  
-**Issue:** Soft-max selection formula uses ALPHA and BETA hyperparameters but they are never defined.  
-**Fix:** Add before selectAgent():
-```typescript
-const ALPHA = 1.0;  // pheromone weight
-const BETA = 0.5;   // heuristic weight
-```
+**Status:** ✅ FIXED  
+**Verification:** Both constants now defined as `const ALPHA = 1.0; const BETA = 1.0;` per ADR-010 specification.
 
 ### F-4 MINOR — Documentation Gap
-**Issue:** Query-conditioned pheromone fusion (AMRO-S equation with Σ_t∈T w_t(q)·τ^t_ij) is shown but implementation note says "single-category only (no fusion yet)". This should be more prominent — either remove the equation or clearly mark as Phase 2.5 future work.
+**Status:** Non-blocking (acknowledged)  
+**Note:** Query-conditioned pheromone fusion equation shown but marked "single-category only (no fusion yet)". Acceptable as Phase 2.5 future work.
 
 ---
 
-## Blocking Issues: 2 CRITICAL
-- F-1: Runtime error (table.trails doesn't exist)
-- F-2: Incomplete implementation (blocked by APPROVED ADR)
+## Blocking Issues: 0
+All critical issues resolved.
 
 ## Non-Blocking: 2 (F-3, F-4)
 

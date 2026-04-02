@@ -1,6 +1,6 @@
 # ADR-011: Phase 2.3 — Quality-Gated Reinforcement
 
-**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Status:** APPROVED (2026-04-02 10:21 UTC)
 **Fixes applied:**
 - F-1: Specified quality_score calculation algorithm (weighted multi-factor model)
 - F-2: Defined blast_radius_estimate computation (references ADR-010 estimateBlastRadius)

@@ -1,6 +1,6 @@
 # ADR-009: Phase 2.1 — Task-Specific Pheromone Specialists
 
-**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Status:** APPROVED (2026-04-02 10:21 UTC)
 **Fixes applied:**
 - F-1: Fixed evaporatePheromones() to use table.agents and table.transitions (not table.trails)
 - F-2: Implemented computeHeuristic() stub using ADR-010 approved weights
