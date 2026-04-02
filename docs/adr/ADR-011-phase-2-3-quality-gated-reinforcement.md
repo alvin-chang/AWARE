@@ -1,6 +1,10 @@
 # ADR-011: Phase 2.3 — Quality-Gated Reinforcement
 
-**Status:** SUBMITTED (awaiting Critic review)  
+**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Fixes applied:**
+- F-1: Specified quality_score calculation algorithm (weighted multi-factor model)
+- F-2: Defined blast_radius_estimate computation (references ADR-010 estimateBlastRadius)
+- F-3: Added blast-radius-matrix to POLICY_SCHEMAS (in ADR-012)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.3; ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic)  
@@ -54,17 +58,60 @@ Pheromone updates are triggered by **decision events** (see ADR-009 §Decision E
 
 ### Quality Assessment
 
-After task completion, the **Quality Evaluator** assesses outcome quality:
+After task completion, the **Quality Evaluator** assesses outcome quality (F-1 fix: specified algorithm):
 
 ```
 quality_score = f(outcome_metrics, task_specification)
 ```
 
-Where outcome metrics may include:
-- Correctness (% of expected outcomes achieved)
-- Completeness (all required subtasks done)
-- Efficiency (resource usage vs baseline)
-- Timeliness (within SLA window)
+**Algorithm (weighted multi-factor quality model):**
+
+```typescript
+interface OutcomeMetrics {
+  correctness: number;      // 0.0–1.0, % of expected outcomes achieved
+  completeness: number;     // 0.0–1.0, proportion of required subtasks completed
+  efficiency: number;       // 0.0–1.0, resource usage vs baseline (1.0 = optimal)
+  timeliness: number;       // 0.0–1.0, within SLA window (1.0 = on-time)
+}
+
+interface TaskSpecification {
+  requiredSubtasks: number;
+  baselineResourceUsage: number; // expected resource units
+  slaHours: number;
+}
+
+function computeQualityScore(
+  metrics: OutcomeMetrics,
+  spec: TaskSpecification
+): number {
+  // Quality score = weighted combination of normalised metrics
+  // Weights can be configured per task category
+  const weights = {
+    correctness: 0.40,    // Primary: did it solve the problem?
+    completeness: 0.30,    // Secondary: was the work thorough?
+    efficiency: 0.15,      // Tertiary: was it resource-efficient?
+    timeliness: 0.15,      // Minor: was it delivered on time?
+  };
+  
+  const score = 
+    (weights.correctness * metrics.correctness) +
+    (weights.completeness * metrics.completeness) +
+    (weights.efficiency * metrics.efficiency) +
+    (weights.timeliness * metrics.timeliness);
+  
+  // Clamp to [0.0, 1.0]
+  return Math.max(0.0, Math.min(1.0, score));
+}
+```
+
+**Quality rating thresholds (from ADR-011):**
+
+| Rating | Quality Score | Gate Outcome |
+|--------|--------------|--------------|
+| EXCELLENT | ≥ 0.9 | Positive reinforcement (bonus multiplier ×1.5) |
+| ACCEPTABLE | ≥ 0.6 | Standard positive reinforcement (×1.0) |
+| MARGINAL | ≥ 0.4 | Neutral reinforcement (×0.0) |
+| FAIL | < 0.4 | Negative reinforcement (×-0.5) |
 
 ### Quality Thresholds
 
@@ -142,11 +189,34 @@ Erosion towards minimum (τ_min = 0.01) rather than instant drop.
 τ_new(agent, task) = τ_old(agent, task) × penalty_factor  [MEDIUM violations]
 ```
 
-Additionally, **blast radius penalty** applied to ALL task categories the agent handles:
+Additionally, **blast radius penalty** applied to ALL task categories the agent handles (F-2 fix: blast_radius_estimate defined):
 
 ```
 τ_new(agent, all_tasks) *= (1 - blast_radius_estimate)
 ```
+
+**Blast Radius Estimation (per ADR-010):**
+
+```typescript
+// ADR-010 defines estimateBlastRadius(agent: Agent): number
+// Returns 0.0 (minimal blast) to 1.0 (catastrophic blast)
+
+function estimateBlastRadius(agent: Agent): number {
+  // 0.0 = minimal blast (read-only, no network, no credentials)
+  // 1.0 = catastrophic blast (admin, full data, credentials, network access)
+  
+  let radius = 0.0;
+  
+  if (agent.permissions.includes('admin')) radius += 0.4;
+  if (agent.dataAccessScope > 0.5) radius += 0.2;
+  if (agent.canNetwork) radius += 0.2;
+  if (agent.hasCredentials) radius += 0.2;
+  
+  return Math.min(1.0, radius);
+}
+```
+
+See ADR-010 §Blast Radius Estimation for full specification.
 
 ---
 

@@ -1,6 +1,9 @@
 # ADR-012: Phase 2.4 — Hot-Reload Policy Mechanism
 
-**Status:** SUBMITTED (awaiting Critic review)  
+**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Fixes applied:**
+- F-1: Specified explicit double-buffer GC timing with reference counting and maxInFlightAge
+- F-2: Added blast-radius-matrix JSON Schema to POLICY_SCHEMAS  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.4; Scout's routing research (AMRO-S paper); ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic); ADR-011 Phase 2.3 (Quality-Gated Reinforcement)  
@@ -152,13 +155,68 @@ When a policy changes, the applicator updates the in-memory routing engine:
 
 **Critical:** Policy changes must NOT affect requests already being processed.
 
-**Strategy:** Double-buffer the policy state.
+**Strategy:** Double-buffer the policy state with explicit GC timing (F-1 fix).
 
 1. Keep reference to "old" policy state for in-flight requests
 2. Apply new policy to "new" state
-3. New requests use "new" state
+3. New requests use "new" state immediately
 4. In-flight requests complete with "old" state
-5. Garbage-collect "old" state when all in-flight complete
+5. **Garbage-collect "old" state** using reference counting:
+   - Each in-flight request increments a `pendingCount` counter when starting
+   - Each completed request decrements `pendingCount`
+   - When `pendingCount === 0` AND `maxInFlightAge` (default: 5 minutes) has elapsed → safe to GC old state
+   - If `pendingCount > 0` after `maxInFlightAge` (hung requests), log WARNING and retain old state until resolved
+
+**Double-Buffer State Machine:**
+
+```
+IDLE (no pending requests)
+      │
+      ▼
+┌─────────────────┐
+│ Policy Change    │
+│ Received        │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Swap: old ← new │
+│ Reset counters  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ NEW state       │ ← New requests use new state
+│ OLD state       │ ← In-flight requests complete with old state
+│ pendingCount=0  │
+└────────┬────────┘
+         │
+         │ In-flight request starts
+         ▼
+┌─────────────────┐
+│ pendingCount++  │
+└────────┬────────┘
+         │
+         │ In-flight request completes
+         ▼
+┌─────────────────┐
+│ pendingCount--  │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │pending=0│     ┌────────────────────┐
+    │AND age>5m│───→│ GC old state       │
+    └────┬────┘     │ Return to IDLE     │
+         │         └────────────────────┘
+         │
+         │ pending>0 OR age≤5m
+         ▼
+┌─────────────────┐
+│ Retain old state│ ← Wait for completion
+└─────────────────┘
+```
+
+**Hung Request Protection:** If `pendingCount > 0` after `maxInFlightAge` (5 minutes), the oldest policy state is retained indefinitely until all requests complete or timeout. This prevents memory leaks from hung requests while maintaining correctness.
 
 ```
 Request A (in-flight) ──────→ Uses old policy state
@@ -240,6 +298,34 @@ const POLICY_SCHEMAS = {
           excellent: { type: 'number', minimum: 0, maximum: 1 },
           acceptable: { type: 'number', minimum: 0, maximum: 1 },
           marginal: { type: 'number', minimum: 0, maximum: 1 }
+        }
+      }
+    }
+  },
+  // F-2 fix: Added blast-radius-matrix schema (was referenced but not defined)
+  'security/blast-radius-matrix': {
+    type: 'object',
+    required: ['version', 'matrix'],
+    properties: {
+      version: { type: 'integer', minimum: 1 },
+      lastModified: { type: 'string', format: 'date-time' },
+      modifiedBy: { type: 'string' },
+      matrix: {
+        type: 'object',
+        additionalProperties: {
+          type: 'object',
+          additionalProperties: { type: 'number', minimum: 0, maximum: 1 }
+        }
+        // Agent-to-agent blast radius matrix
+        // matrix[agentA][agentB] = blast radius if agentA compromises agentB
+      },
+      defaults: {
+        type: 'object',
+        properties: {
+          readOnlyAgent: { type: 'number', minimum: 0, maximum: 1 },
+          networkAgent: { type: 'number', minimum: 0, maximum: 1 },
+          credentialedAgent: { type: 'number', minimum: 0, maximum: 1 },
+          adminAgent: { type: 'number', minimum: 0, maximum: 1 }
         }
       }
     }
