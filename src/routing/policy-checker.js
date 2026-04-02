@@ -171,6 +171,18 @@ function checkToolAuthorisation(params) {
 function checkDataLeakage(params) {
   // Placeholder: integrate with DLP service
   // Check for large outbound data transfers, sensitive data in responses, etc.
+  const { resourceUsage = {} } = params;
+  
+  // Check for explicit data leakage indicator
+  if (resourceUsage.dataLeakage === true) {
+    return true;
+  }
+  
+  // TODO: Add more sophisticated checks:
+  // - Large outbound data transfers (> threshold)
+  // - Sensitive data patterns in responses
+  // - Unauthorized data exfiltration attempts
+  
   return false;
 }
 
