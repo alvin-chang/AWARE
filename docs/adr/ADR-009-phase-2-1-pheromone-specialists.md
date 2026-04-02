@@ -1,6 +1,10 @@
 # ADR-009: Phase 2.1 — Task-Specific Pheromone Specialists
 
-**Status:** SUBMITTED (awaiting Critic review)  
+**Status:** SUBMITTED (REVISIONS NEEDED — fixes applied 2026-04-02)
+**Fixes applied:**
+- F-1: Fixed evaporatePheromones() to use table.agents and table.transitions (not table.trails)
+- F-2: Implemented computeHeuristic() stub using ADR-010 approved weights
+- F-3: Defined ALPHA=1.0 and BETA=1.0 constants per ADR-010  
 **Author:** Archimedes  
 **Date:** 2026-03-31  
 **Research inputs:** Scout (commit `bba2ce6`), AMRO-S paper (arXiv:2603.12933)  
@@ -192,15 +196,37 @@ function applyNegativeReinforcement(deposit: PheromoneDeposit, violationSeverity
 ### 2. Evaporate (periodic background job)
 
 ```typescript
+// AMRO-S Exponents (F-5 fix: explicitly defined per ADR-010)
+const ALPHA = 1.0; // Pheromone exponent — controls pheromone influence
+const BETA = 1.0;  // Heuristic exponent — controls real-time signal influence
+
 function evaporatePheromones(): void {
   for (const table of allTables()) {
     const decay = table.decayRate / 3600; // per-second decay
-    for (const [agentId, strength] of table.trails) {
+    
+    // Evaporate agent pheromones (F-1 fix: use table.agents, not table.trails)
+    for (const [agentId, strength] of table.agents) {
       const evaporated = strength * (1 - decay);
       if (evaporated < 0.01) {
-        table.trails.delete(agentId); // prune near-zero trails
+        table.agents.delete(agentId); // prune near-zero trails
       } else {
-        table.trails.set(agentId, evaporated);
+        table.agents.set(agentId, evaporated);
+      }
+    }
+    
+    // Evaporate transition pheromones (F-1 fix: iterate transitions separately)
+    for (const [from, toMap] of table.transitions) {
+      for (const [to, strength] of toMap) {
+        const evaporated = strength * (1 - decay);
+        if (evaporated < 0.01) {
+          toMap.delete(to); // prune near-zero trails
+        } else {
+          toMap.set(to, evaporated);
+        }
+      }
+      // Clean up empty transition maps
+      if (toMap.size === 0) {
+        table.transitions.delete(from);
       }
     }
   }
@@ -219,23 +245,53 @@ interface RoutingCandidate {
 }
 
 /**
- * Security-weighted heuristic function (Phase 2.2 — detailed in ADR-011).
+ * Security-weighted heuristic function (Phase 2.2 — ADR-010 APPROVED).
  * 
  * Standard AMRO-S heuristic:
  *   η_j(t) = λ_A · Ability~[j][t] + λ_L · (1/Load[j] + ε) + λ_R · (1/RT[j] + ε)
  * 
- * AWARE extension (EVOLUTION-BRIEF.md Section 2.2):
- *   n_secure(agent, task) = w1·capability + w2·load_balance 
+ * AWARE extension (ADR-010):
+ *   η_secure(agent, task) = w1·capability + w2·load_balance 
  *                          + w3·trust_score + w4·data_clearance + w5·blast_radius_inverse
  * 
- * Where:
- *   - w1–w5: configurable weights (Phase 2.2 defines defaults)
- *   - trust_score: derived from Phase 1.3 behavioural baseline
- *   - blast_radius_inverse: estimated impact if agent compromised mid-task (1 = minimal, 0 = catastrophic)
+ * Where (ADR-010 defaults):
+ *   - w1 (capability) = 0.30
+ *   - w2 (load_balance) = 0.20
+ *   - w3 (trust_score) = 0.25
+ *   - w4 (data_clearance) = 0.15
+ *   - w5 (blast_radius_inverse) = 0.10
+ *   - ALPHA = 1.0, BETA = 1.0 (soft-max exponents, ADR-010 F-5 fix)
+ * 
+ * F-2 fix: ADR-010 is APPROVED — implement stub using ADR-010 weights.
  */
 function computeHeuristic(agentId: string, task: Task): number {
-  // Phase 2.2 ADR defines exact implementation
-  throw new Error('ADR-011: Security-Weighted Heuristic (pending)');
+  // ADR-010 F-5 fix: Use approved weights from ADR-010
+  const weights = {
+    w1_capability: 0.30,
+    w2_load_balance: 0.20,
+    w3_trust_score: 0.25,
+    w4_data_clearance: 0.15,
+    w5_blast_radius_inverse: 0.10,
+  };
+  
+  // Get agent inputs from registry (Phase 1.1) and behavioural baseline (Phase 1.3)
+  const agentInputs = getAgentHeuristicInputs(agentId); // See ADR-010 for interface
+  const taskReqs = getTaskRequirements(task);           // See ADR-010 for interface
+  
+  // ADR-010 computeHeuristic implementation:
+  const loadBalance = 1 - (agentInputs.currentLoad / agentInputs.maxLoad);
+  const dataClearanceScore = Math.min(agentInputs.dataClearance / taskReqs.requiredDataSensitivity, 1.0);
+  const blastRadiusInverse = 1 - agentInputs.blastRadiusEstimate;
+  
+  const score = 
+    (weights.w1_capability * agentInputs.capability) +
+    (weights.w2_load_balance * loadBalance) +
+    (weights.w3_trust_score * agentInputs.trustScore) +
+    (weights.w4_data_clearance * dataClearanceScore) +
+    (weights.w5_blast_radius_inverse * blastRadiusInverse);
+  
+  // Clamp to [0.0, 1.0]
+  return Math.max(0.0, Math.min(1.0, score));
 }
 
 function selectAgent(taskCategory: TaskCategory, task: Task): RoutingCandidate {
@@ -294,10 +350,12 @@ function buildCandidateList(table: PheromoneMatrix, task: Task): RoutingCandidat
 }
 ```
 
-**Hyperparameters (configurable):**
-- `ALPHA = 1.0` — pheromone weight
-- `BETA = 0.5` — heuristic weight
-- Default weights for security heuristic (w1–w5): Phase 2.2 ADR defines
+**Hyperparameters (F-5 fix: explicitly defined per ADR-010):**
+- `ALPHA = 1.0` — pheromone exponent (controls pheromone influence; `α=0` → pure heuristic, `α=1` → standard fusion)
+- `BETA = 1.0` — heuristic exponent (controls real-time signal influence; `β=0` → pure pheromone, `β=1` → standard fusion)
+- Default weights for security heuristic (w1–w5): ADR-010 defines w1=0.30, w2=0.20, w3=0.25, w4=0.15, w5=0.10
+
+Both ALPHA and BETA are configurable via environment variables (`AMRO_ALPHA`, `AMRO_BETA`) or `config/heuristic-weights.yaml`.
 
 ---
 
