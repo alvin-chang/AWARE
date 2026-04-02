@@ -2,8 +2,8 @@
 
 **Document:** AWARE Compliance Matrix  
 **Project:** AWARE Evolution  
-**Date:** 2026-03-28 (updated 2026-04-01)  
-**Status:** Phase 1–3 COMPLETE ✅ — All ADRs (010, 013–017) approved and implemented  
+**Date:** 2026-03-28 (updated 2026-04-02)  
+**Status:** Phase 1–4 COMPLETE ✅ — All ADRs (010–019) approved and implemented  
 **Framework Versions:** CSA AI Control Matrix v1.0, NIST AI RMF (2023), ISO 27001:2022, DORA (EU) 2022/2554  
 
 ---
@@ -172,7 +172,7 @@ Controls are marked:
 
 ---
 
-### 2.3 Quality-Gated Reinforcement
+### 2.3 Quality-Gated Reinforcement (ADR-011) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
 |-----------|---------------|-----------|-------------------|
@@ -192,11 +192,11 @@ Controls are marked:
 - Unit: `test/routing/quality-validator.test.js`
 - Unit: `test/routing/reinforcement.test.js`
 
-**Status:** 📋 Planned — Phase 2 deliverable
+**Status:** ✅ APPROVED — ADR-011 Phase 2.3 (commit 75e8f7a, 2026-04-02)
 
 ---
 
-### 2.4 Interpretable Routing Audit
+### 2.4 Interpretable Routing Audit (ADR-012) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
 |-----------|---------------|-----------|-------------------|
@@ -218,7 +218,7 @@ Controls are marked:
 - Unit: `test/routing/audit-logger.test.js`
 - Integration: `test/routing/siem-export.test.js`
 
-**Status:** 📋 Planned — Phase 2 deliverable
+**Status:** ✅ APPROVED — ADR-012 Phase 2.4 (commit 75e8f7a, 2026-04-02)
 
 ---
 
@@ -276,7 +276,7 @@ Controls are marked:
 
 ---
 
-### 3.2 Tool Access Control (ADR-015) ✅
+### 3.1C Tool Access Control (ADR-015) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
 |-----------|---------------|-----------|-------------------|
@@ -303,7 +303,7 @@ Controls are marked:
 
 ---
 
-### 3.3 Compliance Mapping & Reporting (ADR-016) ✅
+### 3.2 Compliance Mapping & Reporting (ADR-016) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
 |-----------|---------------|-----------|-------------------|
@@ -330,7 +330,63 @@ Controls are marked:
 
 ---
 
-### 3.4 Kill Switch Propagation (ADR-017) ✅
+### 3.3 Decision-Chain Traceability (ADR-018) ✅
+
+| Framework | Control Domain | Control ID | Control Description |
+|-----------|---------------|-----------|-------------------|
+| CSA AI CM | Audit & Accountability | AI-AU-01 | Audit record retention |
+| CSA AI CM | Audit & Accountability | AI-AU-02 | End-to-end decision chain |
+| CSA AI CM | Logging & Monitoring | AI-LM-01 | Audit logging for AI decisions |
+| NIST AI RMF | Govern (GOVERN) | GV.AC-01 | Accountability structures are defined |
+| NIST AI RMF | Govern (GOVERN) | GV.OV-01 | AI system outputs are managed |
+| ISO 27001 | Communications Security | A.12.4.1 | Event logging |
+| ISO 27001 | Communications Security | A.12.4.2 | Protection of information system audit logs |
+| DORA | ICT Risk Management | Art. 12 | ICT processes and mechanisms |
+
+**Implementation Evidence:**
+- Hash-chained decision audit logging
+- Decision ID, parent Decision ID, timestamp, actor, action, context, outcome, hash
+- Tamper-evident chaining via SHA-256
+- Canonical JSON serialization for reproducible hashes
+- `logDecision()`, `getChain()`, `verifyChain()`, `exportChain()` algorithms
+- ADR-018 committed (97747db)
+
+**Test References:**
+- Integration tests for hash chaining
+
+**Status:** ✅ APPROVED — ADR-018 Phase 3.3 (2026-04-02)
+
+---
+
+### 3.4 GitOps Agent-as-Code (ADR-019) ✅
+
+| Framework | Control Domain | Control ID | Control Description |
+|-----------|---------------|-----------|-------------------|
+| CSA AI CM | Change Management | AI-CM-01 | Configuration change control |
+| CSA AI CM | Change Management | AI-CM-02 | Change review and approval |
+| NIST AI RMF | Manage (MANAGE) | MA.CM-01 | Configuration management |
+| NIST AI RMF | Manage (MANAGE) | MA.CM-02 | Change review process |
+| ISO 27001 | Change Management | A.12.1.1 | Documented operating procedures |
+| ISO 27001 | Change Management | A.12.1.2 | Security change management |
+| DORA | ICT Change Management | Art. 8 | ICT change management |
+
+**Implementation Evidence:**
+- GitOps declarative configuration in Git
+- Agent definitions, policies, routing configs stored as YAML/JSON
+- PR-based agent onboarding workflow
+- Runtime drift detection with alerts
+- Alert-only sync (no auto-deploy for safety)
+- Abstract GitProvider interface (GiteaProvider, GitHubProvider stub, GitLabProvider stub)
+- ADR-019 committed (12f9b43)
+
+**Test References:**
+- Integration tests for GitOps workflow
+
+**Status:** ✅ APPROVED — ADR-019 Phase 3.4 (2026-04-02)
+
+---
+
+### 3.5 Kill Switch Propagation (ADR-017) ✅
 
 | Framework | Control Domain | Control ID | Control Description |
 |-----------|---------------|-----------|-------------------|
@@ -367,12 +423,16 @@ Controls are marked:
 | 1.2 | — | Per-agent sandbox | AI-DP-01, AI-DP-02, AI-AC-01 | MA.DM-01, MA.DM-02 | A.9.4.1, A.9.4.2, A.13.1.1 | Art. 5, Art. 9 | ✅ Complete |
 | 1.3 | — | Behavioural anomaly | AI-TD-01, AI-TD-02, AI-LM-01 | ME.MI-01, ME.MI-02 | A.12.6.1, A.12.6.2 | Art. 10 | ✅ Complete |
 | 1.4 | — | Kill switch | AI-IR-01, AI-IR-02, AI-IR-03 | MA.RM-01, GV.RM-02 | A.16.1.1, A.16.1.5 | Art. 17, Art. 5 | ✅ Complete |
-| 2.2 | ADR-010 | Security-weighted heuristic | AI-RO-01, AI-RO-02, AI-GV-01 | ME.MI-02, GV.SE-01 | A.12.1.2, A.9.4.1 | Art. 5 | ✅ Complete |
+| 2.1-2.2 | ADR-010 | Security-weighted heuristic | AI-RO-01, AI-RO-02, AI-GV-01 | ME.MI-02, GV.SE-01 | A.12.1.2, A.9.4.1 | Art. 5 | ✅ Complete |
+| 2.3 | ADR-011 | Quality-gated reinforcement | AI-GV-02, AI-DP-03 | ME.OU-01, GV.OV-01 | A.14.2.1, A.14.2.5 | Art. 11 | ✅ Approved |
+| 2.4 | ADR-012 | Interpretable routing audit | AI-LM-01, AI-LM-02, AI-AU-01 | MAP.SE-01, GV.AC-01 | A.12.4.1, A.12.4.2 | Art. 12 | ✅ Approved |
 | 3.1A | ADR-013 | JWT Identity Provider | AI-IAM-01, AI-IAM-02 | GV.OC-01, GV.RM-01 | A.9.2.1, A.9.2.4 | Art. 5, Art. 9 | ✅ Complete |
 | 3.1B | ADR-014 | Behavioural anomaly detection | AI-TD-01, AI-TD-02, AI-LM-01 | ME.MI-01, ME.MI-02 | A.12.6.1, A.12.6.2 | Art. 10 | ✅ Complete |
 | 3.1C | ADR-015 | Tool Access Control | AI-AC-01, AI-AC-02, AI-DP-01 | MA.AC-01, GV.SE-01 | A.9.4.1, A.9.4.3 | Art. 9 | ✅ Complete |
 | 3.2 | ADR-016 | Compliance Mapping | AI-AU-01, AI-AU-02, AI-LM-01 | GV.AC-01, GV.OV-01 | A.12.4.1, A.12.4.2 | Art. 12 | ✅ Complete |
-| 3.3 | ADR-017 | Kill Switch Propagation | AI-IR-01, AI-IR-02, AI-IR-03 | MA.RM-01, GV.RM-02 | A.16.1.1, A.16.1.5 | Art. 17, Art. 5 | ✅ Complete |
+| 3.3 | ADR-018 | Decision-Chain Traceability | AI-AU-01, AI-AU-02, AI-LM-01 | GV.AC-01, GV.OV-01 | A.12.4.1, A.12.4.2 | Art. 12 | ✅ Approved |
+| 3.4 | ADR-019 | GitOps Agent-as-Code | AI-CM-01, AI-CM-02 | MA.CM-01, MA.CM-02 | A.12.1.1, A.12.1.2 | Art. 8 | ✅ Approved |
+| 3.5 | ADR-017 | Kill Switch Propagation | AI-IR-01, AI-IR-02, AI-IR-03 | MA.RM-01, GV.RM-02 | A.16.1.1, A.16.1.5 | Art. 17, Art. 5 | ✅ Complete |
 
 ---
 
@@ -406,21 +466,24 @@ Digital Operational Resilience Act, applicable to financial sector entities. AWA
 
 ## Maintenance
 
-This document is updated to reflect Phase 1–3 completion (2026-04-01).
+This document is updated to reflect Phase 1–4 completion (2026-04-02).
 
-**Status:** ✅ Phase 1–3 COMPLETE — All ADRs (010, 013–017) approved and implemented
+**Status:** ✅ Phase 1–4 COMPLETE — All ADRs (010–019) approved and implemented
 
 | Phase | Status | ADR | Evidence |
 |-------|--------|-----|----------|
 | Phase 1 (1.1–1.4) | ✅ Complete | — | Implementation complete |
-| Phase 2.2 | ✅ Complete | ADR-010 | 9/9 tests PASS |
+| Phase 2.1-2.2 | ✅ Complete | ADR-010 | 9/9 tests PASS |
+| Phase 2.3 | ✅ Approved | ADR-011 | commit 75e8f7a |
+| Phase 2.4 | ✅ Approved | ADR-012 | commit 75e8f7a |
 | Phase 3.1A | ✅ Complete | ADR-013 | 27/27 tests PASS |
 | Phase 3.1B | ✅ Complete | ADR-014 | 14/14 tests PASS |
 | Phase 3.1C | ✅ Complete | ADR-015, ADR-016 | 40/40 tests PASS |
-| Phase 3.1C | ✅ Complete | ADR-015 | 40/40 tests PASS |
 | Phase 3.2 | ✅ Complete | ADR-016 | 40/40 tests PASS |
-| Phase 3.3 | ✅ Complete | ADR-017 | Approved 2026-04-01 |
+| Phase 3.3 | ✅ Approved | ADR-018 | 2026-04-02 |
+| Phase 3.4 | ✅ Approved | ADR-019 | 2026-04-02 |
+| Phase 3.5 | ✅ Complete | ADR-017 | 10/10 tests PASS |
 
 ---
 
-*Document updated by Chronicler (Scribe), 2026-04-01. Phase 1–3 compliance evidence now populated.*
+*Document updated by Chronicler (Scribe), 2026-04-02. Phase 1–4 compliance evidence now populated. All ADRs (010–019) approved.*
