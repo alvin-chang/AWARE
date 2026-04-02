@@ -1,7 +1,5 @@
 # AWARE — Agentic AI Security Control Plane
 
-> **⚠️ NOTE:** This README reflects AWARE's evolved direction (agentic AI security control plane). The previous "distributed systems platform" description is archived in `docs/legacy/README-v1.md`.
-
 **Project Key:** `aware`  
 **Root:** `~/src/AWARE`  
 **Gitea (primary):** http://openclaw.local:3000/alvin/AWARE  
