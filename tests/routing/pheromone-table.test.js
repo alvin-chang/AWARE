@@ -259,7 +259,7 @@ test('classifyTask: RESEARCH keywords → RESEARCH category', () => {
 });
 
 test('classifyTask: SECURITY_REVIEW keywords → SECURITY_REVIEW category', () => {
-  const task = { prompt: 'Penetration test the authentication system for vulnerabilities' };
+  const task = { prompt: 'Scan for vulnerabilities and audit the authentication service' };
   const category = classifyTask(task);
   assertEqual(category, TaskCategory.SECURITY_REVIEW, 'Should be SECURITY_REVIEW');
 });
