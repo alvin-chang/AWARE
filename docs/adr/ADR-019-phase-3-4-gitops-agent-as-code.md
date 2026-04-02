@@ -1,6 +1,6 @@
 # ADR-019: Phase 3.4 — GitOps Agent-as-Code
 
-**Status:** SUBMITTED (REVISIONS NEEDED — F-3 unresolved: auto-sync vs alert-only decision required)  
+**Status:** SUBMITTED (F-3 RESOLVED: alert-only — no auto-sync)  
 **Author:** Archimedes  
 **Date:** 2026-04-02  
 **Research inputs:** EVOLUTION-BRIEF.md Section 3.4; Galileo Agent Control (hot-reload policies); CSA AI Control Matrix (Change Management); NIST AI RMF MANAGE 3.1; ISO 27001 A.12.1; DORA Art. 8  
@@ -28,7 +28,7 @@ Implement **GitOps Agent-as-Code** where all agent definitions, policies, and ro
 2. **Version controlled** — every change tracked with commit history
 3. **PR-reviewed** — new agents require approved pull request before activation
 4. **Enforced at runtime** — AWARE loads declared state and alerts on drift
-5. **Automatically synced** — webhook triggers reload on Git push to main branch
+5. **Alert-only sync** — drift detected → alert fired → manual remediation via PR (no auto-deploy)
 
 ---
 
@@ -556,7 +556,7 @@ Drift occurs when runtime state diverges from Git-declared state:
 | Agent added at runtime (not via Git) | Agent exists in registry but not in `agents/` | Alert + auto-remove or flag for review |
 | Agent removed from Git but still running | Agent in `agents/` but not in registry | Auto-onboard or alert |
 | Policy modified at runtime | Policy hash differs from Git | Alert + revert to Git version |
-| Config parameter changed | Runtime config ≠ Git config | Alert + optional auto-sync |
+| Config parameter changed | Runtime config ≠ Git config | Alert only (manual sync via PR) |
 
 ---
 
@@ -595,7 +595,7 @@ Drift occurs when runtime state diverges from Git-declared state:
 ## Open Questions
 
 1. **Git provider:** Gitea only, or support GitHub/GitLab? (Recommend: Gitea-first, abstract provider)
-2. **Auto-sync vs alert-only:** Should drift auto-remediate or just alert? (Recommend: alert-first, configurable)
+2. **Auto-sync vs alert-only:** **RESOLVED: Alert-only.** No auto-sync in production — too dangerous. Manual sync via PR required.
 3. **Rollback strategy:** Git revert or snapshot-based? (Recommend: git revert for simplicity)
 
 ---
