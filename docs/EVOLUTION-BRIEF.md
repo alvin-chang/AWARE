@@ -1,4 +1,9 @@
 # AWARE Evolution Brief
+
+## AWARE Heritage
+
+AWARE was first conceived in 2013 as a logistics/Queen-Worker system (Autonomous Warehouse Automated Resource Engine). The current agent governance framework is a spiritual successor — same team, evolved mission.
+
 ## From Distributed Systems Platform to Agentic AI Security Control Plane
 
 **Project Key:** aware
@@ -167,10 +172,10 @@ A March 2026 paper validates this direction:
 | Kill switch (1.4)             | Incident Response     | MANAGE 4.1   | A.16.1    | Art. 17    |
 | Shadow agent discovery (3.1)  | Asset Management      | MAP 1.1      | A.8.1     | Art. 5     |
 | Quality-gated routing (2.3)   | Model Governance      | MEASURE 2.6  | A.14.2    | Art. 11    |
-| Decision traceability (3.3)   | Audit & Accountability| GOVERN 1.7   | A.12.4    | Art. 12    |
+| Decision traceability (3.3)   | Audit & accountability| GOVERN 1.7   | A.12.4    | Art. 12    |
 | GitOps agent-as-code (3.4)    | Change Management     | MANAGE 3.1   | A.12.1    | Art. 8     |
 | Tool-call enforcement (3.2)   | Access Control        | MANAGE 2.1   | A.9.4     | Art. 9     |
-| Behavioural anomaly (1.3)     | Threat Detection      | MEASURE 2.8  | A.12.6    | Art. 10    |
+| Behavioural anomaly (1.3)    | Threat Detection      | MEASURE 2.8  | A.12.6    | Art. 10    |
 
 ---
 
