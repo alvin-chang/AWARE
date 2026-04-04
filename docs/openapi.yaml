@@ -4,13 +4,14 @@ info:
   description: API documentation for the AWARE - Autonomous Warehouse Automated Resource Engine system
   version: 1.0.0
   contact:
-    name: AWARE Team
-    email: aware@example.com
+    name: Good CISO Limited
+    email: alvin@goodciso.org
+    url: https://goodciso.org
 servers:
-  - url: http://localhost:3000
+  - url: http://openclaw.local:3000/alvin/AWARE
     description: Development server
-  - url: https://api.aware-system.com
-    description: Production server
+  - url: https://github.com/alvin-chang/AWARE
+    description: GitHub mirror (read-only)
 
 components:
   securitySchemes:

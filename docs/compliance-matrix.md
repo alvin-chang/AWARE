@@ -2,9 +2,21 @@
 
 **Document:** AWARE Compliance Matrix  
 **Project:** AWARE Evolution  
-**Date:** 2026-03-28 (updated 2026-04-02)  
-**Status:** Phase 1–4 COMPLETE ✅ — All ADRs (010–019) approved and implemented  
+**Date:** 2026-03-28 (updated 2026-04-04)  
+**Status:** Phase 1–4 COMPLETE ✅ — All ADRs (009–019) approved and implemented  
+**Repository:** http://openclaw.local:3000/alvin/AWARE  
+**License:** GPL-3.0  
 **Framework Versions:** CSA AI Control Matrix v1.0, NIST AI RMF (2023), ISO 27001:2022, DORA (EU) 2022/2554  
+
+---
+
+## Repository Architecture
+
+AWARE is structured as an **open-source governance/standards repository**:
+- **This repo** (`alvin/AWARE`): Governance docs, ADRs, compliance mappings
+- **Implementation repo** (`awware-evolution`): TypeScript implementation with full AWARE specifications
+
+**Implementation Evidence Note:** The file path references in this document (`src/agents/`, `test/`) refer to the AWARE-Evolution implementation repository. These paths are provided as compliance evidence references and should be verified against the current implementation.
 
 ---
 
