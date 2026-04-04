@@ -2,8 +2,31 @@
 
 **Project Key:** aware
 **Project Root:** ~/src/AWARE
-**Last Updated:** 2026-04-01 22:20 UTC
-**Status:** Phase 3 COMPLETE ✅ | ADR-017 APPROVED ✅
+**Last Updated:** 2026-04-04 06:58 GMT+1
+**Status:** Phase 3 COMPLETE ✅ | ADR-017 APPROVED ✅ | PP-116 OPTION A COMPLETE ✅
+
+---
+
+## 🚨 PP-116 SENDER LABEL FIX — COMPLETE ✅ (2026-04-04)
+
+### PP-116 Option A: Live Test CONFIRMED WORKING
+
+**Test:** senderLabel shows correctly in shared room webchat
+**Result:** ✅ PASS — senderLabel shows "Alfie ⚡" instead of "gateway-client"
+
+### Pipeline Complete
+
+| Step | Name | Status |
+|------|------|--------|
+| R1 | Implementation | ✅ Already implemented |
+| Re1 | Review | ✅ APPROVED |
+| T1 | Testing | ✅ Working (live test confirmed) |
+
+**Status:** ALL PHASES COMPLETE ✅
+
+**Note:** PP-116 was a gateway/openclaw-core fix, not an AWARE pipeline fix. The echo bug fix (commit 74c7b94) addressed the relay echo issue. Option A verification confirms senderLabel attribution is now correct.
+
+---
 
 ---
 
