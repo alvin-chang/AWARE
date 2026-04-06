@@ -126,7 +126,6 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 ## Quick Links
 
 - [Evolution Brief](docs/EVOLUTION-BRIEF.md) — Full project direction and research
-- [Architecture](AWARE-architect.md) — Detailed technical architecture
 - [OpenAPI Spec](docs/openapi.yaml) — API reference
 - [Compliance Matrix](docs/compliance-matrix.md) — Security and compliance mapping
 - [Changelog](CHANGELOG.md) — Version history
