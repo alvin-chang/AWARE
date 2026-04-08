@@ -33,41 +33,28 @@ const MetricsVisualization = ({ metrics }) => {
   // Memoize chart data to prevent unnecessary re-renders
   const chartData = useMemo(() => {
     // Generate CPU data
-    const cpuData = metrics?.performance?.cpu?.nodes 
+    const cpuData = metrics?.performance?.cpu?.nodes
       ? Object.entries(metrics.performance.cpu.nodes).map(([nodeName, cpuValue], index) => ({
           name: `Node ${index + 1}`,
           cpu: cpuValue
         }))
-      : [
-          { name: 'Node 1', cpu: 45.2 },
-          { name: 'Node 2', cpu: 60.3 },
-          { name: 'Node 3', cpu: 30.1 },
-          { name: 'Node 4', cpu: 70.5 },
-          { name: 'Node 5', cpu: 25.8 },
-        ];
+      : [];
 
     // Generate memory data
-    const memoryData = metrics?.performance?.memory?.nodes 
+    const memoryData = metrics?.performance?.memory?.nodes
       ? Object.entries(metrics.performance.memory.nodes).map(([nodeName, memoryValue], index) => ({
           name: `Node ${index + 1}`,
           memory: memoryValue
         }))
-      : [
-          { name: 'Node 1', memory: 60.1 },
-          { name: 'Node 2', memory: 75.4 },
-          { name: 'Node 3', memory: 40.2 },
-          { name: 'Node 4', memory: 80.3 },
-          { name: 'Node 5', memory: 35.7 },
-        ];
+      : [];
 
     // Generate network data
-    const networkData = [
-      { name: 'Node 1', network: 120 },
-      { name: 'Node 2', network: 200 },
-      { name: 'Node 3', network: 80 },
-      { name: 'Node 4', network: 300 },
-      { name: 'Node 5', network: 150 },
-    ];
+    const networkData = metrics?.performance?.network
+      ? Object.entries(metrics.performance.network).map(([nodeName, networkValue], index) => ({
+          name: `Node ${index + 1}`,
+          network: networkValue
+        }))
+      : [];
 
     return { cpuData, memoryData, networkData };
   }, [metrics]);

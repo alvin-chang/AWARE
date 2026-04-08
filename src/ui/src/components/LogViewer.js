@@ -30,17 +30,8 @@ const LogViewer = ({ alerts: propAlerts, loading: propLoading, error: propError,
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
 
-  // Use either prop alerts or mock data
-  const [alerts, setAlerts] = useState(propAlerts || [
-    { id: 1, timestamp: '2023-09-27 10:30:15', level: 'INFO', source: 'Node-001', message: 'Node joined cluster successfully', resolved: true },
-    { id: 2, timestamp: '2023-09-27 10:29:45', level: 'WARNING', source: 'Node-003', message: 'High memory usage detected', resolved: false },
-    { id: 3, timestamp: '2023-09-27 10:28:30', level: 'INFO', source: 'Queen-001', message: 'New cluster formation initiated', resolved: true },
-    { id: 4, timestamp: '2023-09-27 10:25:22', level: 'ERROR', source: 'Node-005', message: 'Connection timeout to queen node', resolved: false },
-    { id: 5, timestamp: '2023-09-27 10:20:10', level: 'INFO', source: 'API-Gateway', message: 'Configuration updated for cluster-123', resolved: true },
-    { id: 6, timestamp: '2023-09-27 10:15:05', level: 'INFO', source: 'Node-002', message: 'Node registered with cluster', resolved: true },
-    { id: 7, timestamp: '2023-09-27 10:10:30', level: 'WARNING', source: 'Node-004', message: 'CPU usage above threshold', resolved: false },
-    { id: 8, timestamp: '2023-09-27 10:05:15', level: 'INFO', source: 'Cluster-Manager', message: 'Scheduled maintenance completed', resolved: true },
-  ]);
+  // Use prop alerts or empty array
+  const [alerts, setAlerts] = useState(propAlerts || []);
 
   // Update alerts when props change
   useEffect(() => {

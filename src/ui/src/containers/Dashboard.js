@@ -49,39 +49,37 @@ const Dashboard = () => {
       // Update resources state
       setResources(resourcesData?.resources || []);
       
-      // Create mock data based on API responses
-      const mockData = {
-        activeClusters: 1, // We have one cluster
+      // Create data from API responses
+      const dashboardData = {
+        activeClusters: clusterStatus.status === 'active' ? 1 : 0,
         connectedNodes: clusterStatus.nodeCount || 0,
-        avgResponseTime: 42, // Mock value for now
+        avgResponseTime: 0,
         clusters: [
-          { 
-            id: clusterStatus.clusterId || 1, 
-            name: clusterStatus.name || 'Default Cluster', 
-            status: clusterStatus.status === 'active' ? 'healthy' : 'warning', 
-            nodeCount: clusterStatus.nodeCount || 0, 
-            queenCount: clusterStatus.isLeader ? 1 : 0 
+          {
+            id: clusterStatus.clusterId || 1,
+            name: clusterStatus.name || 'Default Cluster',
+            status: clusterStatus.status === 'active' ? 'healthy' : 'warning',
+            nodeCount: clusterStatus.nodeCount || 0,
+            queenCount: clusterStatus.isLeader ? 1 : 0
           }
         ],
-        nodes: nodesData.discovered.map((node, index) => ({
-          id: `${index + 1}`.padStart(3, '0'),
-          name: `Node-${node.nodeId?.substr(0, 5) || `00${index + 1}`}`,
-          status: node.status || 'connected',
-          role: node.role || 'worker',
-          responseTime: Math.floor(Math.random() * 50) + 10 // Random mock value
-        })).concat(
-          // Add the local node
-          [{
+        nodes: [
+          ...nodesData.discovered.map((node, index) => ({
+            id: `${index + 1}`.padStart(3, '0'),
+            name: `Node-${node.nodeId?.substr(0, 5) || `00${index + 1}`}`,
+            status: node.status || 'connected',
+            role: node.role || 'worker'
+          })),
+          ...(nodesData.self ? [{
             id: '001',
-            name: `Node-${nodesData.self?.nodeId?.substr(0, 5) || 'self'}`,
+            name: `Node-${nodesData.self.nodeId?.substr(0, 5) || 'self'}`,
             status: 'connected',
-            role: nodesData.self?.role || 'worker',
-            responseTime: 15
-          }]
-        )
+            role: nodesData.self.role || 'worker'
+          }] : [])
+        ]
       };
-      
-      setDashboardData(mockData);
+
+      setDashboardData(dashboardData);
     } catch (err) {
       setError(`Failed to load dashboard data: ${err.message}`);
       console.error('Error fetching dashboard data:', err);
