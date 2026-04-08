@@ -25,7 +25,15 @@ class ElectionManager {
     
     // C-03 FIX: Register this instance in the static registry for simulation
     ElectionManager.registry[this.nodeId] = this;
-    
+
+    // Single-node cluster: become leader immediately
+    if (this.nodes.length <= 1) {
+      this.state = 'leader';
+      this.leaderId = this.nodeId;
+      console.log(`Node ${this.nodeId} is sole node, becoming leader immediately`);
+      return;
+    }
+
     this.startElectionTimer();
   }
 
