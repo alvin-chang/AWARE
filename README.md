@@ -1,9 +1,8 @@
 # AWARE — Agentic AI Security Control Plane
 
 **Project Key:** `aware`  
-**Root:** `~/src/AWARE`  
-**Gitea (primary):** http://openclaw.local:3000/alvin/AWARE  
-**GitHub (read-only mirror):** https://github.com/alvin-chang/AWARE  
+**Root:** `/opt/aware`  
+**GitHub:** https://github.com/alvin-chang/AWARE  
 **License:** GPL-3.0
 
 > **All agents push to Gitea only.** GitHub is a read-only public mirror. Never push directly to GitHub.
@@ -38,21 +37,135 @@ AWARE implements a layered architecture:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    ORCHESTRATOR                      │
-│         (goal decomposition, task assignment)       │
+│                    ORCHESTRATOR                     │
+│        (goal decomposition, task assignment)        │
 ├─────────────────────────────────────────────────────┤
-│                   AGENT HOST                         │
+│                     AGENT HOST                      │
 │          (tool execution, context, memory)          │
 ├─────────────────────────────────────────────────────┤
-│              SECURITY LAYER                          │
-│     (policy enforcement, anomaly detection)          │
+│                   SECURITY LAYER                    │
+│       (policy enforcement, anomaly detection)       │
 ├─────────────────────────────────────────────────────┤
-│                   TOOL LAYER                        │
-│            (I/O, external APIs, computation)         │
+│                     TOOL LAYER                      │
+│          (I/O, external APIs, computation)          │
 └─────────────────────────────────────────────────────┘
 ```
 
 **Existing foundation (queen/worker hierarchy):** Maps cleanly to orchestrator/agent host roles. Extension is additive, not a rewrite.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js ≥ 14.0.0
+- npm ≥ 6.0.0
+- Docker & Docker Compose (for containerized deployment)
+
+### Local Development
+
+```bash
+# Clone the repository
+git clone https://github.com/alvin-chang/AWARE.git
+cd AWARE
+
+# Install dependencies
+npm install
+
+# Start the backend server
+npm start
+
+# In a separate terminal, run tests
+npm test
+
+# Start the React UI (optional)
+npm run ui-dev
+```
+
+### Docker Deployment
+
+```bash
+# Build and run all services (backend + UI)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+The UI is served by **Nginx** on **port 3001** (configured in `docker-compose.yml`).
+To build the UI Docker image separately:
+
+```bash
+docker build -f Dockerfile.ui -t aware-ui .
+docker run -p 3001:80 aware-ui
+```
+
+### UI
+
+The React UI runs on **port 3001** and connects to the API at port 3000.
+
+```bash
+# Install UI dependencies
+npm run ui-install
+
+# Start UI in development mode
+npm run ui-dev
+
+# Build UI for production
+npm run ui-build
+```
+
+Configure UI via `src/ui/.env`:
+- `PORT` — UI port (default: 3001)
+- `REACT_APP_API_URL` — Backend API URL (default: /api)
+
+### Deployment Scripts
+
+```bash
+# Deploy with Docker Compose (full stack)
+./deploy.sh
+
+# Deploy with custom environment file
+./deploy.sh --env-file .env.production
+
+# Deploy without rebuilding images
+./deploy.sh --no-build
+
+# Stop containers and redeploy
+./deploy.sh --down
+```
+
+### Kubernetes Deployment
+
+```bash
+# Apply Kubernetes manifests
+kubectl apply -f k8s-deployment.yaml
+
+# Check deployment status
+kubectl get pods -l app=aware-backend
+kubectl get pods -l app=aware-frontend
+```
+
+The k8s manifests create:
+- Backend service (`aware-backend`) on port 3000
+- Frontend service (`aware-frontend`) on port 80/3001
+- Secret (`aware-secrets`) for JWT signing key
+
+Replace the base64-encoded `SECRET_KEY` in the Secret before deploying.
+
+### Configuration
+
+Set these environment variables before starting:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SECRET_KEY` | JWT signing secret (min 32 chars) | Yes |
+| `NODE_ID` | Unique node identifier | Auto-generated |
+| `API_PORT` | API server port (default: 3000) | No |
 
 ---
 

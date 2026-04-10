@@ -55,7 +55,7 @@ aware-gitops/
 
 ```yaml
 # agents/researcher.yaml
-apiVersion: aware.openclaw.ai/v1
+apiVersion: aware.example.com/v1
 kind: Agent
 metadata:
   name: researcher
@@ -99,7 +99,7 @@ const AGENT_SCHEMA = {
   type: 'object',
   required: ['apiVersion', 'kind', 'metadata', 'spec'],
   properties: {
-    apiVersion: { type: 'string', pattern: '^aware\\.openclaw\\.ai/v\\d+$' },
+    apiVersion: { type: 'string', pattern: '^aware\\.example\\.com/v\\d+$' },
     kind: { type: 'string', const: 'Agent' },
     metadata: {
       type: 'object',
@@ -471,7 +471,7 @@ function getProvider(): GitProvider {
   switch (providerType) {
     case 'gitea':
       return new GiteaProvider(
-        process.env.GITEA_URL || 'http://openclaw.local:3000',
+        process.env.GITEA_URL || 'https://gitea.example.com',
         process.env.GITEA_TOKEN || ''
       );
     case 'github':

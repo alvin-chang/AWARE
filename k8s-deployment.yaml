@@ -6,7 +6,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: aware-backend-service
+  name: aware-backend
   labels:
     app: aware-backend
 spec:
@@ -108,7 +108,7 @@ spec:
         - containerPort: 80
         env:
         - name: REACT_APP_API_URL
-          value: "http://aware-backend-service:3000/api"
+          value: "/api"
 
 ---
 # Secret for sensitive configuration

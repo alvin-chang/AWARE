@@ -69,9 +69,24 @@ echo ""
 
 # Check if environment file exists
 if [[ ! -f "$ENV_FILE" ]]; then
-    echo "Error: Environment file '$ENV_FILE' not found!"
-    echo "Please create the environment file before running this script."
-    exit 1
+    if [[ -f "${ENV_FILE}.example" ]]; then
+        echo "Creating $ENV_FILE from ${ENV_FILE}.example..."
+        cp "${ENV_FILE}.example" "$ENV_FILE"
+    else
+        echo "Error: Environment file '$ENV_FILE' not found!"
+        echo "Please create the environment file before running this script."
+        exit 1
+    fi
+fi
+
+# Auto-generate SECRET_KEY if not set or is placeholder
+CURRENT_KEY=$(grep "^SECRET_KEY=" "$ENV_FILE" | cut -d'=' -f2-)
+if [[ -z "$CURRENT_KEY" || "$CURRENT_KEY" == "change_me_to_a_secure_random_key" ]]; then
+    echo "Generating secure SECRET_KEY..."
+    NEW_KEY=$(openssl rand -base64 32 | tr -d '/+=' | head -c 48)
+    sed -i.bak "s|^SECRET_KEY=.*|SECRET_KEY=$NEW_KEY|" "$ENV_FILE"
+    rm -f "${ENV_FILE}.bak"
+    echo "SECRET_KEY generated and saved to $ENV_FILE"
 fi
 
 # Load environment variables

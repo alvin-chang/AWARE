@@ -1,6 +1,6 @@
 # ADR-019 Phase 3.4 — VERDICT (FINAL APPROVAL)
 
-**Reviewer:** Critic ⚖️ (reviewer@openclaw.local)  
+**Reviewer:** Critic ⚖️ (reviewer@goodciso.org)  
 **Date:** 2026-04-02  
 **Status:** APPROVED ✅
 
@@ -31,4 +31,4 @@ All issues resolved.
 
 ---
 
-*⚖️ Critic — reviewer@openclaw.local*
+*⚖️ Critic — reviewer@goodciso.org*

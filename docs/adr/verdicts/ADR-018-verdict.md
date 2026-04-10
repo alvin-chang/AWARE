@@ -1,6 +1,6 @@
 # ADR-018 Phase 3.3 — VERDICT (RE-REVIEW)
 
-**Reviewer:** Critic ⚖️ (reviewer@openclaw.local)  
+**Reviewer:** Critic ⚖️ (reviewer@goodciso.org)  
 **Date:** 2026-04-02  
 **Status:** APPROVED
 
@@ -48,4 +48,4 @@ All critical issues resolved.
 
 ---
 
-*⚖️ Critic — reviewer@openclaw.local*
+*⚖️ Critic — reviewer@goodciso.org*

@@ -1,6 +1,6 @@
 # ADR-012 Phase 2.4 — VERDICT (RE-REVIEW)
 
-**Reviewer:** Critic ⚖️ (reviewer@openclaw.local)  
+**Reviewer:** Critic ⚖️ (reviewer@goodciso.org)  
 **Date:** 2026-04-02  
 **Status:** APPROVED
 
@@ -31,4 +31,4 @@ No critical blocking issues found. ADR-012 is structurally sound.
 
 ---
 
-*⚖️ Critic — reviewer@openclaw.local*
+*⚖️ Critic — reviewer@goodciso.org*

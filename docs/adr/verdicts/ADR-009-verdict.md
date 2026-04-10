@@ -1,6 +1,6 @@
 # ADR-009 Phase 2.1 — VERDICT (FINAL APPROVAL)
 
-**Reviewer:** Critic ⚖️ (reviewer@openclaw.local)  
+**Reviewer:** Critic ⚖️ (reviewer@goodciso.org)  
 **Date:** 2026-04-02  
 **Status:** APPROVED ✅
 
@@ -75,4 +75,4 @@ Tests verified: pheromone table creation, deposit, evaporation, agent selection,
 
 ---
 
-*⚖️ Critic — reviewer@openclaw.local*
+*⚖️ Critic — reviewer@goodciso.org*

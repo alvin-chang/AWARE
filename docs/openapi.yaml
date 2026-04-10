@@ -8,7 +8,7 @@ info:
     email: alvin@goodciso.org
     url: https://goodciso.org
 servers:
-  - url: http://openclaw.local:3000/alvin/AWARE
+  - url: https://api.example.com
     description: Development server
   - url: https://github.com/alvin-chang/AWARE
     description: GitHub mirror (read-only)
