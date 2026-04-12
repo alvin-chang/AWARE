@@ -1,184 +1,158 @@
-# AWARE Architecture
+# AWARE Architecture — v2.0
 
-**Version:** 1.0
-**Last Updated:** 2026-04-06
-**Project Key:** aware
+> **Version:** 2.0
+> **Date:** 2026-04-12
+> **Status:** Architecture updated per Alvin directive — ant routing removed, ATD merged as frontend
 
 ---
 
 ## Overview
 
-AWARE (Autonomous Warehouse Automated Resource Engine) is a production-deployed autonomous distributed systems platform using bio-inspired coordination algorithms. The system implements Raft consensus for leader election, ant colony optimization for resource routing, and provides a React-based monitoring dashboard.
+**AWARE (Autonomous Warehouse Automated Resource Engine)** is now a **security-first agentic AI platform** — a control plane for governing autonomous AI agents in production.
+
+**Positioning:** "AWARE — the security-first agentic AI platform"
+**Target buyer:** CISO, AI safety leads, compliance teams
 
 ---
 
-## System Architecture
+## What Was Removed (v1 → v2)
 
-### Core Components
+| Removed | Reason |
+|---------|--------|
+| Ant colony optimization (AMRO-S pheromone routing) | Academic exploration, not customer-validated |
+| Raft consensus for resource routing | Over-engineered for current scope |
+| General-purpose distributed coordination | Not part of security control plane focus |
+
+---
+
+## What Stays (v2 Core)
+
+| Component | Purpose |
+|-----------|---------|
+| Security constraint engine | T0-T4 constraint definitions and enforcement |
+| Circuit breakers | Fail-fast on policy violations |
+| Anomaly detection | Detect deviation from expected agent behavior |
+| Kill switches | Emergency stop for agent operations |
+| ATD React dashboard | Visualization layer (merged from agent-tactical-display) |
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    AWARE Platform                        │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
-│  │  Frontend   │  │   Backend   │  │  Node Agents     │ │
-│  │  (React +   │  │  (Express   │  │  (Coordination   │ │
-│  │  Material-  │  │  + Node.js) │  │   + Discovery)  │ │
-│  │  UI)        │  │             │  │                 │ │
-│  └─────────────┘  └─────────────┘  └─────────────────┘ │
-│         │                │                    │         │
-│         └────────────────┼────────────────────┘         │
-│                          │                               │
-│              ┌───────────▼───────────┐                  │
-│              │    Raft Consensus      │                  │
-│              │    (Leader Election)    │                  │
-│              └───────────────────────┘                  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    AWARE Platform                            │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              ATD Frontend (React)                    │   │
+│  │  ~/src/AWARE/frontend/                              │   │
+│  │  Security dashboard, agent map, constraint editor   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                            │                                │
+│                            │ REST / WebSocket              │
+│                            ▼                                │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              AWARE Backend (Node.js)                 │   │
+│  │  ~/src/AWARE/backend/                               │   │
+│  │                                                       │   │
+│  │  • Constraint engine (T0-T4 definitions)             │   │
+│  │  • Circuit breaker logic                            │   │
+│  │  • Anomaly detection                                │   │
+│  │  • Kill switch manager                              │   │
+│  │  • Event ingestion from OpenClaw gateways          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                            │                                │
+│                            │ Policy enforcement             │
+│                            ▼                                │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │           OpenClaw Agent Layer                       │   │
+│  │  Agents operate within AWARE security constraints    │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Technology Stack
+---
+
+## ATD Merge
+
+**Source:** `~/.openclaw/projects/agent-tactical-display/` (standalone ATD project)
+**Destination:** `~/src/AWARE/frontend/`
+
+ATD was the React dashboard for agent tactical display. Per Alvin directive 2026-04-12, ATD becomes AWARE's visualization layer:
+- ATD's React frontend moves to `~/src/AWARE/frontend/`
+- ATD's backend (PostgreSQL + Redis + Stripe billing) is deprioritized — AWARE backend takes priority
+- Positioning shifts from "standalone SaaS" to "AWARE's frontend"
+
+---
+
+## Security Control Plane Features
+
+### T0-T4 Constraint Framework
+
+| Tier | Constraint Type | Example |
+|------|----------------|---------|
+| T0 | Hard block | Never execute shell commands |
+| T1 | Require approval | External network calls need confirmation |
+| T2 | Log and alert | File system writes trigger notification |
+| T3 | Monitor only | Read operations are logged |
+| T4 | Audit trail | Full context capture for compliance |
+
+### Circuit Breakers
+
+- **Constraint violation** → agent operation halted
+- **Anomaly detected** → agent paused, alert sent
+- **Kill switch triggered** → all agent operations stop immediately
+
+### Anomaly Detection
+
+- Monitor agent behavior against baseline
+- Detect: excessive retries, unexpected tool calls, deviation from task scope
+- Alert via dashboard + webhook
+
+---
+
+## Technology Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18, Material-UI, React Router |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, React Flow |
 | Backend | Node.js, Express.js |
-| Database | SQLite (embedded), file-based persistence |
-| Consensus | Raft (leader election, log replication) |
-| Coordination | Ant Colony Optimization (pheromone-based routing) |
-| Container | Docker, Docker Compose |
-| Reverse Proxy | Nginx |
-| API | REST, OpenAPI 3.0 |
+| Database | SQLite (embedded) or PostgreSQL |
+| Event ingestion | WebSocket/SSE from OpenClaw gateways |
+| Auth | JWT-based (integrates with OpenClaw auth) |
 
 ---
 
-## Backend Architecture
-
-### API Layer (`/api`)
-
-- **Authentication:** JWT-based with role-based access control (RBAC)
-- **Endpoints:**
-  - `/api/auth/*` — Authentication (login, register, refresh)
-  - `/api/nodes/*` — Node management and status
-  - `/api/cluster/*` — Cluster operations and health
-  - `/api/jwt/*` — JWT token management
-
-### Node Coordination
-
-- **Discovery Protocol:** UDP-based node discovery on configurable ports
-- **Heartbeat:** Periodic health checks from leader to followers
-- **Leader Election:** Raft consensus for automatic failover
-- **State Replication:** Log-based state machine replication
-
-### Security Model
-
-- JWT tokens with configurable expiry
-- Role-based permissions: `admin`, `operator`, `viewer`
-- Pheromone-based routing with quality-gated evolution
-
----
-
-## Frontend Architecture
-
-### Dashboard Features
-
-- **Cluster Overview:** Real-time node status and cluster health
-- **Node Manager:** Add, remove, and configure nodes
-- **Alert Viewer:** System alerts and notifications
-- **Metrics Display:** Resource utilization and performance metrics
-
-### State Management
-
-- React Context for global state
-- React Query for server state synchronization
-- Local storage for user preferences
-
----
-
-## Data Flow
+## Project Structure
 
 ```
-Client Request
-      │
-      ▼
-┌─────────────┐
-│    Nginx    │ ─── Static assets (frontend)
-│   (Port     │
-│   3001)     │
-└─────────────┘
-      │
-      ▼ (proxy to backend)
-┌─────────────┐     ┌──────────────┐
-│  Express    │────▶│  Raft Node    │
-│  API Server │     │  (Leader)     │
-└─────────────┘     └──────────────┘
-                           │
-                           ▼ (replicate)
-                    ┌──────────────┐
-                    │ Follower     │
-                    │ Nodes        │
-                    └──────────────┘
+~/src/AWARE/
+├── AWARE-architect.md      ← This file (architecture spec)
+├── frontend/                 ← ATD React dashboard (merged)
+│   ├── src/
+│   ├── package.json
+│   └── ...
+├── backend/                  ← Security control plane backend
+│   ├── src/
+│   │   ├── constraints/     ← T0-T4 constraint engine
+│   │   ├── circuit-breakers/← Circuit breaker logic
+│   │   ├── anomaly/         ← Anomaly detection
+│   │   └── killswitch/      ← Kill switch manager
+│   └── ...
+└── docs/
 ```
 
 ---
 
-## Deployment
+## Out of Scope (v2)
 
-### Docker Compose
-
-```yaml
-services:
-  aware-backend:
-    build: .
-    ports:
-      - "${API_PORT:-3000}:${API_PORT:-3000}"
-    environment:
-      - NODE_ID=${NODE_ID:-node-1}
-      - DISCOVERY_PORT=${DISCOVERY_PORT:-41234}
-      - SECRET_KEY=${SECRET_KEY}
-    volumes:
-      - ./data:/app/data
-
-  aware-frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.ui
-    ports:
-      - "3001:80"
-    environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL}
-```
-
-### Environment Variables
-
-See `.env.production` for full configuration:
-
-- `NODE_ID` — Unique node identifier
-- `API_PORT` — Backend API port (default: 3000)
-- `DISCOVERY_PORT` — UDP discovery port (default: 41234)
-- `BROADCAST_PORT` — UDP broadcast port (default: 41235)
-- `SECRET_KEY` — JWT signing secret
-- `REACT_APP_API_URL` — Frontend API endpoint
+- General-purpose task orchestration
+- Multi-agent coordination algorithms
+- Distributed consensus (Raft/etc.)
+- Non-security resource routing
 
 ---
 
-## Security Considerations
-
-1. **Authentication:** JWT with short-lived access tokens
-2. **Authorization:** Role-based access control
-3. **Network:** Nodes communicate on internal network only
-4. **Secrets:** Never commit `.env.production` to version control
-5. **Pheromone Validation:** Quality-gated evolution prevents routing drift
-
----
-
-## API Reference
-
-Full OpenAPI specification: [`docs/openapi.yaml`](docs/openapi.yaml)
-
----
-
-## Related Documentation
-
-- [Evolution Brief](docs/EVOLUTION-BRIEF.md) — Project direction and research
-- [OpenAPI Spec](docs/openapi.yaml) — API reference
-- [Compliance Matrix](docs/compliance-matrix.md) — Security and compliance mapping
+*Archimedes — 2026-04-12*
