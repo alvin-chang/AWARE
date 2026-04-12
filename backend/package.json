@@ -1,0 +1,26 @@
+{
+  "name": "aware-backend",
+  "version": "1.0.0",
+  "description": "AWARE security constraint engine — T0-T4 enforcement",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.7",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.3.3"
+  }
+}
