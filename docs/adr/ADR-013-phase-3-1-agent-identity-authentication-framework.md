@@ -1,6 +1,6 @@
 # ADR-013: Phase 3.1 — Agent Identity & Authentication Framework
 
-**Status:** APPROVED (Critor, 2026-04-01 14:00 BST) ✅  
+**Status:** DRAFT — Ready for Critic review and re-approval (header status corrected 2026-04-14)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Phase 1.1 (Agent Identity Layer); Scout Audit (C-01, C-02, C-03); ADR-010 (Trust Score); EVOLUTION-BRIEF.md Section on NHI  
@@ -339,6 +339,12 @@ async function verifyAttestation(token, targetTrustDomain) {
 ---
 
 ## Revocation Propagation
+
+> **Note on `broadcastRevocation()`:** This ADR specifies the *revocation cache* (etcd paths, TTLs) and the *state machine* (NHI lifecycle). The `broadcastRevocation()` call is the mechanism by which agents receive revocation notifications. Implementation uses:
+> - **Primary:** etcd revocation cache with 30-second polling interval
+> - **CRITICAL severity:** Triggers immediate re-attestation on next tool call (no wait for poll)
+> - **Offline agents:** On reconnect, must re-attest before accepting any new requests. Revocation cache TTL (default 60s) determines maximum window of exposure.
+> - **Future:** May be replaced by pub/sub push notifications if etcd watcher support is added
 
 ### Revocation Events
 

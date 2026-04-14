@@ -1,6 +1,6 @@
 # ADR-017: Phase 3.2 — Kill Switch Propagation & Emergency Shutdown
 
-**Status:** APPROVED (Critic, 2026-04-01 22:38 BST)
+**Status:** DRAFT — Critic review addressed (propagation SLA bounds + cancel procedure added 2026-04-14)
 **Critic review:** APPROVED — F-1 (ack write verification) and F-2 (override authority matrix) resolved  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
@@ -95,6 +95,32 @@ const KILL_SWITCH_TRIGGERS = {
   shutdownProcedure: 'GRACEFUL'  // or 'FORCED'
 }
 ```
+
+### Propagation SLA Bounds
+
+> **This section addresses Critic's gap: expected propagation latency through Raft consensus was not specified.**
+
+| Propagation Phase | Expected Latency | Maximum Latency | Handling for Exceeded Bounds |
+|-----------------|-----------------|-----------------|------------------------------|
+| Raft log commit (LOCAL) | < 50ms | 500ms | Agent self-kills after 500ms; kill signal issuer alerted |
+| Raft broadcast (DOMAIN) | < 200ms per hop | 2s total | Domain coordinator trips LOCAL kill for unresponsive agents |
+| Raft broadcast (GLOBAL) | < 500ms total | 5s total | GLOBAL kill signal issuer alerted; partial broadcast logged |
+| Agent shutdown execution | < 1s | 5s | FORCED shutdown after 5s; agent marked KILLED而非优雅 |
+| Acknowledgment write | < 100ms | 1s | ACK marked MISSING; acknowledgment tracker alerts issuer |
+
+**Raft consensus latency assumptions:**
+- 3-node Raft cluster: majority = 2 nodes
+- Network partition handling: agents unreachable for > 10s are marked UNREACHABLE and excluded from acknowledgment count
+- Cold-standby agents: on restart, check etcd for active kill signals; if present, execute shutdown before accepting any requests
+
+**Unreachable agent handling:**
+- Agents that are offline during broadcast must on reconnect: (1) check etcd for active kill signals, (2) execute shutdown immediately if found, (3) acknowledge with `delayed: true` flag
+- Maximum delayed acknowledgment window: 15 minutes (after which agent is marked KILLED regardless)
+- Agents that never reconnect within 15 minutes are flagged in the acknowledgment report as `AGENT_NEVER_RECONNECTED`
+
+**Propagation is asynchronous:** Agents begin shutdown upon receiving the kill signal, not after all agents receive it. This is intentional — waiting for all agents before starting shutdown would allow a malicious agent to delay shutdown by not acknowledging.
+
+---
 
 ### Propagation Flow (DOMAIN Severity)
 
@@ -546,6 +572,75 @@ const GLOBAL_KILL_CANCEL_AUTHORITY = {
   boardQuorumMet: true
 }
 ```
+
+### Cancel-During-Shutdown Procedure
+
+> **This section addresses Critic's gap: no defined handling when cancel is issued mid-propagation or mid-shutdown.**
+
+#### Cancel Decision Tree
+
+```
+Cancel request received
+         │
+         ▼
+Is severity LOCAL? ────YES──▶ Agent already self-killed?
+         │                           │
+         NO                         ├─YES: Cancel is INEFFECTIVE.
+         │                           │   Agent must recover via standard
+         ▼                           │   reboot procedure.
+Is severity DOMAIN? ───YES──▶ Any DOMAIN agent already killed?
+         │                           │
+         NO                          ├─NO: Cancel HALTS propagation.
+         │                           │   Remaining agents resume normal
+         ▼                           │   operation immediately.
+Is severity GLOBAL?        └─YES: Cancel is PARTIALLY EFFECTIVE.
+    (handled below)              Killed agents must recover via
+                                 standard reboot. Remaining agents
+                                 resume immediately.
+         │
+         ▼
+GLOBAL Cancel ──── Propagation complete (all agents received)?
+         │
+         ├─YES: Cancel is INEFFECTIVE on killed agents.
+         │      GLOBAL kill caused irreversible state changes.
+         │      Surviving agents resume; killed agents reboot.
+         │
+         └─NO: Propagation still in progress ─▶ CANCEL HALTS.
+                All agents that have NOT yet executed shutdown
+                resume normal operation.
+```
+
+#### Cancel States and Effects
+
+| Kill Signal State | Cancel Effective? | Effect |
+|-------------------|-------------------|--------|
+| Issued, not yet propagated | ✅ YES | No agent shuts down. Kill signal marked `CANCELLED_BEFORE_PROPAGATION` |
+| Propagated, agents preparing shutdown | ✅ YES | Agents abort graceful shutdown, resume normal operation |
+| Agents mid-graceful-shutdown | ⚠️ MAYBE | Depends on how far shutdown progressed. Best effort. Mark `PARTIAL_CANCEL` |
+| Agents already FORCED-killed | ❌ NO | Cancel ineffective. Agents must reboot/recover |
+| DOMAIN kill, 2 of 5 agents killed | ⚠️ PARTIAL | 3 surviving agents resume; 2 killed must recover |
+
+#### Cancel API Response
+
+```javascript
+POST /api/kill-switch/:killSignalId/cancel
+
+// Response indicates cancel effectiveness:
+{
+  killSignalId: 'ks-uuid',
+  status: 'CANCEL_PARTIALLY_EFFECTIVE',  // or CANCEL_SUCCESS, CANCEL_INEFFECTIVE
+  killedAgents: ['agent:forge:node3', 'agent:scout:node7'],  // already killed
+  rescuedAgents: ['agent:forge:node1', 'agent:scout:node4', 'agent:quinn:node2'],  // stopped before kill
+  propagationStopped: true,
+  message: '2 agents already killed; 3 rescued before shutdown'
+}
+```
+
+#### Post-Cancel Actions
+
+1. **Monitoring intensified:** For 1 hour post-cancel, all rescued agents have elevated monitoring (ADR-014 anomaly detection at 2x sensitivity)
+2. **Incident review:** Cancel reason logged; automatic incident report generated within 24h
+3. **False positive analysis:** If cancel reason was "false positive," root cause must be documented before that kill signal type can be re-enabled
 
 ---
 

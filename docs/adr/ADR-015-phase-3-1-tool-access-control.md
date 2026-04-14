@@ -1,6 +1,6 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** APPROVED (Critic, 2026-04-01 22:05 BST) ✅  
+**Status:** DRAFT — Critic review addressed (role hierarchy + emergency override added 2026-04-14)  
 **Author:** Archimedes  
 **Date:** 2026-04-01  
 **Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
@@ -102,7 +102,7 @@ const ROLES = {
     allows: ['*']  // All tools
   },
   'coder': {
-    inherits: [],
+    inherits: ['researcher'],  // coder inherits all researcher permissions
     allows: [
       'read:workspace/*',
       'write:workspace/*',
@@ -134,7 +134,7 @@ const ROLES = {
     ]
   },
   'tester': {
-    inherits: [],
+    inherits: ['researcher'],  // tester inherits researcher read permissions
     allows: [
       'read:workspace/*',
       'exec:test-runner',
@@ -147,7 +147,55 @@ const ROLES = {
     ]
   }
 };
+
+/**
+ * Role Inheritance Resolution
+ * 
+ * When evaluating permissions, inheritance is resolved recursively:
+ * 1. Collect all inherited roles recursively (depth-first)
+ * 2. Start with this role's allows/denies
+ * 3. For each inherited role (in order):
+ *    - Add inherited allows to permission set
+ *    - Add inherited denies to permission set
+ * 4. Evaluate final permission set
+ * 
+ * Example: evaluatePermission('coder', 'read:api') 
+ *   -> inherits 'researcher' 
+ *   -> researcher allows 'read:*' 
+ *   -> Result: ALLOWED
+ */
+function resolveInheritance(roleName, visited = new Set()) {
+  if (visited.has(roleName)) return [];  // Circular reference guard
+  visited.add(roleName);
+  const role = ROLES[roleName];
+  if (!role) return [];
+  const inherited = role.inherits || [];
+  return [...inherited.flatMap(r => resolveInheritance(r, visited)), roleName];
+}
 ```
+
+### Agent-to-Role Mapping
+
+> **This ADR specifies the RBAC system. Agent-to-role assignment is defined in ADR-013 (Identity Framework).**
+
+The role assigned to an agent is determined by the JWT claims issued by the Identity Provider (ADR-013):
+
+```javascript
+// From ADR-013 JWT claims structure:
+const jwtPayload = {
+  agentId: 'agent:forge:main',
+  role: 'coder',          // From Identity Provider
+  domain: 'aware-build',
+ iat: 1712000000,
+  exp: 1712003600
+};
+```
+
+**Role assignment authority:**
+- Identity Provider issues JWTs with roles based on registration records
+- Role assignment is administered via `/admin/agents/:agentId/role` API
+- Only `admin` role can assign roles to other agents
+- Role changes take effect on next JWT issuance (existing JWTs retain old role until expiry)
 
 ### Permission Evaluation
 
@@ -706,6 +754,85 @@ async function checkSecurityGate(req) {
 | ShadowToolDetector | `src/tools/shadow-detector.js` | Unknown tool detection |
 | ToolAuditor | `src/tools/auditor.js` | Invocation logging |
 | ToolInvocator | `src/tools/invoker.js` | Actual tool execution |
+
+---
+
+## Emergency Override ("Break-Glass")
+
+> **Purpose:** Allow operators to bypass tool restrictions during genuine emergencies (e.g., stop a runaway agent, grant temporary access to fix a production incident).
+
+### Emergency Access Protocol
+
+| Step | Action | Authority |
+|------|--------|---------|
+| 1 | Operator requests emergency elevation via `/admin/emergency` | Any authenticated operator |
+| 2 | System requires second approver within 5 minutes | Second operator or admin |
+| 3 | Temporary role granted for maximum 30 minutes | System auto-expires |
+| 4 | All emergency actions logged with `emergency: true` flag | Immutable audit trail |
+| 5 | Auto-notification sent to CISO + admin channel | Automatic |
+
+### Emergency Override API
+
+```javascript
+// Request emergency elevation
+POST /admin/emergency
+{
+  reason: "Production data corruption — need exec access to repair",
+  requestedTools: ["exec", "write:production"],
+  durationMinutes: 30
+}
+
+// Response
+{
+  emergencyToken: "emg_abc123",
+  status: "PENDING_APPROVAL",
+  expiresAt: "2026-04-14T12:35:00Z",
+  approverRequired: true
+}
+
+// Second operator approves
+POST /admin/emergency/emg_abc123/approve
+{
+  approverId: "admin:alvin",
+  signature: "RSA_signature"
+}
+
+// Emergency token auto-expires after durationMinutes
+// or can be manually revoked:
+DELETE /admin/emergency/emg_abc123
+```
+
+### Emergency Override Constraints
+
+- **Hard limit:** Maximum 30 minutes per emergency session
+- **Hard limit:** Maximum 3 concurrent emergency sessions per domain
+- **Audit:** ALL actions taken with emergency token are logged with `emergency: true` and cannot be deleted
+- **Post-incident review:** Automatic ticket created for review within 24 hours
+- **Cannot override:** Kill switch (GLOBAL severity) cannot be bypassed by emergency override
+
+### Emergency Override vs Normal Authorization
+
+```javascript
+function evaluatePermission(agentRole, requestedTool, requestedParams, context) {
+  // Check for emergency token
+  if (context.emergencyToken) {
+    const session = emergencySessionStore.get(context.emergencyToken);
+    if (!session || session.expiresAt < Date.now()) {
+      return { allowed: false, reason: 'EMERGENCY_TOKEN_EXPIRED' };
+    }
+    if (!session.approved) {
+      return { allowed: false, reason: 'EMERGENCY_PENDING_APPROVAL' };
+    }
+    if (!session.requestedTools.includes(requestedTool)) {
+      return { allowed: false, reason: 'EMERGENCY_TOOL_NOT_AUTHORIZED' };
+    }
+    // Log with emergency flag — still auditable
+    auditLog.log({ ...context, emergency: true, tool: requestedTool });
+    return { allowed: true, reason: 'EMERGENCY_OVERRIDE' };
+  }
+  // Normal evaluation follows...
+}
+```
 
 ---
 
