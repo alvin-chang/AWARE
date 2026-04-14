@@ -1,10 +1,104 @@
 // src/api/middleware/tool-authorization.js
 // Tool Authorization Middleware — Pre-invocation authorization
 // ADR-015: Tool Access Control & Enforcement
+// C1 Integration: T0 Constraint Engine (circuit breaker)
 
 const { evaluatePermission } = require('../../policies/permission-model');
 const { validateParameters } = require('../../policies/parameter-validator');
 const { ShadowDetector } = require('../../policies/shadow-detector');
+
+// ── C1: T0 Constraint Engine (lazy-loaded singleton) ──────────────────────────
+/** @type {import('../../../../AWARE/backend/dist/engine.js').ConstraintEngine|null} */
+let _constraintEngine = null;
+/** @type {Promise<import('../../../../AWARE/backend/dist/engine.js').ConstraintEngine>|null} */
+let _engineInitPromise = null;
+
+/**
+ * Lazily initialize the T0 constraint engine singleton.
+ * Engine is shared across all requests — initialized once on first use.
+ * @returns {Promise<ConstraintEngine>}
+ */
+async function getConstraintEngine() {
+  if (_constraintEngine) return _constraintEngine;
+  if (_engineInitPromise) return _engineInitPromise;
+
+  _engineInitPromise = (async () => {
+    try {
+      // Dynamic import — backend/ is ESM, this file is CommonJS
+      const { ConstraintEngine } = await import('../../../../AWARE/backend/dist/engine.js');
+      const { T0ConstraintRegistry, ApprovedChannel } = await import('../../../../AWARE/backend/dist/constraints/index.js');
+
+      // Default approved outbound channels (ADR-009 T0-1)
+      // These are the only outbound destinations T0 agents may contact
+      const approvedChannels = /** @type {ApprovedChannel[]} */ ([
+        { channel: 'github.com', reason: 'GitOps — code push to private repo' },
+        { channel: 'api.github.com', reason: 'GitHub API — PRs, issues, releases' },
+        { channel: 'openclaw.local:3000', reason: 'Gitea — internal artifact push' },
+        { channel: 'localhost:3000', reason: 'Gitea — internal artifact push' },
+      ]);
+
+      const t0 = new T0ConstraintRegistry({ approvedChannels });
+      _constraintEngine = new ConstraintEngine({ blockOnTierViolation: false });
+      _constraintEngine.t0Registry = t0;
+      console.log('[tool-auth] T0 constraint engine initialized — circuit breaker ACTIVE');
+      return _constraintEngine;
+    } catch (err) {
+      console.error('[tool-auth] Failed to initialize T0 constraint engine:', err.message);
+      // Don't block all requests if the circuit breaker fails to init
+      // — fail-open is a known trade-off here (gateway-level kill switch is the net)
+      _engineInitPromise = null;
+      return null;
+    }
+  })();
+
+  return _engineInitPromise;
+}
+
+/**
+ * Build an AgentAction from the current request context.
+ * @param {string} actionId - Unique action ID
+ * @param {string} agentId - Authenticated agent ID
+ * @param {string} toolId - Tool being invoked
+ * @param {Object} parameters - Tool parameters
+ * @param {boolean} privileged - Whether agent has elevated privileges
+ * @returns {Object}
+ */
+function buildAgentAction(actionId, agentId, toolId, parameters, privileged) {
+  return {
+    id: actionId,
+    agentId,
+    action: toolId,
+    params: parameters || {},
+    timestamp: new Date().toISOString(),
+    privileged: privileged || false,
+    metadata: {
+      // Capture outbound URLs from params for T0-1 exfiltration check
+      outboundUrls: extractOutboundUrls(parameters),
+    },
+  };
+}
+
+/**
+ * Extract potential outbound URLs from tool parameters (recursive scan).
+ * T0-1 checks these against the approved channel whitelist.
+ * @param {any} obj
+ * @returns {string[]}
+ */
+function extractOutboundUrls(obj) {
+  if (!obj) return [];
+  if (typeof obj === 'string') {
+    try {
+      const url = new URL(obj);
+      if (url.protocol === 'http:' || url.protocol === 'https:') return [url.hostname];
+    } catch { /* not a URL */ }
+    return [];
+  }
+  if (Array.isArray(obj)) return obj.flatMap(extractOutboundUrls);
+  if (typeof obj === 'object') {
+    return Object.values(obj).flatMap(extractOutboundUrls);
+  }
+  return [];
+}
 
 /**
  * Create tool authorization middleware
@@ -150,6 +244,55 @@ function createToolAuthorizationMiddleware(config = {}) {
           message: 'Tool is not in session allowed tools list'
         });
       }
+
+      // ── C1: T0 Circuit Breaker ──────────────────────────────────────────────
+      // Evaluate ALL T0 constraints BEFORE tool execution.
+      // T0 violations are hard blocks — no override, no bypass.
+      // This is the last line of defense before the tool fires.
+      const engine = await getConstraintEngine();
+      if (engine) {
+        const action = buildAgentAction(
+          `tool-${toolId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          agent.agentId,
+          toolId,
+          parameters,
+          agent.privileged || false
+        );
+
+        try {
+          const result = await engine.evaluateT0(action);
+
+          if (!result.allowed) {
+            const violation = result.violated || {};
+            console.warn(
+              `[tool-auth] T0 BLOCKED — agent=${agent.agentId} tool=${toolId} ` +
+              `constraint=${violation.constraint || 'unknown'} reason=${violation.message || 'denied'}`
+            );
+
+            // Log to security logger
+            if (securityLogger) {
+              await securityLogger.logSecurityEvent({
+                type: 'T0_CONSTRAINT_VIOLATION',
+                agentId: agent.agentId,
+                sessionId,
+                toolId,
+                constraint: violation.constraint || 'unknown',
+                reason: violation.message || 'T0 hard block',
+              });
+            }
+
+            return res.status(403).json({
+              error: 'T0_CONSTRAINT_VIOLATION',
+              constraint: violation.constraint || 'unknown',
+              reason: violation.message || 'T0 constraint violated — tool blocked',
+            });
+          }
+        } catch (evalErr) {
+          // Circuit breaker threw — fail-open with warning (net safety via gateway kill switch)
+          console.error('[tool-auth] T0 evaluation threw:', evalErr.message);
+        }
+      }
+      // ── End C1 circuit breaker ──────────────────────────────────────────────
 
       // 7. Validate tool parameters against schema (F-1 FIX)
       if (tool.parameters) {
