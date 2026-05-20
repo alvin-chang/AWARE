@@ -1,250 +1,148 @@
 # AWARE — Agentic AI Security Control Plane
 
-**Project Key:** `aware`  
-**Root:** `/opt/aware`  
-**GitHub:** https://github.com/alvin-chang/AWARE  
-**License:** GPL-3.0
+**AWARE** secures autonomous AI agents before they become your biggest attack surface.
 
-> **All agents push to Gitea only.** GitHub is a read-only public mirror. Never push directly to GitHub.
-
----
-
-## What AWARE Is
-
-AWARE is evolving into an **open-source agentic AI security control plane** — the open alternative to Microsoft Agent 365 and Okta Agent Gateway.
-
-AWARE's core primitive is **bio-inspired coordination** (ant colony optimization). This isn't a bolt-on feature — it's the foundation for how autonomous agents route tasks, share learnings, and self-organize under security constraints.
-
-**Core thesis:** Bio-inspired coordination algorithms are the right primitive for autonomous agent orchestration and security. Pheromone-based routing, distributed consensus, and self-healing topologies translate directly to agent governance.
+- **GitHub:** https://github.com/GoodCISO/aware
+- **Product:** https://goodciso.org
+- **License:** GPL-3.0
 
 ---
 
-## Key Differentiators (AWARE Evolution Research)
+## The Problem
 
-| Pattern | Description |
-|---------|-------------|
-| **Modularity with Explicit Interfaces** | Each layer (orchestrator, agent host, security, tools) evolves independently |
-| **Identity-First Security** | Every agent has NHI (Non-Human Identity) with cryptographic credentials, capability claims, and trust scoring |
-| **Explicit Tool Contracts** | Per-agent authorization specifying who can call what, under what conditions |
+Your organisation is deploying AI agents — autonomous workflows, agentic AI, copilots with tool access. Each one is a non-human identity with credentials, permissions, and the ability to call external APIs.
+
+**Who controls them?**
+
+Traditional identity platforms weren't built for agents. They don't understand tool-call authorisation, behavioural drift, or the blast radius when an agent goes rogue.
+
+## What AWARE Does
+
+AWARE is an **open-source security control plane for autonomous AI agents**. It sits between your agents and their tools — enforcing identity, authorisation, behavioural constraints, and kill-switch capability across your entire agent fleet.
+
+| Capability | What It Does |
+|---|---|
+| **Agent Identity** | Every agent gets cryptographic credentials, capability claims, and trust scoring (NHI for AI) |
+| **Tool Contracts** | Per-agent authorisation — who can call what, under what conditions |
+| **Constraint Enforcement** | T0–T4 security constraints: data exfiltration blocking, human-in-the-loop gates, cryptographic identity, append-only audit trails |
+| **Behavioural Anomaly Detection** | Baselines normal agent behaviour and flags deviations |
+| **Kill Switch** | Distributed emergency shutdown via Raft consensus — revoke all agent access instantly |
 | **Observable Decision Trails** | Every routing decision logged with rationale — interpretable for debugging and compliance |
-| **Quality-Gated Pheromone Evolution** | Only high-quality routing trajectories get reinforced (AMRO-S research, 4.7x speedup) |
 
----
-
-## Architecture
-
-AWARE implements a layered architecture:
+## How It Works
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    ORCHESTRATOR                     │
-│        (goal decomposition, task assignment)        │
-├─────────────────────────────────────────────────────┤
-│                     AGENT HOST                      │
-│          (tool execution, context, memory)          │
-├─────────────────────────────────────────────────────┤
-│                   SECURITY LAYER                    │
-│       (policy enforcement, anomaly detection)       │
-├─────────────────────────────────────────────────────┤
-│                     TOOL LAYER                      │
-│          (I/O, external APIs, computation)          │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│              YOUR AI AGENTS                 │
+├─────────────────────────────────────────────┤
+│              AWARE CONTROL PLANE            │
+│  Identity → Authorisation → Constraints     │
+│  Monitoring → Anomaly Detection → Kill      │
+├─────────────────────────────────────────────┤
+│              YOUR TOOLS & APIS              │
+└─────────────────────────────────────────────┘
 ```
 
-**Existing foundation (queen/worker hierarchy):** Maps cleanly to orchestrator/agent host roles. Extension is additive, not a rewrite.
+AWARE uses bio-inspired coordination algorithms (ant colony optimisation) to route agent tasks through the right security controls — self-organising under constraint, not bolted on as an afterthought.
 
----
+## Who It's For
 
-## Quick Start
+- **Security teams** deploying AI agents who need governance without slowing delivery
+- **Compliance officers** requiring auditable decision trails for AI tool usage
+- **Engineering leaders** running multi-agent systems who need kill-switch capability
+- **Regulated industries** (finance, healthcare, legal) where AI agent activity must be traceable
 
-### Prerequisites
+## Get Started
 
-- Node.js ≥ 14.0.0
-- npm ≥ 6.0.0
-- Docker & Docker Compose (for containerized deployment)
+### Quick Start (Docker)
+
+```bash
+git clone https://github.com/GoodCISO/aware.git
+cd aware
+docker compose up -d
+```
+
+The API runs on port 3000. The UI is on port 3001.
 
 ### Local Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/alvin-chang/AWARE.git
-cd AWARE
-
-# Install dependencies
 npm install
-
-# Start the backend server
 npm start
-
-# In a separate terminal, run tests
 npm test
-
-# Start the React UI (optional)
-npm run ui-dev
 ```
-
-### Docker Deployment
-
-```bash
-# Build and run all services (backend + UI)
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
-The UI is served by **Nginx** on **port 3001** (configured in `docker-compose.yml`).
-To build the UI Docker image separately:
-
-```bash
-docker build -f Dockerfile.ui -t aware-ui .
-docker run -p 3001:80 aware-ui
-```
-
-### UI
-
-The React UI runs on **port 3001** and connects to the API at port 3000.
-
-```bash
-# Install UI dependencies
-npm run ui-install
-
-# Start UI in development mode
-npm run ui-dev
-
-# Build UI for production
-npm run ui-build
-```
-
-Configure UI via `src/ui/.env`:
-- `PORT` — UI port (default: 3001)
-- `REACT_APP_API_URL` — Backend API URL (default: /api)
-
-### Deployment Scripts
-
-```bash
-# Deploy with Docker Compose (full stack)
-./deploy.sh
-
-# Deploy with custom environment file
-./deploy.sh --env-file .env.production
-
-# Deploy without rebuilding images
-./deploy.sh --no-build
-
-# Stop containers and redeploy
-./deploy.sh --down
-```
-
-### Kubernetes Deployment
-
-```bash
-# Apply Kubernetes manifests
-kubectl apply -f k8s-deployment.yaml
-
-# Check deployment status
-kubectl get pods -l app=aware-backend
-kubectl get pods -l app=aware-frontend
-```
-
-The k8s manifests create:
-- Backend service (`aware-backend`) on port 3000
-- Frontend service (`aware-frontend`) on port 80/3001
-- Secret (`aware-secrets`) for JWT signing key
-
-Replace the base64-encoded `SECRET_KEY` in the Secret before deploying.
 
 ### Configuration
 
-Set these environment variables before starting:
+| Variable | Description |
+|---|---|
+| `SECRET_KEY` | JWT signing secret (min 32 chars) |
+| `NODE_ID` | Unique node identifier (auto-generated) |
+| `API_PORT` | API server port (default: 3000) |
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `SECRET_KEY` | JWT signing secret (min 32 chars) | Yes |
-| `NODE_ID` | Unique node identifier | Auto-generated |
-| `API_PORT` | API server port (default: 3000) | No |
+## Enterprise
 
----
+AWARE is open-source under GPL-3.0. For enterprise support, hosted deployment, and SLAs:
 
-## Implementation Phases
+→ **[goodciso.org](https://goodciso.org)**
 
-| Phase | Name | ADR | Status |
-|-------|------|-----|--------|
-| 1.1 | Agent Identity Layer | — | ✅ Complete |
-| 1.2 | Per-Agent Sandbox Policies | — | ✅ Complete |
-| 1.3 | Behavioural Baseline | — | ✅ Complete |
-| 1.4 | Kill Switch (Raft Consensus) | — | ✅ Complete |
-| 2.1 | Pheromone Specialists | ADR-009 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 2.2 | Security-Weighted Heuristic | ADR-010 | ✅ Complete (9/9 tests PASS) |
-| 2.3 | Quality-Gated Reinforcement | ADR-011 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 2.4 | Hot-Reload Policy | ADR-012 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 3.1A | JWT Identity Provider | ADR-013 | ✅ Complete (27/27 tests PASS) |
-| 3.1B | Behavioural Anomaly Detection | ADR-014 | ✅ Complete (14/14 tests PASS) |
-| 3.1C | Tool Access Control | ADR-015 | ✅ Complete (40/40 tests PASS) |
-| 3.1C | Compliance Mapping | ADR-016 | ✅ Complete (40/40 tests PASS) |
-| 3.2 | Kill Switch Propagation | ADR-017 | ✅ Complete (APPROVED) |
-| 3.3 | Decision-Chain Traceability | ADR-018 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 3.4 | GitOps Agent-as-Code | ADR-019 | ✅ Complete (APPROVED, alert-only) |
+## Why Open Source?
 
-**Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
-
-**Phase 2 is complete** — all ADRs (009–012) approved, implemented, and tested.
-
-**Phase 3 is complete** — all ADRs (013–019) approved, implemented, and tested.
-
-**Phase 4 is complete** — compliance mapping documented.
-
----
-
-## Academic Backing
-
-**AMRO-S** (arXiv:2603.12933) — Efficient and Interpretable Multi-Agent LLM Routing via Ant Colony Optimisation:
-
-- Pheromone-based path selection across layered AI agent graphs
-- Task-specific pheromone specialists prevent cross-task interference
-- Quality-gated evolution reinforces only high-quality routing trajectories
-- **4.7x speedup** over existing multi-agent routing with better accuracy
-
-What AMRO-S does NOT address (AWARE's differentiation): security heuristics, identity governance, kill switches, compliance mapping, blast radius containment.
-
----
-
-## Enterprise Context
-
-| Vendor | Product | AWARE Advantage |
-|--------|---------|-----------------|
-| Microsoft Agent 365 | NHI management, shadow AI detection, universal agent logout | Bio-inspired coordination at core, not bolted on |
-| Okta Agent Gateway | Agent-as-identity, tool-call authorisation, kill switch | Distributed kill-switch via Raft consensus (vs centralized) |
-| Galileo Agent Control | Open-source runtime control plane, hot-reloadable policies | Pheromone routing + compliance mapping on top |
-
----
+Agent security shouldn't be a black box. Every security control, every policy decision, every kill-switch trigger — auditable, reviewable, and verifiable. Open-source is the only way to build trust in agent security.
 
 ## Status
 
-- [x] Phase 1: Complete (1.1–1.4 all delivered and tested)
-- [x] Phase 2.2: COMPLETE (ADR-010, 9/9 tests PASS)
-- [x] Phase 3: COMPLETE ✅
-  - ADR-013 (Phase 3.1A): COMPLETE (27/27 tests PASS)
-  - ADR-014 (Phase 3.1B): COMPLETE (14/14 tests PASS)
-  - ADR-015 (Phase 3.1C): COMPLETE (40/40 tests PASS)
-  - ADR-016 (Phase 3.2): COMPLETE (40/40 tests PASS)
-  - ADR-017 (Phase 3.2/3.3): COMPLETE (2026-04-01 22:38 BST)
-- [x] Phase 4: COMPLETE ✅ — Compliance matrix documented
+All core phases complete. Active development continues.
 
----
+| Component | Status |
+|---|---|
+| Agent Identity & Auth | ✅ Complete |
+| Tool Access Control | ✅ Complete |
+| Behavioural Anomaly Detection | ✅ Complete |
+| Kill Switch (Raft Consensus) | ✅ Complete |
+| Compliance Mapping | ✅ Complete |
+| Constraint Enforcement (T0–T4) | ✅ Complete |
+
+**Latest release:** See [CHANGELOG.md](CHANGELOG.md)
+
+## Architecture Decisions
+
+All architectural decisions are documented and publicly reviewable in `docs/adr/`. Each ADR has been formally reviewed and approved.
+
+| ADR | Topic | Verdict |
+|---|---|---|
+| 009 | Pheromone Specialists | ✅ APPROVED |
+| 010 | Security-Weighted Heuristic | ✅ APPROVED |
+| 011 | Quality-Gated Reinforcement | ✅ APPROVED |
+| 012 | Hot-Reload Policy Mechanism | ✅ APPROVED |
+| 013 | Agent Identity Authentication | ✅ APPROVED |
+| 014 | Behavioural Anomaly Detection | ✅ APPROVED |
+| 015 | Tool Access Control | ✅ APPROVED |
+| 016 | Compliance Mapping | ✅ APPROVED |
+| 017 | Kill Switch Propagation | ✅ APPROVED |
+| 018 | Decision-Chain Traceability | ✅ APPROVED |
+| 019 | GitOps Agent-as-Code | ✅ APPROVED |
+
+## Academic Backing
+
+**AMRO-S** (arXiv:2603.12933) — Ant colony optimisation for multi-agent LLM routing. 4.7x speedup over existing approaches.
+
+## Competitor Comparison
+
+| Vendor | Product | AWARE Advantage |
+|---|---|---|
+| Microsoft Agent 365 | NHI management, shadow AI detection | Bio-inspired coordination at core, not bolted on |
+| Okta Agent Gateway | Agent-as-identity, kill switch | Distributed kill-switch via Raft consensus |
+| Galileo Agent Control | Open-source runtime control plane | Pheromone routing + compliance mapping |
 
 ## Quick Links
 
-- [Evolution Brief](docs/EVOLUTION-BRIEF.md) — Full project direction and research
-- [OpenAPI Spec](docs/openapi.yaml) — API reference
-- [Compliance Matrix](docs/compliance-matrix.md) — Security and compliance mapping
-- [Changelog](CHANGELOG.md) — Version history
-
----
+- [Product & Enterprise](https://goodciso.org)
+- [Evolution Brief](docs/EVOLUTION-BRIEF.md)
+- [OpenAPI Spec](docs/openapi.yaml)
+- [Compliance Matrix](docs/compliance-matrix.md)
+- [Changelog](CHANGELOG.md)
 
 ## Stack
 
-Node.js · Express.js · React · Material-UI · Docker · Nginx · Raft Consensus · Ant Colony Optimization
+Node.js · Express.js · React · Docker · Raft Consensus · Ant Colony Optimisation
