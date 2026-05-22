@@ -1,19 +1,27 @@
-# AWARE Web UI
+# AWARE — Security Control Plane UI
 
-The web-based user interface for AWARE (Autonomous Warehouse Automated Resource Engine) cluster management.
+The web-based user interface for AWARE (Autonomous Warehouse Automated Resource Engine) — repositioned from cluster management to **Security Control Plane**.
 
 ## Overview
 
-This React-based application provides a dashboard for monitoring and managing AWARE clusters. It connects to the AWARE API to provide real-time information about cluster health, node status, and system metrics.
+This React-based application provides a security operations dashboard for managing AI agent trust, constraint enforcement, kill switch controls, anomaly detection, compliance mapping, and audit trail traceability.
 
 ## Features
 
-- **Dashboard**: Overview of all clusters with status indicators
-- **Cluster Management**: Create, view, and manage clusters
-- **Node Monitoring**: Real-time view of node health and connectivity
-- **Configuration**: System settings and preferences
-- **Monitoring**: Detailed metrics and logs
-- **Alerts**: Notifications and issue tracking
+- **Agent Identity Dashboard** — Trust scores, cryptographic credentials, capability claims
+- **Constraint Enforcement** — T0–T4 constraint tier visibility and status
+- **Kill Switch Controls** — Emergency shutdown and agent revocation
+- **Anomaly Detection Alerts** — Behavioral deviation monitoring with baseline comparison
+- **Compliance Mapping** — ISO 27001, SOC 2, GDPR, AI Act framework coverage
+- **Audit Trail Viewer** — Decision chain traceability and routing decision history
+
+## Tech Stack
+
+- React 18 + React Router v6
+- Material UI (MUI) — dark theme
+- Redux Toolkit — agents, alerts, compliance, audit slices
+- Recharts — metrics visualisation
+- WebSocket — real-time event streaming
 
 ## Prerequisites
 
@@ -22,104 +30,37 @@ Before running this application, ensure you have:
 - Node.js (version 16 or higher)
 - npm or yarn package manager
 - Access to the AWARE API backend
+- AWARE backend WebSocket endpoint (for real-time events)
 
 ## Installation
 
 1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd aware-ui
    ```
 
 2. Install dependencies:
    ```bash
-   npm install
-   # or
-   yarn install
+   cd src/ui && npm install
    ```
 
-3. Create a `.env` file in the root directory with the following content:
+3. Configure environment:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API and WebSocket URLs
    ```
-   REACT_APP_API_URL=http://localhost:3000/api
+
+4. Start the development server:
+   ```bash
+   npm start
    ```
-   
-   Replace `http://localhost:3000/api` with the actual URL of your AWARE API.
 
-## Running the Application
+## Production
 
-### Development Mode
-To run the application in development mode with hot reloading:
-
+Build and deploy with Docker:
 ```bash
-npm start
-# or
-yarn start
+docker build -f Dockerfile.ui -t aware-ui .
+docker run -p 80:80 aware-ui
 ```
 
-The application will be accessible at `http://localhost:3000`.
-
-### Production Build
-To create a production-ready build:
-
-```bash
-npm run build
-# or
-yarn build
-```
-
-The optimized build will be created in the `build` directory.
-
-## Project Structure
-
-```
-src/
-├── components/          # Reusable UI components
-│   ├── Header.js        # Application header
-│   ├── Sidebar.js       # Navigation sidebar
-│   ├── SummaryCard.js   # Dashboard summary cards
-│   └── ...              # Other components
-├── containers/          # Page-level components
-│   ├── Dashboard.js     # Main dashboard page
-│   ├── Clusters.js      # Cluster management page
-│   ├── Nodes.js         # Node monitoring page
-│   └── ...              # Other pages
-├── services/            # API and WebSocket services
-│   ├── apiService.js    # API communication
-│   └── WebSocketService.js # Real-time updates
-├── store/               # Redux store configuration
-├── utils/               # Utility functions
-├── styles/              # Global styles (if any)
-├── App.js               # Main application component
-├── index.js             # Application entry point
-└── index.css            # Global styles
-```
-
-## Technologies Used
-
-- React.js with functional components and hooks
-- Material-UI for UI components and styling
-- Redux Toolkit for state management
-- React Router for navigation
-- Axios for API requests
-- Recharts for data visualization
-- WebSocket for real-time updates
-
-## API Integration
-
-The application communicates with the AWARE backend API using the service layer in `src/services/apiService.js`. It supports:
-
-- Authentication with JWT tokens
-- CRUD operations for clusters and nodes
-- Real-time updates via WebSocket
-- Error handling and retry mechanisms
-
-## Security
-
-- JWT-based authentication
-- Secure storage of tokens in localStorage with proper validation
-- Request interceptors for adding authentication headers
-- Error handling for unauthorized access
-
-## License
-
-This project is part of the AWARE (Autonomous Warehouse Automated Resource Engine) system.
+nginx is configured for SPA routing.
