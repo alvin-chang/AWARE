@@ -1,0 +1,123 @@
+# Kubernetes deployment configuration for AWARE
+# This configuration can be used to deploy AWARE to a Kubernetes cluster
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: aware-backend-service
+  labels:
+    app: aware-backend
+spec:
+  selector:
+    app: aware-backend
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: LoadBalancer
+
+---
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aware-backend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aware-backend
+  template:
+    metadata:
+      labels:
+        app: aware-backend
+    spec:
+      containers:
+      - name: aware-backend
+        image: aware-backend:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: DISCOVERY_PORT
+          value: "41234"
+        - name: BROADCAST_PORT
+          value: "41235"
+        - name: API_PORT
+          value: "3000"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aware-secrets
+              key: secret-key
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: aware-frontend-service
+  labels:
+    app: aware-frontend
+spec:
+  selector:
+    app: aware-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
+
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aware-frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aware-frontend
+  template:
+    metadata:
+      labels:
+        app: aware-frontend
+    spec:
+      containers:
+      - name: aware-frontend
+        image: aware-frontend:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: REACT_APP_API_URL
+          value: "http://aware-backend-service:3000/api"
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aware-secrets
+type: Opaque
+data:
+  # This should be replaced with an actual base64 encoded secret key
+  # Example: echo -n 'your-actual-secret-key' | base64
+  secret-key: eW91cl9zZWNyZXRfa2V5X2hlcmU=  # Replace with actual encoded value
