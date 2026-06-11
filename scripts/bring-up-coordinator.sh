@@ -55,19 +55,21 @@ log "validating $COMPOSE_FILE"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" config >/dev/null \
   || fail "compose file failed validation"
 
-# 3. Build the coordinator image. The compose file declares
-#   `additional_contexts: [heavy-think=../heavy-think]`, so `docker compose
-#   build` resolves the heavy-think source natively (BuildKit-backed).
-log "building coordinator image (this may take a few minutes on first run)"
+# 3. Build the coordinator + gateway images. The compose file declares
+#   `additional_contexts: [heavy-think=../heavy-think]` for the coordinator,
+#   and the gateway has its own minimal Dockerfile that doesn't need heavy-think.
+#   Both are BuildKit-backed.
+log "building coordinator + gateway images (this may take a few minutes on first run)"
 DOCKER_BUILDKIT=1 docker compose \
   -f "$COMPOSE_FILE" -p "$PROJECT" \
-  build coordinator \
-  || fail "coordinator image build failed"
+  --profile full \
+  build coordinator gateway \
+  || fail "coordinator/gateway image build failed"
 
-# 4. Bring up the 5-service stack
+# 4. Bring up the 5-service stack (gateway behind the `full` profile)
 log "starting services"
-docker compose -f "$COMPOSE_FILE" -p "$PROJECT" up -d \
-  coordinator ollama-sidecar postgres redis \
+docker compose -f "$COMPOSE_FILE" -p "$PROJECT" --profile full up -d \
+  coordinator ollama-sidecar postgres redis gateway \
   || fail "docker compose up failed"
 
 # 5. Wait for healthchecks. The simplest correct check: `docker inspect`
@@ -79,7 +81,7 @@ elapsed=0
 while (( elapsed < HEALTH_TIMEOUT )); do
   all_healthy=true
   status=""
-  for c in aware-2-coordinator aware-2-ollama aware-2-postgres aware-2-redis; do
+  for c in aware-2-coordinator aware-2-ollama aware-2-postgres aware-2-redis aware-2-gateway; do
     status=$(docker inspect --format '{{.State.Health.Status}}' "$c" 2>/dev/null || echo "missing")
     if [[ "$status" != "healthy" ]]; then
       all_healthy=false
@@ -143,9 +145,37 @@ ks_response=$(curl -sS -m 5 -X POST http://127.0.0.1:18081/coordinate \
 # (kill-switch is OFF by default; we just check the request didn't crash)
 echo "  → $ks_response"
 
+# 8. Gateway smoke test (gated on the gateway being up; in the
+# default 4-service bring-up the gateway is behind `full` profile
+# and may not be running — skip if absent).
+if docker inspect --format '{{.State.Health.Status}}' aware-2-gateway 2>/dev/null \
+  | grep -q healthy; then
+  log "smoke test: gateway /version"
+  gw_version=$(curl -sS -m 5 http://127.0.0.1:18080/version)
+  echo "  → $gw_version"
+  echo "$gw_version" | grep -q '"service":"aware-gateway"' \
+    || fail "gateway /version did not return aware-gateway identity"
+
+  log "smoke test: gateway /health (proxies coordinator)"
+  gw_health=$(curl -sS -m 5 http://127.0.0.1:18080/health)
+  echo "  → $gw_health"
+  # Gateway's /health returns 200 + status:ok when its kill-switch is off.
+  # We don't assert coordinator status here; the coordinator healthcheck
+  # already verified that separately.
+  echo "$gw_health" | grep -q '"status":"ok"' \
+    || fail "gateway /health is not ok"
+
+  log "smoke test: gateway request-id propagation"
+  inbound_rid="bringup-test-$(date +%s)"
+  rid_response=$(curl -sS -m 5 -i http://127.0.0.1:18080/version \
+    -H "x-request-id: $inbound_rid")
+  echo "$rid_response" | grep -q "x-request-id: $inbound_rid" \
+    || fail "gateway did not echo the inbound x-request-id"
+fi
+
 # 8. Cleanup
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 5 smoke tests, all green."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 5 smoke tests (4 if gateway is behind the `full` profile), all green."

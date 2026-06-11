@@ -1,0 +1,62 @@
+# Dockerfile.gateway — AWARE 2.0 gateway
+# Per ADR-020 Phase 1, option A: thin BFF/proxy in front of the coordinator.
+# Multi-stage build: deps installed in builder stage, runtime stage is minimal.
+# Runs as non-root `aware` user. Healthcheck via wget /health on the gateway itself.
+#
+# Build with:
+#   DOCKER_BUILDKIT=1 docker build \
+#     -f Dockerfile.gateway \
+#     -t aware-gateway:0.1.0-phase-1-gateway \
+#     .
+
+# ─── Builder ────────────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+WORKDIR /build
+
+# Copy only the gateway's package manifest. Use a separate file
+# (package.gateway.json -> package.json) so we don't pull in the
+# full v1 dependency tree (express-validator, jsonwebtoken, uuid, etc.).
+COPY package.gateway.json ./package.json
+
+# Install production deps only. The runtime image copies node_modules
+# wholesale, so we don't need to worry about dev deps.
+RUN npm install --omit=dev --no-audit --no-fund --loglevel=error
+
+# ─── Runtime ────────────────────────────────────────────────────────
+FROM node:22-alpine AS runtime
+
+# wget is needed for the HEALTHCHECK. node:22-alpine has it; no apk add.
+# bash is needed for the entrypoint; it ships with alpine.
+
+# Create non-root user. The coordinator uses `aware` for the same reason.
+RUN addgroup -S aware && adduser -S aware -G aware
+
+WORKDIR /app
+
+# Copy the built node_modules from the builder stage.
+COPY --from=builder --chown=aware:aware /build/node_modules ./node_modules
+
+# Copy only the gateway source. We do not copy the rest of the repo
+# so the gateway image has the minimum attack surface.
+COPY --chown=aware:aware src/gateway ./src/gateway
+COPY --chown=aware:aware package.gateway.json ./package.json
+
+# T0-T4 enforcement defaults. The gateway does not enforce T0-T4 itself
+# (the coordinator does that) but the kill-switch env var is read on
+# every request, so we set a default of 0 (off).
+ENV NODE_ENV=production \
+    GATEWAY_HOST=0.0.0.0 \
+    GATEWAY_PORT=18080 \
+    COORDINATOR_URL=http://coordinator:8080 \
+    AWARE_GATEWAY_KILL_SWITCH=0 \
+    GATEWAY_PROXY_TIMEOUT_MS=120000
+
+USER aware
+
+EXPOSE 18080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:18080/health || exit 1
+
+CMD ["node", "src/gateway/server.js"]

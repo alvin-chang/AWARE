@@ -45,28 +45,39 @@ volumes:
 services:
 
   # ─── 1. Gateway ───────────────────────────────────────────────
-  # Thin BFF/proxy in front of the coordinator. In Phase 1, this is a
-  # placeholder. The real gateway (TBD by design decision) is carved out
-  # of the v1 backend or built as a new service. Lives behind a profile
-  # so it doesn't auto-start until a real config is in place.
+  # Thin BFF/proxy in front of the coordinator. Adds helmet, cors,
+  # rate-limit, and a per-request X-Request-Id; forwards /coordinate,
+  # /health, and /version to the coordinator. Gateway kill-switch
+  # (AWARE_GATEWAY_KILL_SWITCH) takes precedence over the coordinator
+  # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
+  # so the bring-up script's default 4-service stack works without it.
   gateway:
-    image: ghcr.io/linuxserver/nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: aware-gateway:0.1.0-phase-1-gateway
     container_name: aware-2-gateway
     profiles: ["full"]
     ports:
-      - "18080:80"
+      - "18080:18080"
+    environment:
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=18080
+      - COORDINATOR_URL=http://coordinator:8080
+      - AWARE_GATEWAY_KILL_SWITCH=${AWARE_GATEWAY_KILL_SWITCH:-0}
+      - GATEWAY_PROXY_TIMEOUT_MS=120000
     depends_on:
       coordinator:
         condition: service_healthy
     networks:
       - aware-2
     restart: unless-stopped
-    command:
-      - /bin/sh
-      - -c
-      - |
-        echo 'server { listen 80; location / { proxy_pass http://coordinator:8080; } }' \
-          > /config/nginx/site-confs/default.conf && nginx -g 'daemon off;'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
 
   # ─── 2. Coordinator ───────────────────────────────────────────
   # The Phase 1 deliverable. Built from Dockerfile.coordinator.
