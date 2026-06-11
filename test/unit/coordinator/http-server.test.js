@@ -291,3 +291,132 @@ test('GET /version and /health respond in any order, real concurrent server', as
     assert.equal(b.status, 200);
   });
 });
+
+// ─────────────────────── T0–T4 enforcement tests ───────────────────────
+
+test('T4 kill-switch: AWARE_KILL_SWITCH=1 returns 503 to /coordinate without doing work', async () => {
+  const coordinateFn = async () => {
+    throw new Error('coordinateFn should not be called when kill-switch is engaged');
+  };
+  const prev = process.env.AWARE_KILL_SWITCH;
+  process.env.AWARE_KILL_SWITCH = '1';
+  try {
+    await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ problem: 'hello' }),
+      });
+      assert.equal(res.status, 503);
+      const body = await res.json();
+      assert.equal(body.kind, 'killed');
+      assert.match(body.error, /kill-switch/i);
+    });
+  } finally {
+    if (prev === undefined) delete process.env.AWARE_KILL_SWITCH;
+    else process.env.AWARE_KILL_SWITCH = prev;
+  }
+});
+
+test('T0 timeout: coordinateFn slower than body.timeout_ms returns 504', async () => {
+  const coordinateFn = async () => {
+    await new Promise((r) => setTimeout(r, 5000));
+    return { ok: true };
+  };
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'slow problem', timeout_ms: 200 }),
+    });
+    assert.equal(res.status, 504);
+    const body = await res.json();
+    assert.equal(body.kind, 'timeout');
+    assert.match(body.error, /200ms/);
+  });
+});
+
+test('T0 timeout: per-request body.timeout_ms overrides the env default', async () => {
+  let observed = null;
+  const coordinateFn = async () => {
+    await new Promise((r) => setTimeout(r, 80));
+    observed = 'ran';
+    return { ok: true };
+  };
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'fast', timeout_ms: 1000 }), // 1000ms cap, work takes 80ms
+    });
+    assert.equal(res.status, 200);
+    assert.equal(observed, 'ran');
+  });
+});
+
+test('T2 cost-cap: result.cost_usd exceeding body.cost_cap_usd returns 402', async () => {
+  const coordinateFn = async () => ({ ok: true, cost_usd: 5.5, refined: 'expensive answer' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'expensive', cost_cap_usd: 1.0 }),
+    });
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    assert.equal(body.kind, 'cost_cap');
+    assert.equal(body.cost_usd, 5.5);
+    assert.equal(body.cost_cap_usd, 1.0);
+  });
+});
+
+test('T2 cost-cap: result.cost_usd within cap returns 200', async () => {
+  const coordinateFn = async () => ({ ok: true, cost_usd: 0.5 });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'cheap', cost_cap_usd: 1.0 }),
+    });
+    assert.equal(res.status, 200);
+  });
+});
+
+test('every response carries an x-request-id header that matches body.request_id', async () => {
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    const customId = 'test-req-' + Date.now();
+    const res = await fetch(`http://${h.host}:${h.port}/version`, {
+      headers: { 'x-request-id': customId },
+    });
+    assert.equal(res.headers.get('x-request-id'), customId);
+    const body = await res.json();
+    assert.equal(body.request_id, customId);
+  });
+});
+
+test('every response auto-generates a UUID v4 request_id when not supplied', async () => {
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/version`);
+    const headerId = res.headers.get('x-request-id');
+    const body = await res.json();
+    assert.ok(headerId, 'response should have x-request-id header');
+    assert.equal(body.request_id, headerId);
+    // UUID v4 pattern: 8-4-4-4-12 hex chars with version digit 4
+    assert.match(headerId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+});
+
+test('GET /version surfaces kill_switch state', async () => {
+  const prev = process.env.AWARE_KILL_SWITCH;
+  process.env.AWARE_KILL_SWITCH = '1';
+  try {
+    await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/version`);
+      const body = await res.json();
+      assert.equal(body.kill_switch, true);
+    });
+  } finally {
+    if (prev === undefined) delete process.env.AWARE_KILL_SWITCH;
+    else process.env.AWARE_KILL_SWITCH = prev;
+  }
+});

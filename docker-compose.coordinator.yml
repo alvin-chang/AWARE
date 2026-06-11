@@ -1,0 +1,237 @@
+# docker-compose.coordinator.yml — AWARE 2.0 coordinator stack
+# Per ADR-020 Phase 1: 7-service topology, of which 5 run locally and 2 are
+# placeholder external services for Phase 3 (Modal).
+#
+# This file is ADDITIVE — it does NOT replace the v1 docker-compose.yml
+# (which still runs the v1.0.0 backend + frontend). The v1 stack continues
+# to run on ports 3000/3001/80/443/5001; the v2 stack lives in the 18xxx range.
+#
+# Build with:
+#   DOCKER_BUILDKIT=1 docker compose \
+#     -f docker-compose.coordinator.yml \
+#     -p aware-2 \
+#     --build-context heavy-think=../heavy-think \
+#     up -d --build
+#
+# Tear down:
+#   docker compose -f docker-compose.coordinator.yml -p aware-2 down
+#
+# Verify:
+#   curl -sS http://127.0.0.1:18080/health  # gateway
+#   curl -sS http://127.0.0.1:18081/health  # coordinator
+#   curl -sS http://127.0.0.1:18081/version # coordinator identity
+#   curl -sS http://127.0.0.1:11434/api/tags  # ollama-sidecar
+
+name: aware-2
+
+# ─── Networks ──────────────────────────────────────────────────────
+networks:
+  aware-2:
+    driver: bridge
+    name: aware-2
+
+# ─── Volumes (persistent) ──────────────────────────────────────────
+volumes:
+  aware-2-postgres-data:
+    name: aware-2-postgres-data
+  aware-2-redis-data:
+    name: aware-2-redis-data
+  aware-2-ollama-models:
+    name: aware-2-ollama-models
+  aware-2-preference-pairs:
+    name: aware-2-preference-pairs
+
+# ─── Services ──────────────────────────────────────────────────────
+services:
+
+  # ─── 1. Gateway ───────────────────────────────────────────────
+  # Thin BFF/proxy in front of the coordinator. In Phase 1, this is a
+  # placeholder. The real gateway (TBD by design decision) is carved out
+  # of the v1 backend or built as a new service. Lives behind a profile
+  # so it doesn't auto-start until a real config is in place.
+  gateway:
+    image: ghcr.io/linuxserver/nginx:1.27-alpine
+    container_name: aware-2-gateway
+    profiles: ["full"]
+    ports:
+      - "18080:80"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo 'server { listen 80; location / { proxy_pass http://coordinator:8080; } }' \
+          > /config/nginx/site-confs/default.conf && nginx -g 'daemon off;'
+
+  # ─── 2. Coordinator ───────────────────────────────────────────
+  # The Phase 1 deliverable. Built from Dockerfile.coordinator.
+  # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+      additional_contexts:
+        - "heavy-think=../heavy-think"
+    image: aware-coordinator:0.2.0-phase-1-router
+    container_name: aware-2-coordinator
+    ports:
+      - "18081:8080"
+    environment:
+      - COORDINATOR_HOST=0.0.0.0
+      - COORDINATOR_PORT=8080
+      - AWARE_MODE=${AWARE_MODE:-hybrid}
+      - AWARE_REQUEST_TIMEOUT_MS=${AWARE_REQUEST_TIMEOUT_MS:-120000}
+      - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
+      - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
+      - OLLAMA_URL=http://ollama-sidecar:11434
+    # The upstream LLM API key is intentionally NOT hardcoded. Supply it
+    # by creating ./secrets/api-keys.env with `export AWARE_UPSTREAM_KEY=<value>`,
+    # then `docker compose --env-file ./secrets/api-keys.env up`. The
+    # env_file directive below reads that file into the coordinator's env
+    # without any key material in this compose file.
+    env_file:
+      - path: ./secrets/api-keys.env
+        required: false  # If absent, the coordinator runs in offline-only mode
+    volumes:
+      - aware-2-preference-pairs:/root/.<runtime>/metaclaw/preference-pairs
+    depends_on:
+      ollama-sidecar:
+        condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # ─── 3. Ollama sidecar ───────────────────────────────────────
+  # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
+  # the aware-2-ollama-models volume. Override the default pull model
+  # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
+  ollama-sidecar:
+    image: ollama/ollama:0.5.7
+    container_name: aware-2-ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - aware-2-ollama-models:/root/.ollama
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      # The ollama/ollama:0.5.7 image is minimal — it has `ollama` CLI and
+      # `bash`, but no `wget` or `curl`. Use `ollama list` to verify the
+      # daemon is responsive (a 200-equivalent with the model table).
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        OLLAMA_PID=$$!
+        # Wait for daemon to be ready (up to 30s)
+        for i in $$(seq 1 30); do
+          if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
+          sleep 1
+        done
+        # Pre-pull default model unless explicitly disabled
+        if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
+          ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
+        fi
+        wait $$OLLAMA_PID
+
+  # ─── 4. Postgres ─────────────────────────────────────────────
+  # Session + preference-pair metadata (heavy-think already writes
+  # JSONL to a volume; this is the structured metadata store).
+  # Default password is for local dev only — override via the
+  # AWARE_DB_PWD env var (see .env.example) in any non-dev deployment.
+  postgres:
+    image: postgres:16-alpine
+    container_name: aware-2-postgres
+    ports:
+      - "18432:5432"
+    environment:
+      - POSTGRES_DB=aware2
+      - POSTGRES_USER=aware
+      - POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+    volumes:
+      - aware-2-postgres-data:/var/lib/postgresql/data
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aware -d aware2"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  # ─── 5. Redis ────────────────────────────────────────────────
+  # Cache + memory backend (Phase 5 N.O.M.A.D. uses Redis for memory).
+  redis:
+    image: redis:7-alpine
+    container_name: aware-2-redis
+    ports:
+      - "18379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - aware-2-redis-data:/data
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+
+  # ─── 6. weight-store (Phase 3 placeholder) ──────────────────
+  # Mounts a Modal volume into the coordinator's pod. In Phase 1, this
+  # service is NOT defined here — it's a Modal-side resource referenced
+  # by env vars (AWARE_MODAL_VOLUME_NAME) when the coordinator learns to
+  # upload DPO preference pairs. See ADR-020 Decision 5 + Phase 3.
+
+  # ─── 7. trainer-poller (Phase 3 placeholder) ────────────────
+  # Python+CUDA service on Modal that polls the coordinator for new
+  # preference pairs and triggers DPO training runs. Phase 3 work.
+
+  # ─── Optional: live bring-up probe (development only) ──────
+  # Use: docker compose -f docker-compose.coordinator.yml -p aware-2 --profile test up bring-up-probe
+  # Hits the coordinator + ollama via the internal network and exits 0 on success.
+  # The coordinator container has wget (alpine base); the ollama container has
+  # neither curl nor wget, so we hit ollama via `docker exec ollama list` instead.
+  bring-up-probe:
+    image: curlimages/curl:8.10.1
+    container_name: aware-2-bring-up-probe
+    profiles: ["test"]
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - aware-2
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo '--- coordinator /version ---'
+        curl -sS http://coordinator:8080/version
+        echo
+        echo '--- coordinator /health ---'
+        curl -sS http://coordinator:8080/health
+        echo
+        echo 'BRING-UP-OK'
