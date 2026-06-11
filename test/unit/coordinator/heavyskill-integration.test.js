@@ -115,6 +115,6 @@ test('coordinate() is the public entry point and accepts session/agent context',
 });
 
 test('COORDINATOR_VERSION and COORDINATOR_BUILD_PHASE are surfaced', () => {
-  assert.equal(COORDINATOR_VERSION, '0.1.0-stub');
-  assert.equal(COORDINATOR_BUILD_PHASE, 'pre-phase-1');
+  assert.equal(COORDINATOR_VERSION, '0.2.0-phase-1-router');
+  assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-partial');
 });
