@@ -257,6 +257,14 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
         context: { ...(body.context || {}), cost_cap_usd: costCapUsd },
         sessionId: body.sessionId,
         agentId: body.agentId,
+        // The HTTP layer is the wiring point: the router lives at the
+        // service surface, and we pass the router itself as the
+        // heavy-think-compatible client. heavy-think expects a client
+        // *object* with a `generate(prompt, opts)` method, and that's
+        // exactly what `router` is. By passing the router here we get
+        // the 3-tier fallback (minimax → Ollama) for free, and tests
+        // can still override `coordinateFn` to bypass the router.
+        client: router,
       }),
       timeoutMs,
     );

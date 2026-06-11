@@ -100,14 +100,27 @@ services:
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
       - OLLAMA_URL=http://ollama-sidecar:11434
-    # The upstream LLM API key is intentionally NOT hardcoded. Supply it
-    # by creating ./secrets/api-keys.env with `export AWARE_UPSTREAM_KEY=<value>`,
-    # then `docker compose --env-file ./secrets/api-keys.env up`. The
-    # env_file directive below reads that file into the coordinator's env
-    # without any key material in this compose file.
+    # The upstream LLM API key is intentionally NOT hardcoded. The
+    # compose file reads the env var from the canonical credential
+    # store on this host:
+    #   ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+    # This is a real file (mode 0600) that already contains
+    # LLM_API_KEY=*** plus a few dozen other agent secrets. It
+    # is the source of truth for the whole multi-agent stack, so
+    # wiring the AWARE coordinator to read from it means:
+    #   - one place to rotate the key
+    #   - no key duplication in the AWARE repo
+    #   - gitignore handles the secret file by virtue of being
+    #     outside the repo
+    # If the file is absent (e.g. a CI runner or a fresh dev box
+    # that has never logged into the multi-agent system), the
+    # coordinator boots in offline-only mode: the ollama sidecar
+    # still works, but /coordinate returns 500 with
+    # kind: 'internal_error' until the key is provided. Required:
+    # false makes this a soft dependency.
     env_file:
-      - path: ./secrets/api-keys.env
-        required: false  # If absent, the coordinator runs in offline-only mode
+      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+        required: false
     volumes:
       - aware-2-preference-pairs:/root/.<runtime>/metaclaw/preference-pairs
     depends_on:
