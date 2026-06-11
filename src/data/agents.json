@@ -5,7 +5,7 @@
       "agentId": "agent:tester:instance-abc123",
       "name": "Test Agent",
       "type": "tester",
-      "model": "prior-model",
+      "model": "primary-model",
       "version": "1.0.0",
       "capabilities": [
         "test_execute",
@@ -60,7 +60,7 @@
       "agentId": "agent:researcher:instance-uvw456",
       "name": "Scout (Test)",
       "type": "researcher",
-      "model": "prior-model",
+      "model": "primary-model",
       "version": "1.0.0",
       "capabilities": [
         "web_search",
