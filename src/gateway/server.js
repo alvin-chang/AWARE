@@ -150,17 +150,38 @@ function proxyToCoordinator(req, res) {
 
 function proxyRequest(req, res, done) {
   const target = new URL(getCoordinatorUrl());
+  // Build the upstream options. We re-derive the body if express.json
+  // has already consumed it (we have the parsed object in req.body),
+  // and we strip Content-Length when there's no body so the upstream
+  // doesn't hang waiting for bytes that won't arrive.
+  let bodyBytes = null;
+  if (req.readableEnded || req.complete) {
+    if (req.body && Object.keys(req.body).length > 0) {
+      // Re-serialize the parsed body and re-derive Content-Length.
+      bodyBytes = Buffer.from(JSON.stringify(req.body), 'utf8');
+    }
+  }
+
+  const fwdHeaders = { ...req.headers };
+  delete fwdHeaders['content-length'];  // we'll re-set below
+  if (bodyBytes) {
+    fwdHeaders['content-length'] = String(bodyBytes.length);
+  }
+  // The 127.0.0.1:18080 gateway host:port is meaningless to the
+  // upstream; replace with the coordinator's expected Host.
+  delete fwdHeaders.host;
+  Object.assign(fwdHeaders, {
+    'x-request-id': req.id,
+    'x-forwarded-host': req.header('host') || '',
+    'x-forwarded-proto': req.protocol,
+  });
+
   const opts = {
     method: req.method,
     hostname: target.hostname,
     port: target.port || 80,
     path: req.originalUrl,
-    headers: {
-      ...req.headers,
-      'x-request-id': req.id,
-      'x-forwarded-host': req.header('host') || '',
-      'x-forwarded-proto': req.protocol,
-    },
+    headers: fwdHeaders,
     timeout: PROXY_TIMEOUT_MS,
   };
 
@@ -189,16 +210,18 @@ function proxyRequest(req, res, done) {
 
   req.on('aborted', () => upstream.destroy());
 
-  // If the body was already consumed by express.json, just end the
-  // upstream request with no body. The original Content-Length
-  // header is preserved in the forwarded headers, so the upstream
-  // will see the original size.
+  // Path 1: body was already consumed by express.json. We re-serialize
+  // req.body (if present) and send it. Otherwise send empty.
   if (req.readableEnded || req.complete) {
-    upstream.end();
+    if (bodyBytes) {
+      upstream.end(bodyBytes);
+    } else {
+      upstream.end();
+    }
     return;
   }
 
-  // Otherwise, pipe the request body through to the upstream.
+  // Path 2: body is still flowing. Pipe it through to the upstream.
   req.pipe(upstream);
 }
 

@@ -50,6 +50,26 @@ command -v docker >/dev/null || fail "docker not on PATH"
 docker info >/dev/null 2>&1 || fail "docker daemon not reachable"
 log "docker $(docker --version)"
 
+# 1b. Source the canonical credential store if present. This is
+# optional — the compose file uses `required: false` so the stack
+# still boots in offline-only mode without the key. Sourcing here
+# means the host shell has <redacted-credential-name> + AWARE_POSTGRES_PASSWORD
+# (or whatever the canonical store contains) interpolated into
+# the compose env at up-time. The values never appear in this
+# script's stdout (we log names, not values).
+CREDS_FILE="${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env"
+if [[ -f "$CREDS_FILE" ]]; then
+  log "sourcing $CREDS_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$CREDS_FILE"
+  set +a
+  log "  <redacted-credential-name>: $([[ -n "${<redacted-credential-name>:-}" ]] && echo SET || echo NOT-SET)"
+  log "  AWARE_POSTGRES_PASSWORD: $([[ -n "${AWARE_POSTGRES_PASSWORD:-}" ]] && echo SET || echo NOT-SET)"
+else
+  log "credential store not found at $CREDS_FILE; coordinator will run in offline-only mode"
+fi
+
 # 2. Validate compose
 log "validating $COMPOSE_FILE"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" config >/dev/null \
@@ -139,11 +159,20 @@ docker compose -f "$COMPOSE_FILE" -p "$PROJECT" exec -T redis \
 
 # 7. T0-T4 enforcement: kill-switch + cost-cap + timeout
 log "smoke test: kill-switch engages on /coordinate"
-ks_response=$(curl -sS -m 5 -X POST http://127.0.0.1:18081/coordinate \
+# 30s timeout because this hits the real minimax API (with the
+# canonical credential store's key wired). The previous 5s was set
+# when /coordinate returned 500 immediately; with the key wired,
+# a real round-trip takes 5-15s.
+ks_response=$(curl -sS -m 30 -X POST http://127.0.0.1:18081/coordinate \
   -H 'content-type: application/json' \
-  -d '{"problem":"hi"}')
-# (kill-switch is OFF by default; we just check the request didn't crash)
-echo "  → $ks_response"
+  -d '{"problem":"What is 2+2?","task_type":"simple","K":1}')
+# (kill-switch is OFF by default; we just check the request didn't crash
+# and the response includes a request_id — proof of a real round-trip.)
+echo "  → $ks_response" | head -c 300
+echo
+if [[ -z "$ks_response" ]] || ! echo "$ks_response" | grep -q '"request_id"'; then
+  fail "/coordinate returned empty or no request_id (got: $ks_response)"
+fi
 
 # 8. Gateway smoke test (gated on the gateway being up; in the
 # default 4-service bring-up the gateway is behind `full` profile
@@ -178,4 +207,4 @@ log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 5 smoke tests (4 if gateway is behind the `full` profile), all green."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 9 smoke tests (6 if gateway is behind the full profile), all green."

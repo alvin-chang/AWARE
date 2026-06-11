@@ -208,24 +208,55 @@ function getJson(urlStr, extraHeaders = {}) {
 }
 
 test('gateway proxies /coordinate to upstream with method+body+request-id', async (t) => {
-  // The proxy is exercised end-to-end by the bring-up script
-  // (scripts/bring-up-coordinator.sh) against a real coordinator +
-  // ollama + postgres + redis stack. The unit test for the proxy
-  // path runs into a node --test + node:http + express.json
-  // interaction where the request stream gets consumed by the
-  // body parser and the subsequent proxy hangs. This is a known
-  // interaction with the test runner, not a bug in the proxy.
-  // In production (Docker compose), the proxy works correctly —
-  // verified manually and via the bring-up script's smoke test.
-  t.skip('proxy exercised by bring-up script; node --test runner hits a known stream interaction. Will be re-tested in a follow-up with a different fixture approach.');
+  let received = null;
+  const upstream = await startUpstream((req, res, body) => {
+    received = { method: req.method, body, headers: req.headers };
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, answer: 'mock', request_id: req.headers['x-request-id'] }));
+  });
+  t.after(() => closeServer(upstream.server));
+
+  // Override COORDINATOR_URL for this test only.
+  process.env.COORDINATOR_URL = upstream.baseUrl;
+  t.after(() => { delete process.env.COORDINATOR_URL; });
+
+  const { server, baseUrl } = await startGateway();
+  t.after(() => closeServer(server));
+
+  const inbound = 'req-coordinate-test';
+  const res = await postJson(`${baseUrl}/coordinate`,
+    { problem: 'hello', task_type: 'simple' },
+    { 'x-request-id': inbound });
+
+  assert.equal(res.status, 200);
+  assert.equal(received.method, 'POST');
+  // The proxy re-serializes req.body (since express.json consumed
+  // the raw bytes), so the upstream sees a JSON-encoded body. The
+  // exact byte-for-byte match isn't guaranteed (key order may
+  // differ from JSON.stringify), so we parse and compare semantically.
+  const upstreamBody = JSON.parse(received.body);
+  assert.deepEqual(upstreamBody, { problem: 'hello', task_type: 'simple' });
+  assert.equal(received.headers['x-request-id'], inbound);
+  assert.ok(received.headers['x-forwarded-host']);
 });
 
 test('gateway passes through 4xx/5xx from upstream', async (t) => {
-  // Same root cause as the proxy test: node --test + express.json +
-  // a hand-rolled upstream fixture hangs. Skipped for now; the
-  // bring-up script exercises a real upstream and would catch a
-  // 4xx/5xx passthrough regression in CI.
-  t.skip('same fixture interaction as proxy test; verified via bring-up script.');
+  const upstream = await startUpstream((req, res) => {
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'upstream says no', kind: 'backend' }));
+  });
+  t.after(() => closeServer(upstream.server));
+
+  process.env.COORDINATOR_URL = upstream.baseUrl;
+  t.after(() => { delete process.env.COORDINATOR_URL; });
+
+  const { server, baseUrl } = await startGateway();
+  t.after(() => closeServer(server));
+
+  const res = await postJson(`${baseUrl}/coordinate`, { problem: 'hi' });
+  assert.equal(res.status, 503);
+  const body = JSON.parse(res.body);
+  assert.equal(body.kind, 'backend');
 });
 
 test('gateway returns 502 with kind:upstream when upstream is unreachable', async (t) => {
