@@ -1,12 +1,35 @@
 // AWARE 2.0 coordinator service — entry point
 // Per ADR-020 Decision 1: persistent coordinator session + lightweight task workers
 // Per ADR-020 Decision 3: 3-tier model fallback (minimax → Ollama)
+//
+// Heavy-think is a sibling repo. The dev layout imports it via a relative
+// path. The Docker image layout (see Dockerfile.coordinator) puts heavy-think
+// at ./heavy-think/, so we resolve the import dynamically based on the
+// AWARE_HEAVY_THINK_PATH env var, falling back to the dev layout.
 
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { awareHeavyThink } from './heavyskill-integration.js';
 import { makeModelRouter, makeOllamaHealth } from './model-router.js';
 
 export const COORDINATOR_VERSION = '0.2.0-phase-1-router';
 export const COORDINATOR_BUILD_PHASE = 'phase-1-partial';
+
+/**
+ * Resolve the filesystem path to the heavy-think package.
+ *
+ * Resolution order:
+ *   1. `opts.heavyThinkPath` (explicit injection; used by tests)
+ *   2. `process.env.AWARE_HEAVY_THINK_PATH` (used in the Docker image)
+ *   3. Dev layout: ../../../../src/heavy-think/src/index.js
+ *      (resolves to <repo-root>/ from <repo-root>/src/coordinator/)
+ */
+function resolveHeavyThinkPath(opts = {}) {
+  if (opts.heavyThinkPath) return opts.heavyThinkPath;
+  if (process.env.AWARE_HEAVY_THINK_PATH) return process.env.AWARE_HEAVY_THINK_PATH;
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '..', '..', '..', '..', 'src', 'heavy-think', 'src', 'index.js');
+}
 
 /**
  * Backwards-compatible `coordinate()` wrapper.
@@ -48,7 +71,8 @@ export async function coordinate({ problem, task_type, context, K, client, sessi
  * @returns {Object} router
  */
 export async function buildDefaultRouter(opts = {}) {
-  const { makeMinimaxClient } = await import('../../../../src/heavy-think/src/index.js');
+  const heavyThinkPath = resolveHeavyThinkPath(opts);
+  const { makeMinimaxClient } = await import(heavyThinkPath);
 
   const mode = opts.mode || process.env.AWARE_MODE || 'hybrid';
   const ollamaUrl = opts.ollamaUrl || process.env.OLLAMA_URL || 'http://127.0.0.1:11434';

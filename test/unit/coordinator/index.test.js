@@ -10,6 +10,55 @@ import {
   buildDefaultOllamaClient,
 } from '../../../src/coordinator/index.js';
 
+test('buildDefaultRouter accepts opts.heavyThinkPath (used by tests + Docker image)', async () => {
+  // Absolute path to the actual heavy-think source (sibling repo at <repo-root>/)
+  // From test/unit/coordinator/, 4 `..` lands at <HOME>/src/, then heavy-think/...
+  const heavyThinkAbs = new URL('../../../../heavy-think/src/index.js', import.meta.url).pathname;
+  const router = await buildDefaultRouter({
+    heavyThinkPath: heavyThinkAbs,
+    mode: 'online',
+    minimaxClient: { name: 'minimax', generate: async () => ({ reasoning: 'r' }) },
+    ollamaClient: { name: 'ollama', offline: true, generate: async () => ({ reasoning: 'r' }) },
+  });
+  const r = await router.generate('test');
+  assert.equal(r.reasoning, 'r');
+});
+
+test('buildDefaultRouter honors AWARE_HEAVY_THINK_PATH env var', async () => {
+  const prev = process.env.AWARE_HEAVY_THINK_PATH;
+  process.env.AWARE_HEAVY_THINK_PATH = new URL('../../../../heavy-think/src/index.js', import.meta.url).pathname;
+  try {
+    const router = await buildDefaultRouter({
+      mode: 'online',
+      minimaxClient: { name: 'minimax', generate: async () => ({ reasoning: 'env-path' }) },
+    });
+    const r = await router.generate('test');
+    assert.equal(r.reasoning, 'env-path');
+  } finally {
+    if (prev === undefined) delete process.env.AWARE_HEAVY_THINK_PATH;
+    else process.env.AWARE_HEAVY_THINK_PATH = prev;
+  }
+});
+
+test('buildDefaultRouter errors loudly if heavy-think path cannot be resolved', async () => {
+  // Both injection and env point at a missing file
+  const prev = process.env.AWARE_HEAVY_THINK_PATH;
+  process.env.AWARE_HEAVY_THINK_PATH = '/nonexistent/heavy-think/src/index.js';
+  try {
+    await assert.rejects(
+      () =>
+        buildDefaultRouter({
+          mode: 'online',
+          minimaxClient: { name: 'minimax', generate: async () => ({}) },
+        }),
+      /Cannot find module|Cannot load|ENOENT/,
+    );
+  } finally {
+    if (prev === undefined) delete process.env.AWARE_HEAVY_THINK_PATH;
+    else process.env.AWARE_HEAVY_THINK_PATH = prev;
+  }
+});
+
 test('COORDINATOR_VERSION and COORDINATOR_BUILD_PHASE are exposed and reflect Phase 1 progress', () => {
   assert.equal(COORDINATOR_VERSION, '0.2.0-phase-1-router');
   assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-partial');
