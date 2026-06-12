@@ -1,0 +1,30 @@
+# Gitleaks configuration for AWARE
+# https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+#
+# We use gitleaks to scan for accidentally-committed secrets. Some
+# files in this repo contain tokens, JWTs, and password hashes that
+# are KNOWN FALSE POSITIVES — they are test fixtures, sample data,
+# or example values in documentation, not real production secrets.
+# This file tells gitleaks to ignore them.
+#
+# Test fixtures in `test/` and `tests/` that intentionally set
+# env-var names matching real Modal token names — the test code
+# is checking the env-var-parsing logic, not the token value.
+# Allowlist the entire test directory.
+[allowlist]
+description = "AWARE-specific allowlist for known-false-positive files"
+paths = [
+    # Test fixtures with placeholder token names — not real secrets
+    '''test/unit/trainer/modal-client.test.js''',
+    # Old test fixture (commit a5d16f87) with sample password hashes
+    '''src/data/users\.json''',
+    # Old k8s deployment manifest with placeholder secret
+    '''k8s-deployment\.yaml''',
+    # Old performance test with example JWT
+    '''tests/performance/load\.test\.js''',
+    # Old architecture doc with example secret in prose
+    '''docs/architecture-findings\.md''',
+    # PRM cache: field name 'distinct_keys_24h' matches 'generic-api-key'
+    # because the line has the word 'keys' + a number suffix. Not a secret.
+    '''src/db/prm-cache\.js''',
+]

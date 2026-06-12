@@ -115,8 +115,8 @@ test('preflight: returns modal_tokens_missing when env unset', async () => {
 });
 
 test('preflight: returns modal_sdk_unimportable when SDK not installed', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   try {
     const { preflightModal } = await import(MODAL_CLIENT_PATH);
@@ -131,8 +131,8 @@ test('preflight: returns modal_sdk_unimportable when SDK not installed', async (
 });
 
 test('preflight: returns modal_sdk_surface_incomplete when ModalClient missing', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   // Fake SDK that exports the wrong shape (Python-shaped: modal.Function
   // with from_training_script, no ModalClient class).
@@ -155,8 +155,8 @@ test('preflight: returns modal_sdk_surface_incomplete when ModalClient missing',
 });
 
 test('preflight: returns modal_sdk_surface_incomplete when client lacks .volumes.fromName', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   // Fake SDK where ModalClient exists but the instance doesn't
   // expose .volumes. This catches a future SDK version that
@@ -179,8 +179,8 @@ test('preflight: returns modal_sdk_surface_incomplete when client lacks .volumes
 });
 
 test('preflight: returns ok=true with sdk reference on success', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   const { fakePath, tmpDir } = writeFakeSdkFile(
     'export class ModalClient { constructor() { return { volumes: { fromName: () => {} }, functions: { fromName: () => {} } }; } }\n'
@@ -255,8 +255,8 @@ test('submit: surfaces preflight failure as a typed error', async () => {
 // volumes.fromName + client.functions.fromName(app, fn) + fn.spawn → FunctionCall
 
 test('submit: full happy path — calls fromName, spawn, returns handle', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   const mock = makeMockSdk({ callId: 'fc-real-shape-1234' });
 
@@ -334,8 +334,8 @@ test('submit: full happy path — calls fromName, spawn, returns handle', async 
 });
 
 test('submit: poll translates modal success (resolved promise) → completed/exitCode=0', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-success-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-success-sdk.mjs');
@@ -372,8 +372,8 @@ test('submit: poll translates modal success (resolved promise) → completed/exi
 });
 
 test('submit: poll translates modal failure (thrown) → failed/exitCode=1/exception as errorMessage', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-fail-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-fail-sdk.mjs');
@@ -413,8 +413,8 @@ test('submit: poll translates modal failure (thrown) → failed/exitCode=1/excep
 // -- resolveInflight -----------------------------------------------
 
 test('resolveInflight: returns null (R2 — no from_id in JS SDK)', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
   const { resolveInflight } = await import(MODAL_CLIENT_PATH);
   const r = await resolveInflight('r1', 'fc-x');
   assert.equal(r, null);
