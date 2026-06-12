@@ -278,8 +278,69 @@ if docker inspect --format '{{.State.Health.Status}}' aware-2-gateway 2>/dev/nul
 fi
 
 # 8. Cleanup
+# Phase 3 smoke tests run BEFORE the teardown (because we need
+# the postgres container up to query aware_training_runs).
+
+# 8a. Migration 004: aware_training_runs table exists.
+# This runs regardless of whether the trainer profile is enabled —
+# the migration is part of the base compose, so it should always
+# be applied after the first coordinator boot.
+log "smoke test: trainer — aware_training_runs table exists (migration 004 applied)"
+POSTGRES_PASSWORD_VALUE="${AWARE_DB_PWD:-dev-only-pwd}"
+if PGPASSWORD="$POSTGRES_PASSWORD_VALUE" docker exec \
+    -e PGPASSWORD="$POSTGRES_PASSWORD_VALUE" aware-2-postgres \
+    psql -U aware -d aware2 -t -A -c \
+    "SELECT to_regclass('aware_training_runs');" \
+    2>/dev/null | grep -q 'aware_training_runs'; then
+  log "  → aware_training_runs table exists"
+else
+  fail "trainer: aware_training_runs table does not exist (migration 004 didn't apply)"
+fi
+unset POSTGRES_PASSWORD_VALUE
+
+# 8b. Phase 3 modal-training.json config is loadable + valid.
+# We verify the JSON parses and has the required top-level fields.
+# This is a STATIC check — no Modal access needed.
+log "smoke test: trainer — config/modal-training.json is valid"
+if command -v python3 >/dev/null 2>&1; then
+  python3 -c "
+import json, sys
+try:
+    with open('config/modal-training.json') as f:
+        cfg = json.load(f)
+    required = ['app_name', 'image_dockerfile', 'modal_volume', 'gpu', 'dpo_defaults', 'checkpoint']
+    for k in required:
+        if k not in cfg:
+            print(f'FAIL: missing required field: {k}', file=sys.stderr)
+            sys.exit(1)
+    print('OK: modal-training.json has all required fields')
+except Exception as e:
+    print(f'FAIL: {e}', file=sys.stderr)
+    sys.exit(1)
+" || fail "trainer: config/modal-training.json is not valid"
+else
+  log "  (skipped — python3 not available for JSON validation)"
+fi
+
+# 8c. If the trainer is running (behind `training` profile, in this
+# bring-up's call), verify the container is up and the process is alive.
+# The default bring-up does NOT include --profile training, so this
+# is usually skipped.
+if docker inspect --format '{{.State.Running}}' aware-2-trainer 2>/dev/null \
+    | grep -q true; then
+  log "smoke test: trainer container is running"
+  # The trainer logs a "started" message on boot. We tail the logs
+  # briefly to confirm it didn't crash during startup.
+  sleep 2
+  if docker logs --tail 50 aware-2-trainer 2>&1 | grep -qiE 'aware-trainer started|kill switch off'; then
+    log "  → trainer boot log present"
+  else
+    fail "trainer: no 'started' or 'kill switch off' log line; check 'docker logs aware-2-trainer'"
+  fi
+fi
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 13 smoke tests (10 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 13 smoke tests (10 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 verified (16 smoke tests when the training profile is enabled)."

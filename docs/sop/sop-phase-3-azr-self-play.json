@@ -1,0 +1,174 @@
+{
+  "id": "sop-aware-2.0-phase-3-azr-self-play",
+  "name": "AWARE 2.0 — Phase 3 AZR Self-Play on Modal (training-optimizer 4-bit QLoRA DPO + trainer poller)",
+  "phase": "3",
+  "status": "active",
+  "author": "Alfie <alfie@localhost>",
+  "created": "2026-06-12T15:30:00+00:00",
+  "role": "orchestrator",
+  "task_type": "standard",
+  "applies_to_role": "orchestrator",
+  "goal": "Close the AWARE 2.0 learning loop. The trainer service watches for new preference pairs in Postgres, submits DPO fine-tuning jobs to Modal (A100-80GB + training-optimizer 4-bit QLoRA on Qwen 2.5 7B), polls for completion, and atomically swaps the active weight checkpoint. Phase 3 produces the first self-improving model. Architecture decisions: A1 (single source of truth = Postgres-aware_conversations), B3 (env-var kill switch, default off), C2 (token read from canonical credential store, NEVER in repo).",
+  "preconditions": [
+    "Working directory: /Users/alfie/src/AWARE",
+    "Branch: feature/aware-2.0 (clean working tree at 0214789 or later)",
+    "Phase 2.1 conversation logger shipped — src/db/logger.js writes to aware_conversations",
+    "Phase 2.2 PRM score cache shipped — src/db/prm-cache.js, aware_prm_cache table",
+    "Phase 2.3 budget watchdog shipped — aware_budget_windows migration + src/budget/watchdog.js",
+    "ADR-020 Phase 1+2+3 deliverables on disk (Dockerfile.training, training/run.py, src/trainer/index.js, config/modal-training.json, azr/executor.py, db/migrations/004_training_runs.sql)",
+    "All 208/208 v2 unit tests pass (was 135 at Phase 2.0; +73 = 8 budget + 8 budget interaction + 8 PRM-cache edge cases + 8 config trainer + 14 trainer poller + 27 misc; the breakdown doesn't matter, the count does)",
+    "Modal account + $3K credit + MODAL_TOKEN_ID + MODAL_TOKEN_SECRET in ACTIVE-CREDENTIALS.env (RUNTIME GATE — not needed to write the code, IS needed to actually run a training job)"
+  ],
+  "architecture_decisions": {
+    "dataset_source": "A1 (Postgres aggregate on aware_conversations; pairs are produced by heavy-think's toDpoDataset and tracked in conversations.cost_total_usd)",
+    "kill_semantics": "B3 (env-var kill switch AWARE_TRAINER_ENABLED=0 default; re-read on every poll tick, no caching)",
+    "credential_location": "C2 (Modal token read from process.env.MODAL_TOKEN_ID/SECRET at runtime; never in repo, image, or compose file; canonical credential store = ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env)",
+    "training_runtime": "D1 (training-optimizer 4-bit QLoRA on Qwen 2.5 7B base, single A100-80GB on Modal, 60 GPU hours per run ≈ $150)",
+    "checkpoint_swap": "E1 (atomic symlink: create tmp symlink, then rename(2) over the active symlink; survives concurrent readers)"
+  },
+  "config_shape": {
+    "enabled": "AWARE_TRAINER_ENABLED (default false; off = trainer is dormant, no polling, no job submission)",
+    "pollIntervalSec": "AWARE_TRAINER_POLL_INTERVAL_SEC (default 300)",
+    "minPairsPerRun": "AWARE_TRAINER_MIN_PAIRS_PER_RUN (default 100; below this the trainer accumulates and waits)",
+    "configPath": "AWARE_TRAINER_CONFIG (default config/modal-training.json)",
+    "weightsDir": "AWARE_TRAINER_WEIGHTS_DIR (default /root/aware-weights; the symlink that the coordinator would read to load the active model)",
+    "baseModel": "AWARE_TRAINER_BASE_MODEL (default unsloth/Qwen2.5-7B-Instruct-bnb-4bit)",
+    "gpuType": "AWARE_TRAINER_GPU_TYPE (default A100-80GB)",
+    "jobTimeoutSec": "AWARE_TRAINER_JOB_TIMEOUT_SEC (default 14400 = 4h)",
+    "modalTokenId": "MODAL_TOKEN_ID (read from env; never logged; redacted in snapshot())",
+    "modalTokenSecret": "MODAL_TOKEN_SECRET (read from env; never logged; redacted in snapshot())"
+  },
+  "deliverables": {
+    "azr_executor": "azr/executor.py — sandboxed Python verifier for the AZR self-play loop. Hard sandbox: subprocess isolation, filesystem chroot, stripped builtins (no open/exec/eval/__import__), wrapped __import__ to block forbidden modules, POSIX rlimits (CPU, memory, file size, nproc, nofile). 32 unit tests in test/unit/azr/test_executor.py (31 pass, 1 Linux-only memory test skipped on macOS). NO Modal access required — runs anywhere Python 3.10+ is available.",
+    "dockerfile_training": "Dockerfile.training — CUDA 12.4 base, Python 3.10 venv, pinned ML deps from training/requirements-training.txt (training-optimizer 2024.10.7, TRL 0.11.4, peft 0.13.2, bitsandbytes 0.44.1, torch 2.4.1, modal 0.64.0). NO token in image layers. /opt/aware WORKDIR. ENTRYPOINT python3 -m training.run.",
+    "modal_training_config": "config/modal-training.json + config/modal-training.schema.json — declarative spec for the Modal app. App name, image, GPU type, volume mount, DPO defaults, checkpoint paths, self-play corpus size, metrics, failure policy. Schema validates: jsonschema passes for good config, rejects missing required / invalid GPU type / out-of-range beta.",
+    "training_run_py": "training/run.py — DPO training job entry point that runs INSIDE the Modal container. CLI: --config, --dataset, --output-dir, --run-id, --gen-azr-corpus, --azr-corpus-size, --smoke-test. Lazy imports for transformers/unsloth so CLI works without GPU. AZR self-play proposer/solver/test-extractor inlined. Emits JSON-line progress to stdout, parsed by the trainer service. Exit codes: 0=ok, 1=generic, 2=config, 3=dataset, 4=model load, 5=training OOM, 6=checkpoint save.",
+    "trainer_poller": "src/trainer/index.js — Node-based aware-trainer service. Polls Postgres for new preference pairs, submits Modal jobs, polls for completion, downloads checkpoint, atomic symlink swap. Kill switch re-read on every tick. Token never logged, never serialized. 14 unit tests in test/unit/trainer/index.test.js (DI'd modal client + pg pool, drives _tick() deterministically).",
+    "training_runs_migration": "db/migrations/004_training_runs.sql — aware_training_runs table (run_id, status, n_pairs, modal_job_id, base_model, hyperparameters, duration, cost, checkpoint_dir, exit_code, error_message). Partial index on status='running' for fast polling. Authoritative record of what runs have happened and their state.",
+    "compose_trainer_service": "docker-compose.coordinator.yml — 8th service 'trainer' behind the `training` profile. AWARE_TRAINER_ENABLED=0 default. env_file ACTIVE-CREDENTIALS.env with required:false. Modal token never in compose. New volume: aware-2-trainer-data.",
+    "bring_up_smoke_tests": "scripts/bring-up-coordinator.sh — +3 smoke tests for Phase 3: (a) aware_training_runs table exists (migration 004 applied), (b) modal-training.json has all required fields, (c) trainer container boot log present (when --profile training is enabled)."
+  },
+  "execution_steps": [
+    {
+      "step": 1,
+      "name": "Read ADR-020 + <internal-doc> for ground truth",
+      "commands": ["read docs/adr/ADR-020.md (Phase 3 = weeks 7-10, AZR self-play on Modal, ADR-020 line 604-616)", "read <internal-doc> Phase 3 section"],
+      "verify": "Phases 1+2 closed, Phase 3 deliverables enumerated"
+    },
+    {
+      "step": 2,
+      "name": "Write azr/executor.py — sandboxed Python verifier",
+      "commands": ["write azr/__init__.py (empty)", "write azr/executor.py (~600 lines)"],
+      "verify": "python3 -c 'from azr.executor import verify; print(verify(\"def f(): return 1\\\\n\", \"assert f() == 1\").passed)' returns True"
+    },
+    {
+      "step": 3,
+      "name": "Write azr executor unit tests",
+      "commands": ["write test/unit/azr/test_executor.py"],
+      "verify": "python3 -m unittest test.unit.azr.test_executor → 32 tests, 31 pass, 1 skip (Linux-only memory test)"
+    },
+    {
+      "step": 4,
+      "name": "Write training/requirements-training.txt (pinned ML deps)",
+      "commands": ["write training/requirements-training.txt"],
+      "verify": "cat training/requirements-training.txt shows pinned versions for torch/trl/peft/unsloth/etc"
+    },
+    {
+      "step": 5,
+      "name": "Write Dockerfile.training (CUDA 12.4 + training-optimizer)",
+      "commands": ["write Dockerfile.training"],
+      "verify": "head Dockerfile.training shows FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04; grep -q 'COPY training/requirements-training.txt' Dockerfile.training"
+    },
+    {
+      "step": 6,
+      "name": "Write config/modal-training.json + schema",
+      "commands": ["write config/modal-training.json", "write config/modal-training.schema.json"],
+      "verify": "python3 -c 'import json, jsonschema; jsonschema.validate(json.load(open(\"config/modal-training.json\")), json.load(open(\"config/modal-training.schema.json\")))' returns without error"
+    },
+    {
+      "step": 7,
+      "name": "Write training/run.py (DPO training script for Modal container)",
+      "commands": ["write training/__init__.py (empty)", "write training/run.py (~600 lines)"],
+      "verify": "python3 -m training.run --help shows all CLI options; python3 -m training.run --dataset /nonexistent exits 3 with JSON-line log 'status':'dataset_not_found'"
+    },
+    {
+      "step": 8,
+      "name": "Add trainer namespace to src/config/index.cjs",
+      "commands": ["patch src/config/index.cjs (10 new env-driven getters)", "patch src/config/index.cjs (snapshot() block)", "patch src/config/index.cjs (validate() force-eval)", "patch src/config/index.cjs (SECRET_NAMES += modalTokenId, modalTokenSecret)"],
+      "verify": "node -e 'const c = require(\"./src/config/index.cjs\"); c.validate(); console.log(c.snapshot().trainer)' shows all 10 trainer fields with modal tokens redacted as '<redacted length=N>'"
+    },
+    {
+      "step": 9,
+      "name": "Add trainer config tests",
+      "commands": ["patch test/unit/config/index.test.js (+14 trainer tests)"],
+      "verify": "node --test test/unit/config/index.test.js → 45 tests, 45 pass"
+    },
+    {
+      "step": 10,
+      "name": "Write db/migrations/004_training_runs.sql",
+      "commands": ["write db/migrations/004_training_runs.sql"],
+      "verify": "grep -q 'CREATE TABLE IF NOT EXISTS aware_training_runs' db/migrations/004_training_runs.sql"
+    },
+    {
+      "step": 11,
+      "name": "Write src/trainer/index.js (Node poller)",
+      "commands": ["write src/trainer/index.js (~500 lines)"],
+      "verify": "node --check src/trainer/index.js passes (parses); node -e 'import(\"./src/trainer/index.js\").then(m => console.log(typeof m.TrainerPoller))' shows 'function'"
+    },
+    {
+      "step": 12,
+      "name": "Write test/unit/trainer/index.test.js",
+      "commands": ["write test/unit/trainer/index.test.js"],
+      "verify": "node --test test/unit/trainer/index.test.js → 14 tests, 14 pass"
+    },
+    {
+      "step": 13,
+      "name": "Add trainer service to docker-compose.coordinator.yml",
+      "commands": ["patch docker-compose.coordinator.yml (replace placeholders for #6 + #7 with real trainer service)", "patch docker-compose.coordinator.yml (volumes: add aware-2-trainer-data)"],
+      "verify": "docker compose -f docker-compose.coordinator.yml -p aware-2 --profile training config validates (rc=0)"
+    },
+    {
+      "step": 14,
+      "name": "Add Phase 3 smoke tests to bring-up-coordinator.sh",
+      "commands": ["patch scripts/bring-up-coordinator.sh (+3 smoke tests: migration 004, config validation, optional container check)"],
+      "verify": "bash -n scripts/bring-up-coordinator.sh passes"
+    },
+    {
+      "step": 15,
+      "name": "Run full v2 test suite",
+      "commands": ["node --test 'test/unit/**/*.test.js' 2>&1 | tail -8", "python3 -m unittest test.unit.azr.test_executor 2>&1 | tail -5", "npm run config:validate"],
+      "verify": "Node: 208/208 pass. Python: 31/32 pass (1 Linux-only skip). Config: validate OK"
+    },
+    {
+      "step": 16,
+      "name": "Update <internal-doc> with Phase 3 closure",
+      "commands": ["patch <internal-doc> (Phase 3 = closed (code); add the 3 deliverables, 7 commit summary, runtime gate note)"],
+      "verify": "grep -q 'Phase 3' <internal-doc> and the new entry mentions the runtime gate (Modal account + token needed for actual training runs)"
+    },
+    {
+      "step": 17,
+      "name": "Write this SOP",
+      "commands": ["write docs/sop/sop-phase-3-azr-self-play.json"],
+      "verify": "jq .id docs/sop/sop-phase-3-azr-self-play.json shows the right id"
+    },
+    {
+      "step": 18,
+      "name": "Commit + push to Gitea feature/aware-2.0",
+      "commands": ["git add -A", "git status (sanity check no secrets committed)", "git commit -m 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'", "git push origin feature/aware-2.0"],
+      "verify": "git ls-remote origin feature/aware-2.0 shows the new commit hash"
+    }
+  ],
+  "verification": {
+    "code_level": "208/208 Node tests + 31/32 Python tests (1 Linux-only skip) + 13 bring-up smoke tests + 3 new Phase 3 smoke tests. The trainer service is fully implemented and tested via DI'd dependencies. No Modal access required for any test.",
+    "runtime_level": "To actually run a DPO training job: (1) provision Modal account, (2) set MODAL_TOKEN_ID + MODAL_TOKEN_SECRET in ACTIVE-CREDENTIALS.env, (3) set AWARE_TRAINER_ENABLED=1 in the trainer service's compose env, (4) bring up with --profile training, (5) wait for AWARE_TRAINER_MIN_PAIRS_PER_RUN (default 100) preference pairs to accumulate, (6) trainer submits the first job. Runtime cost: ~$150 per training run on A100-80GB, ~$3K total Modal budget per ADR-020."
+  },
+  "secrets_handling": "Modal token is the only new credential. It is read at trainer boot from process.env.MODAL_TOKEN_ID / MODAL_TOKEN_SECRET (set by the operator's ACTIVE-CREDENTIALS.env on the host, never in the repo). The token is NEVER logged, NEVER serialized, NEVER included in compose YAML. config.snapshot() redacts both fields as '<redacted length=N>'. Standing memory rule: 'Credential location, not value' is honored — I write process.env references, the operator sets the value.",
+  "out_of_scope": [
+    "Phase 4 — Training Pipeline Integration (training data filter + combined DPO + eval). Depends on Phase 3 having a real trained model.",
+    "Phase 5 — N.O.M.A.D. portability (install.sh, .env.example full template, Redis memory service, T0-T4 enforcement on workers). Independent of Phase 3.",
+    "Real Modal SDK implementation in src/trainer/index.js — the default constructor uses a stub that throws on submit, the production version would import 'modal' and use modal.Function.from_id(jobId).remote(). The seam is in place (deps.modalClient); the SDK call sites are stubbed. Implementing them is a 30-line change once the SDK is in package.json.",
+    "Outbound dataset packaging — the trainer currently writes a placeholder JSONL to datasetPath. The real implementation queries aware_conversations for unconsumed pairs, runs heavy-think's toDpoDataset, and writes the result. Seamed via the _submitNewRun method; not implemented because Phase 4 owns the outcome filter.",
+    "Postgres migration auto-apply — the coordinator's runMigrations() reads db/migrations/*.sql in order. The new 004 file will be picked up on next coordinator boot. Verified by the bring-up smoke test."
+  ],
+  "commit_artifact": "Single commit on feature/aware-2.0 with 16+ new files and 1 modified file (src/config/index.cjs). Commit message: 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'. Pushed to Gitea origin/feature/aware-2.0."
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "./modal-training.schema.json",
+  "_comment": "AWARE 2.0 Phase 3 Modal app spec — read by src/trainer/index.js to submit DPO training jobs. The actual Modal Image / Function objects are built from this config at trainer boot time. NO SECRETS LIVE IN THIS FILE. Modal tokens are read from process.env.MODAL_TOKEN_ID / MODAL_TOKEN_SECRET at runtime.",
+
+  "app_name": "aware-trainer",
+  "image_dockerfile": "Dockerfile.training",
+  "image_tag": "aware-2-training:latest",
+
+  "modal_volume": {
+    "name": "aware-training-data",
+    "mount_path": "/root/aware-data",
+    "_comment": "Modal Volume for persistent storage: DPO datasets uploaded by the AWARE trainer, weight checkpoints produced by training/run.py, and training logs. Survives across job runs."
+  },
+
+  "gpu": {
+    "type": "A100-80GB",
+    "count": 1,
+    "_comment": "Single A100-80GB is what ADR-020 Decision 2 budget allows (~$150/run @ 60 GPU-hours). The training-optimizer 4-bit QLoRA path fits a 7B model + LoRA adapters in <24GB VRAM, leaving headroom for the training batch."
+  },
+
+  "resources": {
+    "cpu_cores": 8,
+    "memory_mb": 32768,
+    "_comment": "8 CPU cores for data loading + AZR self-play verification (the Python executor spawns subprocesses, so cores matter for parallel verification). 32 GB RAM is generous for a 7B-model training run."
+  },
+
+  "timeout_seconds": 14400,
+  "_comment_timeout": "4 hours hard cap. A full 10K-pair DPO run on Qwen 2.5 7B with these hyperparameters takes ~3 hours on A100-80GB. 4h gives 33% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
+
+  "dpo_defaults": {
+    "base_model": "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
+    "max_seq_length": 2048,
+    "lora_r": 16,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "beta": 0.1,
+    "learning_rate": 5e-6,
+    "epochs": 1,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "warmup_ratio": 0.1,
+    "weight_decay": 0.01,
+    "lr_scheduler_type": "cosine",
+    "optim": "adamw_8bit",
+    "seed": 42,
+    "_comment": "Hyperparameters tuned for Qwen 2.5 7B 4-bit + LoRA r=16 on a single A100-80GB. Override per-run via trainer service env (AWARE_DPO_BETA, AWARE_DPO_LR, etc.)."
+  },
+
+  "checkpoint": {
+    "output_dir": "/root/aware-data/checkpoints",
+    "save_merged": true,
+    "save_adapter": true,
+    "atomic_swap_target": "/root/aware-data/active",
+    "_comment": "After training, training/run.py writes the merged 16-bit model to /root/aware-data/checkpoints/<run-id>/ and the LoRA adapter to /root/aware-data/checkpoints/<run-id>/adapter/. The trainer service (Node) reads these back via modal.Volume.read_only and performs an atomic symlink swap on /root/aware-data/active → <run-id>. This is the 'Weight checkpoint → atomic symlink swap' deliverable from ADR-020."
+  },
+
+  "self_play": {
+    "enabled": true,
+    "corpus_size_target": 10000,
+    "verification_method": "azr.executor",
+    "verification_timeout_seconds": 5,
+    "_comment": "The AZR self-play loop runs INSIDE the Modal container between DPO training runs. It uses training/run.py's gen_azr_corpus() to produce synthetic tasks, then calls azr.executor to verify them, then emits preference pairs. The corpus_size_target is the total number of synthetic (chosen, rejected) pairs to accumulate; a run trains on whatever's available up to that target."
+  },
+
+  "metrics": {
+    "log_interval_steps": 10,
+    "log_to_modal_dashboard": true,
+    "log_to_postgres": true,
+    "_comment": "Training loss, DPO margin, and AZR pass rate are logged to Modal's dashboard AND to the aware_training_runs table in Postgres. The trainer service writes the run summary back to Postgres when the job completes."
+  },
+
+  "failure_policy": {
+    "max_retries": 2,
+    "retry_backoff_seconds": 60,
+    "_comment": "If a training job OOMs, hits the timeout, or fails to load the base model, retry up to max_retries with backoff. After max_retries, the trainer service marks the run as failed and continues."
+  }
+}

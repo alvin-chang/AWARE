@@ -40,6 +40,8 @@ volumes:
     name: aware-2-ollama-models
   aware-2-preference-pairs:
     name: aware-2-preference-pairs
+  aware-2-trainer-data:
+    name: aware-2-trainer-data
 
 # ─── Services ──────────────────────────────────────────────────────
 services:
@@ -236,15 +238,68 @@ services:
       start_period: 5s
       retries: 5
 
-  # ─── 6. weight-store (Phase 3 placeholder) ──────────────────
-  # Mounts a Modal volume into the coordinator's pod. In Phase 1, this
-  # service is NOT defined here — it's a Modal-side resource referenced
-  # by env vars (AWARE_MODAL_VOLUME_NAME) when the coordinator learns to
-  # upload DPO preference pairs. See ADR-020 Decision 5 + Phase 3.
-
-  # ─── 7. trainer-poller (Phase 3 placeholder) ────────────────
-  # Python+CUDA service on Modal that polls the coordinator for new
-  # preference pairs and triggers DPO training runs. Phase 3 work.
+  # ─── 7. trainer (Phase 3 — aware-trainer poller) ──────────────
+  # The Node-based aware-trainer poller. Watches Postgres for new
+  # preference pairs (the conversations table), submits DPO training
+  # jobs to Modal, polls for completion, and atomically swaps the
+  # active weight checkpoint.
+  #
+  # SECURITY:
+  # - The Modal token is read from ACTIVE-CREDENTIALS.env at runtime;
+  #   it is NOT in this compose file. The env_file reference below
+  #   uses `required: false` so a host without the credential store
+  #   still brings the trainer up (in disabled-by-config state).
+  # - The trainer is gated behind the `training` profile so the
+  #   default 5-service bring-up (gateway/coordinator/ollama/postgres/redis)
+  #   is unaffected.
+  # - AWARE_TRAINER_ENABLED defaults to 0 (kill switch off). Setting
+  #   it to 1 + having MODAL_TOKEN_ID/SECRET set is the explicit opt-in.
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+      additional_contexts:
+        - "heavy-think=../heavy-think"
+    image: aware-coordinator:0.3.0-phase-3-trainer
+    container_name: aware-2-trainer
+    profiles: ["training"]
+    command: ["node", "src/trainer/index.js"]
+    environment:
+      - NODE_ENV=production
+      - AWARE_TRAINER_ENABLED=${AWARE_TRAINER_ENABLED:-0}
+      - AWARE_TRAINER_POLL_INTERVAL_SEC=${AWARE_TRAINER_POLL_INTERVAL_SEC:-300}
+      - AWARE_TRAINER_MIN_PAIRS_PER_RUN=${AWARE_TRAINER_MIN_PAIRS_PER_RUN:-100}
+      - AWARE_TRAINER_CONFIG=${AWARE_TRAINER_CONFIG:-/opt/aware/config/modal-training.json}
+      - AWARE_TRAINER_WEIGHTS_DIR=${AWARE_TRAINER_WEIGHTS_DIR:-/opt/aware/weights/active}
+      - AWARE_TRAINER_BASE_MODEL=${AWARE_TRAINER_BASE_MODEL:-unsloth/Qwen2.5-7B-Instruct-bnb-4bit}
+      - AWARE_TRAINER_GPU_TYPE=${AWARE_TRAINER_GPU_TYPE:-A100-80GB}
+      - AWARE_TRAINER_JOB_TIMEOUT_SEC=${AWARE_TRAINER_JOB_TIMEOUT_SEC:-14400}
+      - AWARE_DB_HOST=postgres
+      - AWARE_DB_PORT=5432
+      - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
+      - AWARE_DB_USER=${POSTGRES_USER:-aware}
+      - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
+      - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+    env_file:
+      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+        required: false
+    volumes:
+      # The trainer's data dir is where it stages DPO dataset JSONLs
+      # before they're uploaded to a Modal Volume. A named volume
+      # survives across container restarts.
+      - aware-2-trainer-data:/opt/aware/data
+      # The modal-training.json config is baked into the image, but
+      # mounting it lets the operator override without rebuilding.
+      - ./config/modal-training.json:/opt/aware/config/modal-training.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    # No healthcheck — the trainer is a poller, not a request-serving
+    # service. liveness is verified by checking the container is up
+    # + the trainer's process is alive (via docker ps / docker stats).
 
   # ─── Optional: live bring-up probe (development only) ──────
   # Use: docker compose -f docker-compose.coordinator.yml -p aware-2 --profile test up bring-up-probe
