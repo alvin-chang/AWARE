@@ -216,7 +216,7 @@ test('config: snapshot() shape is stable', (t) => {
 
   const snap = config.snapshot();
   assert.deepEqual(Object.keys(snap).sort(), [
-    'coordinator', 'gateway', 'heavyThink', 'model', 'warnings',
+    'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
     'host', 'killSwitch', 'port', 'requestCostCapUsd', 'requestTimeoutMs',
@@ -228,6 +228,9 @@ test('config: snapshot() shape is stable', (t) => {
     'minimaxHost', 'minimaxKey', 'mode', 'ollamaUrl',
   ]);
   assert.deepEqual(Object.keys(snap.heavyThink), ['path']);
+  assert.deepEqual(Object.keys(snap.db).sort(), [
+    'connectionTimeoutMs', 'database', 'enabled', 'host', 'password', 'port', 'user',
+  ]);
 });
 
 test('config: heavy-think path defaults to dev-layout sibling', (t) => {

@@ -71,7 +71,7 @@ function enumOf(name, allowed, fallback) {
   return v;
 }
 
-const SECRET_NAMES = new Set(['minimaxKey']);
+const SECRET_NAMES = new Set(['minimaxKey', 'password']);
 
 function redact(name, value) {
   if (SECRET_NAMES.has(name)) {
@@ -130,6 +130,19 @@ const config = {
   // from the request handler if the file is missing.
   heavyThink: {
     get path() { return str('AWARE_HEAVY_THINK_PATH', defaultHeavyThinkPath()); },
+  },
+
+  // Postgres (Phase 2.1 conversation logger)
+  // `enabled=false` makes the logger a no-op; useful for offline dev.
+  // `password` is in SECRET_NAMES so it's redacted in snapshot().
+  db: {
+    get host() { return str('AWARE_DB_HOST', '127.0.0.1'); },
+    get port() { return num('AWARE_DB_PORT', 5432, { min: 1, max: 65535 }); },
+    get database() { return str('AWARE_DB_DATABASE', 'aware2'); },
+    get user() { return str('AWARE_DB_USER', 'aware'); },
+    get password() { return str('AWARE_POSTGRES_PASSWORD', undefined); },
+    get enabled() { return bool('AWARE_DB_ENABLED', true); },
+    get connectionTimeoutMs() { return num('AWARE_DB_CONNECTION_TIMEOUT_MS', 2000, { min: 100, max: 30_000 }); },
   },
 };
 
@@ -211,6 +224,15 @@ config.snapshot = function snapshot() {
     },
     heavyThink: {
       path: c.heavyThink.path,
+    },
+    db: {
+      host: c.db.host,
+      port: c.db.port,
+      database: c.db.database,
+      user: c.db.user,
+      password: redact('password', c.db.password),
+      enabled: c.db.enabled,
+      connectionTimeoutMs: c.db.connectionTimeoutMs,
     },
     warnings: c.warnings(),
   };

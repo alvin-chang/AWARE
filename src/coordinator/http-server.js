@@ -21,6 +21,8 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { coordinate, buildDefaultRouter, COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from './index.js';
 import config from '../config/index.cjs';
+import { logConversationFireAndForget } from '../db/logger.js';
+import { runMigrations } from '../db/index.js';
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
 
@@ -29,6 +31,21 @@ const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts,
 // or AWARE_REQUEST_TIMEOUT_MS at runtime does not require a restart.
 // Validate at boot so bad env values fail fast, not on first request.
 config.validate();
+
+// Phase 2.1: run Postgres migrations on boot. Best-effort — if the DB is
+// unreachable, log a warning to stderr and continue. The logger itself is
+// a no-op when AWARE_DB_ENABLED=false.
+if (config.db.enabled) {
+  runMigrations().then((r) => {
+    if (!r.ran && r.reason !== 'already-run') {
+      // eslint-disable-next-line no-console
+      console.warn(`[aware-coordinator] db migrations did not run: ${r.reason}${r.error ? ` (${r.error})` : ''}`);
+    }
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('[aware-coordinator] db migrations threw:', err.message);
+  });
+}
 
 function isKilled() {
   return config.coordinator.killSwitch;
@@ -208,7 +225,22 @@ async function handleHealth(req, res, router, requestId) {
  *   - T2 cost-cap:   per-request USD ceiling (default REQUEST_COST_CAP_USD); 402 on overrun
  */
 async function handleCoordinate(req, res, router, coordinateFn, requestId) {
+  const startMs = Date.now();
+  const log = (extra) => logConversationFireAndForget({
+    requestId,
+    problem: extra && extra.problem,
+    taskType: extra && extra.taskType,
+    k: extra && extra.k,
+    sessionId: extra && extra.sessionId,
+    agentId: extra && extra.agentId,
+    result: extra && extra.result,
+    durationMs: Date.now() - startMs,
+    errorKind: extra && extra.errorKind,
+    errorMessage: extra && extra.errorMessage,
+  });
+
   if (isKilled()) {
+    log({ errorKind: 'killed', errorMessage: 'kill-switch is engaged' });
     return sendJson(res, 503, {
       error: 'kill-switch is engaged (AWARE_KILL_SWITCH=1)',
       kind: 'killed',
@@ -220,6 +252,7 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
   try {
     raw = await readBody(req);
   } catch (err) {
+    log({ errorKind: 'request', errorMessage: err.message });
     return sendJson(res, err.statusCode || 400, { error: err.message, kind: 'request', request_id: requestId });
   }
 
@@ -227,10 +260,12 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
   try {
     body = raw.length === 0 ? {} : JSON.parse(raw);
   } catch (err) {
+    log({ errorKind: 'request', errorMessage: 'invalid JSON in request body' });
     return sendJson(res, 400, { error: 'invalid JSON in request body', kind: 'request', request_id: requestId });
   }
 
   if (typeof body.problem !== 'string' || body.problem.length === 0) {
+    log({ problem: body.problem, errorKind: 'request', errorMessage: '`problem` is required and must be a non-empty string' });
     return sendJson(res, 400, {
       error: '`problem` is required and must be a non-empty string',
       kind: 'request',
@@ -238,6 +273,7 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
     });
   }
   if (body.problem.length > 100_000) {
+    log({ problem: body.problem, errorKind: 'request', errorMessage: '`problem` exceeds 100,000 chars' });
     return sendJson(res, 413, { error: '`problem` exceeds 100,000 chars', kind: 'request', request_id: requestId });
   }
 
@@ -269,6 +305,7 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
     );
   } catch (err) {
     if (isTimeoutError(err)) {
+      log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, errorKind: 'timeout', errorMessage: `request exceeded ${timeoutMs}ms timeout` });
       return sendJson(res, 504, {
         error: `request exceeded ${timeoutMs}ms timeout`,
         kind: 'timeout',
@@ -277,13 +314,16 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
     }
     const message = err && err.message ? err.message : 'coordinate failed';
     const isBackend = /all .* backends failed|no healthy backends|cannot generate/i.test(message);
-    return sendJson(res, isBackend ? 503 : 500, { error: message, kind: isBackend ? 'backend' : 'internal', request_id: requestId });
+    const kind = isBackend ? 'backend' : 'internal';
+    log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, errorKind: kind, errorMessage: message });
+    return sendJson(res, isBackend ? 503 : 500, { error: message, kind, request_id: requestId });
   }
 
   // T2: cost-cap check — coordinate() should have honored it via context.cost_cap_usd,
   // but if a backend doesn't report cost, the result envelope can't enforce it. We surface
   // a 402 if the result reports a cost_usd that exceeds the cap.
   if (result && result.cost_usd != null && Number(result.cost_usd) > costCapUsd) {
+    log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, result, errorKind: 'cost_cap', errorMessage: `cost_usd ${result.cost_usd} exceeded cap ${costCapUsd}` });
     return sendJson(res, 402, {
       error: `cost_usd ${result.cost_usd} exceeded cap ${costCapUsd}`,
       kind: 'cost_cap',
@@ -297,10 +337,13 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
   if (result && result.ok === false) {
     const errType = (result.error && result.error.type) || 'internal_error';
     const errMessage = (result.error && result.error.message) || 'coordinate failed';
+    log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, result, errorKind: errType, errorMessage: errMessage });
     const status = errType === 'invalid_input' ? 400 : errType === 'upstream_error' ? 503 : 500;
     return sendJson(res, status, { error: errMessage, kind: errType, request_id: requestId });
   }
 
+  // Success path
+  log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, result });
   return sendJson(res, 200, { ...(result || {}), request_id: requestId });
 }
 
