@@ -174,6 +174,25 @@ if [[ -z "$ks_response" ]] || ! echo "$ks_response" | grep -q '"request_id"'; th
   fail "/coordinate returned empty or no request_id (got: $ks_response)"
 fi
 
+# Phase 2.1: conversation logger — query postgres for the row we just wrote
+sleep 2  # give the fire-and-forget log a moment to land
+log "smoke test: conversation logger — query postgres for the row we just wrote"
+# Read the postgres password from the same source the coordinator uses.
+# Falls back to the dev-only default that docker-compose.coordinator.yml
+# uses for the postgres service itself, so we always have a value.
+POSTGRES_PASSWORD_VALUE="${AWARE_DB_PWD:-dev-only-pwd}"
+# Use PGPASSWORD for the psql exec, but never echo the value.
+if PGPASSWORD="$POSTGRES_PASSWORD_VALUE" docker exec \
+    -e PGPASSWORD="$POSTGRES_PASSWORD_VALUE" aware-2-postgres \
+    psql -U aware -d aware2 -t -A -c \
+    "SELECT count(*) FROM aware_conversations WHERE ok = true AND problem LIKE 'What is 2+2?%';" \
+    2>/dev/null | grep -qE '^[1-9][0-9]*$'; then
+  log "  → conversation logger row found in postgres"
+else
+  fail "conversation logger: no row found in aware_conversations for the /coordinate smoke test"
+fi
+unset POSTGRES_PASSWORD_VALUE
+
 # 8. Gateway smoke test (gated on the gateway being up; in the
 # default 4-service bring-up the gateway is behind `full` profile
 # and may not be running — skip if absent).
@@ -207,4 +226,4 @@ log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 9 smoke tests (6 if gateway is behind the full profile), all green."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 10 smoke tests (7 if gateway is behind the full profile), all green. Phase 2.1 conversation logger is writing to postgres."

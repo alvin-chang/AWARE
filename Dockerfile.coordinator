@@ -30,6 +30,8 @@ RUN npm install --omit=dev
 # Copy the AWARE source (coordinator service + the shared config module)
 COPY src/coordinator ./src/coordinator
 COPY src/config/index.cjs ./src/config/index.cjs
+COPY src/db ./src/db
+COPY db ./db
 
 # Copy heavy-think from the build context named "heavy-think"
 # (the multi-context argument passed to `docker build`)
@@ -47,6 +49,7 @@ WORKDIR /app
 COPY --from=build --chown=aware:aware /build/node_modules ./node_modules
 COPY --from=build --chown=aware:aware /build/src ./src
 COPY --from=build --chown=aware:aware /build/heavy-think ./heavy-think
+COPY --from=build --chown=aware:aware /build/db ./db
 # Symlink so the coordinator's static `../../../../src/heavy-think/` import
 # (which resolves to `/src/heavy-think/` from /app/) finds the source at
 # /app/heavy-think/. This matches the dev layout where `../../../../` from

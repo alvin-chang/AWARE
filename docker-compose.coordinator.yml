@@ -100,6 +100,16 @@ services:
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
       - OLLAMA_URL=http://ollama-sidecar:11434
+      - AWARE_DB_HOST=postgres
+      - AWARE_DB_PORT=5432
+      - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
+      - AWARE_DB_USER=${POSTGRES_USER:-aware}
+      - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
+      # The coordinator authenticates with the same password the postgres
+      # service was initialized with (see POSTGRES_PASSWORD below). The
+      # bring-up script sources this from AWARE_DB_PWD or falls back to
+      # the dev-only default below.
+      - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
     # The upstream LLM API key is intentionally NOT hardcoded. The
     # compose file reads the env var from the canonical credential
     # store on this host:
@@ -124,6 +134,8 @@ services:
     volumes:
       - aware-2-preference-pairs:/root/.<runtime>/metaclaw/preference-pairs
     depends_on:
+      postgres:
+        condition: service_healthy
       ollama-sidecar:
         condition: service_healthy
     networks:
