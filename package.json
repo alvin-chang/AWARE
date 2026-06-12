@@ -40,7 +40,7 @@
     "jsonwebtoken": "^9.0.0",
     "modal": "^0.8.0",
     "pg": "^8.21.0",
-    "uuid": "^9.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",

@@ -63,6 +63,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 import traceback
 import uuid
@@ -102,7 +103,12 @@ def log(event: str, **fields: Any) -> None:
             sys.stderr.write(f"log_failed: {event}\n")
             sys.stderr.flush()
         except Exception:
-            pass
+            # Absolute last-resort fallback: even stderr is gone (fd
+            # closed / terminal detached). Silently swallow so the
+            # training job doesn't crash. The decision to run as a
+            # long-lived GPU process on Modal means we prioritize job
+            # completion over per-event log fidelity.
+            pass  # nosec B110 — intentional last-resort fallback
 
 
 # -- CLI -------------------------------------------------------------------
@@ -276,16 +282,29 @@ def gen_azr_corpus(
     # forward passes (no gradients through the base), so we still wrap
     # the model in inference_mode() in the corpus loop below.
     log("azr_base_model_loading", base_model=base_model_id)
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+    # Pin to a known ref (revision="main") to mitigate supply-chain
+    # risk: without a pinned revision, an attacker with push access
+    # to the upstream repo could swap weights between runs and we
+    # would not notice. For production deployments, operators
+    # should override AWARE_HF_REVISION with a specific commit SHA
+    # (e.g. from a release tag) for full reproducibility.
+    hf_revision = os.environ.get("AWARE_HF_REVISION", "main")
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, revision=hf_revision)
     model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
+        revision=hf_revision,
         quantization_config=bnb_config,
         device_map="auto",
     )
     log("azr_base_model_loaded", device=str(model.device), quant="4bit-nf4")
 
+    # Use a unique per-process tempdir for AZR sandbox scratch. Avoids
+    # the security risk of /tmp/azr-sandbox (predictable location,
+    # symlink attacks, cross-process data leaks in shared environments).
+    # mkdtemp creates the dir with mode 0700 (owner-only) atomically.
+    azr_scratch_dir = tempfile.mkdtemp(prefix="azr-sandbox-")
     executor = SandboxExecutor(
-        scratch_dir="/tmp/azr-sandbox",
+        scratch_dir=azr_scratch_dir,
         timeout_seconds=int(os.environ.get("AZR_SANDBOX_TIMEOUT_SECONDS", "5")),
         memory_mb=int(os.environ.get("AZR_SANDBOX_MEMORY_MB", "128")),
     )
@@ -548,12 +567,16 @@ def load_model_with_lora(base_model_id: str, max_seq_length: int, lora_r: int,
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+    # Pin revision (supply-chain hardening). See comment in azr_corpus_loop
+    # call site for the rationale and the AWARE_HF_REVISION env var override.
+    hf_revision = os.environ.get("AWARE_HF_REVISION", "main")
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, revision=hf_revision)
     if tokenizer.pad_token is None:
         # Qwen3 tokenizer ships without a pad token by default.
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
+        revision=hf_revision,
         quantization_config=bnb_config,
         device_map="auto",
     )

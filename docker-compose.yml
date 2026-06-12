@@ -25,7 +25,7 @@ services:
       dockerfile: Dockerfile.ui
     container_name: aware-frontend
     ports:
-      - "3001:80"  # Serve frontend separately on port 3001
+      - "3001:8080"  # Serve frontend separately on port 3001 (was 80 in v1.0.0; changed to 8080 for unprivileged-nginx compatibility)
     depends_on:
       - aware-backend
     environment:
