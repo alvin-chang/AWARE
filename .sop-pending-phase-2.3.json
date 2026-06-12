@@ -1,0 +1,169 @@
+{
+  "id": "sop-aware-2.0-phase-2.3-budget-watchdog",
+  "name": "AWARE 2.0 — Phase 2.3 Budget Watchdog (Postgres aggregate + tiered soft/hard + rolling 30d)",
+  "phase": "2.3",
+  "status": "active",
+  "author": "Alfie <alfie@localhost>",
+  "created": "2026-06-12T12:30:00+00:00",
+  "role": "orchestrator",
+  "task_type": "standard",
+  "applies_to_role": "orchestrator",
+  "goal": "Enforce a rolling 30-day LLM cost budget on the AWARE coordinator. Tiered semantics: soft warn at 80% (X-Budget-Tier header on every response), hard stop at 100% (return 402 to /coordinate, expose /budget/status endpoint, coordinator process stays up). Cost source = Postgres aggregate on aware_conversations.cost_total_usd (single source of truth, no double-bookkeeping).",
+  "preconditions": [
+    "Working directory: <HOME>/src/AWARE",
+    "Branch: feature/aware-2.0 (clean working tree)",
+    "Phase 2.1 conversation logger shipped (commit be382b5) — src/db/{index,logger}.js and db/migrations/001_conversations.sql exist and are used in production",
+    "Phase 2.2 PRM cache shipped (commit 1b32dd4) — src/db/prm-cache.js and db/migrations/002_prm_cache.sql exist",
+    "Architecture decisions (this session): A1 (Postgres aggregate), B3 (tiered soft@80%/hard@100%), C2 (rolling 30 days)",
+    "All 135/135 v2 unit tests pass under `node --test 'test/unit/**/*.test.js'` (node:test runner, not jest)"
+  ],
+  "architecture_decisions": {
+    "cost_counter_location": "A1 (Postgres aggregate on aware_conversations.cost_total_usd)",
+    "kill_semantics": "B3 (tiered: soft warn at 80% via X-Budget-Tier response header; hard stop at 100% returns 402 from /coordinate; coordinator process stays up — no launchd flap loop)",
+    "reset_cadence": "C2 (rolling 30 days; windowDays configurable, default 30)"
+  },
+  "config_shape": {
+    "enabled": "AWARE_BUDGET_ENABLED (default true; false → watchdog is a no-op)",
+    "windowDays": "AWARE_BUDGET_WINDOW_DAYS (default 30)",
+    "softLimitUsd": "AWARE_BUDGET_SOFT_LIMIT_USD (default 80.00)",
+    "hardLimitUsd": "AWARE_BUDGET_HARD_LIMIT_USD (default 100.00)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "name": "Pre-flight",
+      "kind": "verify",
+      "commands": [
+        "git status --porcelain",
+        "git log --oneline -1",
+        "node --test 'test/unit/**/*.test.js'"
+      ],
+      "expected": "Working tree clean; HEAD = 1b32dd4; 135/135 unit tests pass, 0 fail"
+    },
+    {
+      "n": 2,
+      "name": "Write migration 003_budget_windows.sql",
+      "kind": "create",
+      "path": "db/migrations/003_budget_windows.sql",
+      "notes": "No schema change to aware_conversations. Add a composite index to make the rolling-window aggregate cheap: CREATE INDEX IF NOT EXISTS idx_conv_cost_created ON aware_conversations (created_at, cost_total_usd) WHERE cost_total_usd IS NOT NULL AND ok = true. The partial index keeps it small (only successful requests with a known cost)."
+    },
+    {
+      "n": 3,
+      "name": "Write src/budget/watchdog.js",
+      "kind": "create",
+      "path": "src/budget/watchdog.js",
+      "notes": "Exports: (1) isEnabled() — reads config.budget.enabled; (2) getWindowSpendUsd() — SELECT COALESCE(SUM(cost_total_usd), 0)::float FROM aware_conversations WHERE created_at > now() - $1::interval AND cost_total_usd IS NOT NULL AND ok = true, bound to `${windowDays} days`; (3) checkBudget() — calls getWindowSpendUsd, computes tier in {ok, soft, hard}, returns {ok, tier, spendUsd, softLimitUsd, hardLimitUsd, windowDays, resetsAt}; (4) getBudgetStatus() — {enabled, ...checkBudget(), lastCheckedAt}; (5) formatResetsAt(windowDays) — Date.now() + windowDays*86400000. ALL DB calls return safe defaults (0 spend, tier='ok') on any error — the watchdog must never break the request path. The watchdog is read-only — no INSERT/UPDATE/DELETE."
+    },
+    {
+      "n": 4,
+      "name": "Wire budget into src/config/index.cjs",
+      "kind": "edit",
+      "path": "src/config/index.cjs",
+      "notes": "Add budget namespace: budget: { enabled: envBool('AWARE_BUDGET_ENABLED', true), windowDays: envInt('AWARE_BUDGET_WINDOW_DAYS', 30, {min: 1, max: 365}), softLimitUsd: envFloat('AWARE_BUDGET_SOFT_LIMIT_USD', 80.0, {min: 0}), hardLimitUsd: envFloat('AWARE_BUDGET_HARD_LIMIT_USD', 100.0, {min: 0}) }. No secrets in this namespace; nothing to add to SECRET_NAMES. Update snapshot-stability test to expect 7 top-level keys (was 6: config, db, gateway, heavySkill, logging, prmCache — add budget)."
+    },
+    {
+      "n": 5,
+      "name": "Wire budget into src/coordinator/http-server.js",
+      "kind": "edit",
+      "path": "src/coordinator/http-server.js",
+      "notes": "(1) Import checkBudget, getBudgetStatus, isEnabled from src/budget/watchdog.js. (2) In handleCoordinate, BEFORE T2 per-request cap, call checkBudget(); if hard → return 402 with body {error: 'budget_exhausted', spendUsd, hardLimitUsd, resetsAt}; if soft or ok → continue and set res.setHeader('X-Budget-Tier', tier). (3) Add new route GET /budget/status → 200 with body = getBudgetStatus(). (4) All budget calls are synchronous; the watchdog DB call is awaited at the top of the request (only one query per /coordinate). (5) On watchdog DB error, log a warn and treat as tier=ok (fail-open — never block requests because the budget DB is sad)."
+    },
+    {
+      "n": 6,
+      "name": "Write test/unit/budget/watchdog.test.js",
+      "kind": "create",
+      "path": "test/unit/budget/watchdog.test.js",
+      "notes": "Tests: (1) isEnabled() reads config.budget.enabled. (2) getWindowSpendUsd() with mocked pool returns the float sum. (3) getWindowSpendUsd() returns 0 on empty result. (4) getWindowSpendUsd() returns 0 on pool error (fail-open). (5) checkBudget() with spend=0, soft=80, hard=100 → tier=ok. (6) checkBudget() with spend=85, soft=80, hard=100 → tier=soft. (7) checkBudget() with spend=100.01, soft=80, hard=100 → tier=hard. (8) checkBudget() returns {spendUsd, softLimitUsd, hardLimitUsd, windowDays, resetsAt}. (9) getBudgetStatus() includes enabled flag. (10) checkBudget() with disabled config short-circuits to tier=ok. (11) checkBudget() with windowDays=7, resetsAt ≈ now+7d. (12) formatResetsAt returns ISO string. (13) query uses parameterized interval (no SQL injection). (14) query filters ok=true. (15) all DB calls wrapped in try/catch returning safe defaults. Uses node:test, async fns. Mocks the pool from src/db/index.js with a fake .query() that returns {rows: [{sum: '85.42'}]} or throws."
+    },
+    {
+      "n": 7,
+      "name": "Patch test/unit/config/index.test.js",
+      "kind": "edit",
+      "path": "test/unit/config/index.test.js",
+      "notes": "Add 5 budget tests: (1) defaults: enabled=true, windowDays=30, softLimitUsd=80, hardLimitUsd=100. (2) AWARE_BUDGET_ENABLED=false → enabled=false. (3) AWARE_BUDGET_WINDOW_DAYS=7 → windowDays=7. (4) AWARE_BUDGET_HARD_LIMIT_USD=250.50 → hardLimitUsd=250.50. (5) snapshot key list now includes 'budget' (so it joins the other 6)."
+    },
+    {
+      "n": 8,
+      "name": "Patch test/unit/coordinator/http-server.test.js",
+      "kind": "edit",
+      "path": "test/unit/coordinator/http-server.test.js",
+      "notes": "Add 3 watchdog integration tests on the /coordinate route: (1) tier=ok → response has X-Budget-Tier: ok. (2) tier=hard → response is 402 with budget_exhausted body. (3) GET /budget/status → 200 with status JSON. Mock the watchdog module so we don't need a live DB in unit tests."
+    },
+    {
+      "n": 9,
+      "name": "Run v2 unit suite",
+      "kind": "verify",
+      "commands": ["node --test 'test/unit/**/*.test.js'"],
+      "expected": "150+/150+ pass, 0 fail, 0 skipped (135 + ~15 new watchdog + 5 config + 3 http-server = ~158)"
+    },
+    {
+      "n": 10,
+      "name": "Patch scripts/bring-up-coordinator.sh — smoke test #12",
+      "kind": "edit",
+      "path": "scripts/bring-up-coordinator.sh",
+      "notes": "Add smoke test #12: curl -s http://localhost:18081/budget/status → assert enabled=true, windowDays=30, tier in {ok,soft,hard}, spendUsd is a float. If absent, fail bring-up with 'budget_status_missing'."
+    },
+    {
+      "n": 11,
+      "name": "Patch Dockerfile.coordinator — Stage 2",
+      "kind": "edit",
+      "path": "Dockerfile.coordinator",
+      "notes": "Add COPY --from=build /build/src/budget ./src/budget to the runtime stage (mirrors the db/ fix from Phase 2.1). New src/budget/ directory needs to be in the runtime image."
+    },
+    {
+      "n": 12,
+      "name": "Run bring-up with --profile full",
+      "kind": "verify",
+      "commands": ["AWARE_BRINGUP_OK=1 bash scripts/bring-up-coordinator.sh --profile full"],
+      "expected": "BRING-UP-OK, 12 smoke tests green (was 11)"
+    },
+    {
+      "n": 13,
+      "name": "Verify live: /coordinate with budget headers",
+      "kind": "verify",
+      "commands": [
+        "curl -s -i -X POST http://localhost:18081/coordinate -H 'Content-Type: application/json' -d '{\"problem\":\"2+2?\"}' | grep -i 'X-Budget-Tier'",
+        "curl -s http://localhost:18081/budget/status | jq ."
+      ],
+      "expected": "X-Budget-Tier: ok header present; /budget/status returns valid JSON with spendUsd field"
+    },
+    {
+      "n": 14,
+      "name": "Commit Phase 2.3",
+      "kind": "git",
+      "commands": [
+        "git add -A",
+        "git status --short",
+        "git -c user.name='Alfie' -c user.email='alfie@localhost' commit -m 'aware: Phase 2.3 budget watchdog (A1/B3/C2)'"
+      ],
+      "expected": "Commit on feature/aware-2.0; summary ~9 files changed, +~400 LOC"
+    },
+    {
+      "n": 15,
+      "name": "Push to Gitea origin",
+      "kind": "git",
+      "commands": [
+        "set -a; source <host-config>/workspace-orchestrator/gitea-alfie.env; set +a",
+        "git push origin feature/aware-2.0"
+      ],
+      "expected": "Push succeeds; remote feature/aware-2.0 at new commit"
+    },
+    {
+      "n": 16,
+      "name": "Patch <internal-doc> — Phase 2.3 closed",
+      "kind": "edit",
+      "path": "<internal-doc>",
+      "notes": "Mark Phase 2.3 closed. Add 'Phase 2.4 (1K sessions)' as the remaining Phase 2 deliverable. Phase 2.4 is operational (runs over time), not blocked on a code change."
+    },
+    {
+      "n": 17,
+      "name": "Commit <internal-doc>",
+      "kind": "git",
+      "commands": [
+        "git add <internal-doc>",
+        "git -c user.name='Alfie' -c user.email='alfie@localhost' commit -m 'docs: <internal-doc> — Phase 2.3 closed'"
+      ],
+      "expected": "Single-file docs commit pushed to origin"
+    }
+  ]
+}

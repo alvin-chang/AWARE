@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer } from '../../../src/coordinator/http-server.js';
 import { COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from '../../../src/coordinator/index.js';
+import { _setPoolForTest as _setBudgetPoolForTest } from '../../../src/budget/watchdog.js';
 
 // Helper: build a stub router with controllable backends.
 // Returns a router whose health() matches the real ModelRouter's contract:
@@ -379,6 +380,138 @@ test('T2 cost-cap: result.cost_usd within cap returns 200', async () => {
       body: JSON.stringify({ problem: 'cheap', cost_cap_usd: 1.0 }),
     });
     assert.equal(res.status, 200);
+  });
+});
+
+// --- Phase 2.3: budget watchdog integration -----------------------------
+
+test.afterEach(() => {
+  _setBudgetPoolForTest(null);
+  delete process.env.AWARE_BUDGET_ENABLED;
+});
+
+function budgetPool(spendValue) {
+  return {
+    query: async () => ({ rows: [{ spend: spendValue }] }),
+  };
+}
+
+test('Phase 2.3: GET /budget/status returns 200 with status JSON', async () => {
+  _setBudgetPoolForTest(budgetPool(0));
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/budget/status`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.enabled, true);
+    assert.equal(body.tier, 'ok');
+    assert.equal(typeof body.spendUsd, 'number');
+    assert.equal(typeof body.softLimitUsd, 'number');
+    assert.equal(typeof body.hardLimitUsd, 'number');
+    assert.equal(typeof body.windowDays, 'number');
+    assert.equal(typeof body.resetsAt, 'string');
+    assert.equal(typeof body.lastCheckedAt, 'string');
+    assert.equal(typeof body.request_id, 'string');
+  });
+});
+
+test('Phase 2.3: /coordinate response carries x-budget-tier header (ok)', async () => {
+  _setBudgetPoolForTest(budgetPool(0));
+  const coordinateFn = async () => ({ ok: true, refined: 'cheap answer' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'cheap' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-budget-tier'), 'ok');
+  });
+});
+
+test('Phase 2.3: /coordinate returns 402 budget_exhausted when spend >= hard', async () => {
+  _setBudgetPoolForTest(budgetPool(10000));
+  const coordinateFn = async () => ({ ok: true, refined: 'never reached' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'too expensive' }),
+    });
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    assert.equal(body.kind, 'budget_exhausted');
+    assert.equal(body.spend_usd, 10000);
+    assert.equal(typeof body.soft_limit_usd, 'number');
+    assert.equal(typeof body.hard_limit_usd, 'number');
+    assert.equal(typeof body.resets_at, 'string');
+    assert.equal(res.headers.get('x-budget-tier'), 'hard');
+  });
+});
+
+test('Phase 2.3: /coordinate proceeds with x-budget-tier=soft when in soft band', async () => {
+  _setBudgetPoolForTest(budgetPool(85));  // between soft=80 and hard=100
+  const coordinateFn = async () => ({ ok: true, refined: 'still answered' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'getting close' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-budget-tier'), 'soft');
+  });
+});
+
+test('Phase 2.3: budget watchdog disabled short-circuits all checks', async () => {
+  process.env.AWARE_BUDGET_ENABLED = 'false';
+  // Even with a pool returning infinite spend, disabled → tier=ok
+  _setBudgetPoolForTest(budgetPool(999999));
+  const coordinateFn = async () => ({ ok: true, refined: 'unaffected' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'unlimited' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-budget-tier'), 'ok');
+  });
+});
+
+test('Phase 2.3: budget watchdog fail-open when pool throws', async () => {
+  _setBudgetPoolForTest({ query: async () => { throw new Error('connection refused'); } });
+  const coordinateFn = async () => ({ ok: true, refined: 'still answered' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'sad DB' }),
+    });
+    assert.equal(res.status, 200);
+    // Fail-open: tier=ok because the watchdog couldn't read the spend
+    assert.equal(res.headers.get('x-budget-tier'), 'ok');
+  });
+});
+
+test('Phase 2.3: /budget/status reflects tier=hard when spend is over hard', async () => {
+  _setBudgetPoolForTest(budgetPool(10000));
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/budget/status`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.tier, 'hard');
+    assert.equal(body.ok, false);
+  });
+});
+
+test('Phase 2.3: /budget/status reflects tier=soft when spend is in soft band', async () => {
+  _setBudgetPoolForTest(budgetPool(85));
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/budget/status`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.tier, 'soft');
+    assert.equal(body.ok, true);
   });
 });
 

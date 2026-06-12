@@ -155,6 +155,17 @@ const config = {
     get ttlDays() { return num('AWARE_PRM_CACHE_TTL_DAYS', 30, { min: 1, max: 3650 }); },
     get table() { return str('AWARE_PRM_CACHE_TABLE', 'aware_prm_cache'); },
   },
+
+  // Budget watchdog (Phase 2.3)
+  // Architecture decisions: A1 (Postgres aggregate on aware_conversations),
+  // B3 (tiered soft@softLimitUsd / hard@hardLimitUsd), C2 (rolling windowDays).
+  // No secrets in this namespace; the watchdog is read-only.
+  budget: {
+    get enabled() { return bool('AWARE_BUDGET_ENABLED', true); },
+    get windowDays() { return num('AWARE_BUDGET_WINDOW_DAYS', 30, { min: 1, max: 365 }); },
+    get softLimitUsd() { return num('AWARE_BUDGET_SOFT_LIMIT_USD', 80.0, { min: 0, max: 1_000_000 }); },
+    get hardLimitUsd() { return num('AWARE_BUDGET_HARD_LIMIT_USD', 100.0, { min: 0, max: 1_000_000 }); },
+  },
 };
 
 // --- validation ---------------------------------------------------------
@@ -188,6 +199,9 @@ config.validate = function validate() {
   void config.coordinator.requestTimeoutMs;
   void config.coordinator.requestCostCapUsd;
   void config.gateway.proxyTimeoutMs;
+  void config.budget.windowDays;
+  void config.budget.softLimitUsd;
+  void config.budget.hardLimitUsd;
   return config;
 };
 
@@ -249,6 +263,12 @@ config.snapshot = function snapshot() {
       enabled: c.prmCache.enabled,
       ttlDays: c.prmCache.ttlDays,
       table: c.prmCache.table,
+    },
+    budget: {
+      enabled: c.budget.enabled,
+      windowDays: c.budget.windowDays,
+      softLimitUsd: c.budget.softLimitUsd,
+      hardLimitUsd: c.budget.hardLimitUsd,
     },
     warnings: c.warnings(),
   };

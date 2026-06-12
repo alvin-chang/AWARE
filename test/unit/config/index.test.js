@@ -22,7 +22,9 @@ function clearV2Env() {
       k === 'AWARE_MODE' || k === 'OLLAMA_URL' ||
       k === '<redacted-credential-name>' || k === 'MINIMAX_API_HOST' ||
       k === 'AWARE_PRM_CACHE_ENABLED' || k === 'AWARE_PRM_CACHE_TTL_DAYS' ||
-      k === 'AWARE_PRM_CACHE_TABLE'
+      k === 'AWARE_PRM_CACHE_TABLE' ||
+      k === 'AWARE_BUDGET_ENABLED' || k === 'AWARE_BUDGET_WINDOW_DAYS' ||
+      k === 'AWARE_BUDGET_SOFT_LIMIT_USD' || k === 'AWARE_BUDGET_HARD_LIMIT_USD'
     ) {
       delete process.env[k];
     }
@@ -218,7 +220,7 @@ test('config: snapshot() shape is stable', (t) => {
 
   const snap = config.snapshot();
   assert.deepEqual(Object.keys(snap).sort(), [
-    'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'warnings',
+    'budget', 'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
     'host', 'killSwitch', 'port', 'requestCostCapUsd', 'requestTimeoutMs',
@@ -235,6 +237,9 @@ test('config: snapshot() shape is stable', (t) => {
   ]);
   assert.deepEqual(Object.keys(snap.prmCache).sort(), [
     'enabled', 'table', 'ttlDays',
+  ]);
+  assert.deepEqual(Object.keys(snap.budget).sort(), [
+    'enabled', 'hardLimitUsd', 'softLimitUsd', 'windowDays',
   ]);
 });
 
@@ -298,4 +303,58 @@ test('config: prmCache.ttlDays honors env override', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
   assert.equal(config.prmCache.ttlDays, 7);
+});
+
+// --- Phase 2.3: budget namespace ---------------------------------------
+
+test('config: budget.enabled defaults to true', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.enabled, true);
+});
+
+test('config: budget.windowDays defaults to 30', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.windowDays, 30);
+});
+
+test('config: budget.softLimitUsd defaults to 80', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.softLimitUsd, 80);
+});
+
+test('config: budget.hardLimitUsd defaults to 100', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.hardLimitUsd, 100);
+});
+
+test('config: budget.enabled honors env override (false)', (t) => {
+  process.env.AWARE_BUDGET_ENABLED = 'false';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.enabled, false);
+});
+
+test('config: budget.windowDays honors env override', (t) => {
+  process.env.AWARE_BUDGET_WINDOW_DAYS = '7';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.windowDays, 7);
+});
+
+test('config: budget.softLimitUsd honors env override', (t) => {
+  process.env.AWARE_BUDGET_SOFT_LIMIT_USD = '50';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.softLimitUsd, 50);
+});
+
+test('config: budget.hardLimitUsd honors env override', (t) => {
+  process.env.AWARE_BUDGET_HARD_LIMIT_USD = '250.50';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.budget.hardLimitUsd, 250.50);
 });

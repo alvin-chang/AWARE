@@ -23,6 +23,7 @@ import { coordinate, buildDefaultRouter, COORDINATOR_VERSION, COORDINATOR_BUILD_
 import config from '../config/index.cjs';
 import { logConversationFireAndForget } from '../db/logger.js';
 import { runMigrations } from '../db/index.js';
+import { checkBudget, getBudgetStatus, isEnabled as isBudgetEnabled } from '../budget/watchdog.js';
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
 
@@ -129,6 +130,9 @@ export async function startServer(opts = {}) {
           request_id: requestId,
         });
       }
+      if (req.method === 'GET' && req.url === '/budget/status') {
+        return await handleBudgetStatus(req, res, requestId);
+      }
       if (req.method === 'POST' && req.url === '/coordinate') {
         return await handleCoordinate(req, res, router, coordinateFn, requestId);
       }
@@ -163,6 +167,29 @@ export async function startServer(opts = {}) {
     });
 
   return { server, port: actualPort, host, close };
+}
+
+/**
+ * GET /budget/status — read-only budget watchdog status.
+ *
+ * Returns the current rolling-window spend, the configured soft/hard
+ * limits, the tier (ok | soft | hard), and the projected reset time.
+ * Read-only; never mutates anything.
+ */
+async function handleBudgetStatus(req, res, requestId) {
+  let status;
+  try {
+    status = await getBudgetStatus();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[aware-coordinator] getBudgetStatus threw:', err.message);
+    return sendJson(res, 500, {
+      error: 'budget status query failed',
+      kind: 'internal',
+      request_id: requestId,
+    });
+  }
+  return sendJson(res, 200, { ...status, request_id: requestId });
 }
 
 /**
@@ -244,6 +271,32 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
     return sendJson(res, 503, {
       error: 'kill-switch is engaged (AWARE_KILL_SWITCH=1)',
       kind: 'killed',
+      request_id: requestId,
+    });
+  }
+
+  // Phase 2.3 — Budget watchdog: read rolling-window spend BEFORE
+  // doing work. Hard tier → 402. Soft tier → proceed + warn header.
+  // On watchdog failure: log + fail-open (tier=ok). Never break the path.
+  let budget;
+  try {
+    budget = await checkBudget();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[aware-coordinator] checkBudget threw, failing open:', err.message);
+    budget = { ok: true, tier: 'ok', spendUsd: 0 };
+  }
+  res.setHeader('x-budget-tier', budget.tier);
+  if (budget.tier === 'hard') {
+    log({ errorKind: 'budget_exhausted', errorMessage: `rolling-window spend $${budget.spendUsd} >= hard limit $${budget.hardLimitUsd}` });
+    return sendJson(res, 402, {
+      error: 'budget exhausted — rolling-window spend has reached the hard limit',
+      kind: 'budget_exhausted',
+      spend_usd: budget.spendUsd,
+      soft_limit_usd: budget.softLimitUsd,
+      hard_limit_usd: budget.hardLimitUsd,
+      window_days: budget.windowDays,
+      resets_at: budget.resetsAt,
       request_id: requestId,
     });
   }
