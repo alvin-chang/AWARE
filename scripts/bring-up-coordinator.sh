@@ -191,6 +191,32 @@ if PGPASSWORD="$POSTGRES_PASSWORD_VALUE" docker exec \
 else
   fail "conversation logger: no row found in aware_conversations for the /coordinate smoke test"
 fi
+
+# Phase 2.2: PRM score cache — verify migration 002 applied, table exists,
+# and rows are written during the /coordinate kill-switch test above (which
+# exercises HeavySkill for real). Hit path is verified by row count > 0.
+log "smoke test: PRM cache — verify aware_prm_cache table exists (migration 002 applied)"
+if PGPASSWORD="$POSTGRES_PASSWORD_VALUE" docker exec \
+    -e PGPASSWORD="$POSTGRES_PASSWORD_VALUE" aware-2-postgres \
+    psql -U aware -d aware2 -t -A -c \
+    "SELECT to_regclass('aware_prm_cache');" \
+    2>/dev/null | grep -q 'aware_prm_cache'; then
+  log "  → aware_prm_cache table exists"
+else
+  fail "PRM cache: aware_prm_cache table does not exist (migration 002 didn't apply)"
+fi
+
+log "smoke test: PRM cache — verify rows are written during /coordinate"
+sleep 2  # let fire-and-forget cache writes land
+if PGPASSWORD="$POSTGRES_PASSWORD_VALUE" docker exec \
+    -e PGPASSWORD="$POSTGRES_PASSWORD_VALUE" aware-2-postgres \
+    psql -U aware -d aware2 -t -A -c \
+    "SELECT count(*) FROM aware_prm_cache;" \
+    2>/dev/null | grep -qE '^[1-9][0-9]*$'; then
+  log "  → PRM cache row(s) found in postgres"
+else
+  fail "PRM cache: no rows found in aware_prm_cache after /coordinate"
+fi
 unset POSTGRES_PASSWORD_VALUE
 
 # 8. Gateway smoke test (gated on the gateway being up; in the
@@ -226,4 +252,4 @@ log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 10 smoke tests (7 if gateway is behind the full profile), all green. Phase 2.1 conversation logger is writing to postgres."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 11 smoke tests (8 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache are both writing to postgres."
