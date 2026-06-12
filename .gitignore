@@ -75,3 +75,6 @@ __pycache__/
 # Security audit harness output (regeneratable, contains local scan results)
 security-audit-report.txt
 security-audit-report.json
+security-audit-npm-audit.json
+security-audit-gitleaks.json
+security-audit-trivy.json

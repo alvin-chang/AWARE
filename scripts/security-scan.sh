@@ -38,7 +38,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 REPORT_TXT="$REPO_ROOT/security-audit-report.txt"
-REPORT_JSON="$REPO_ROOT/security-audit-report.json"
+# Per-check JSON files (so they don't clobber each other; final
+# REPORT_JSON symlink points to whichever check ran last)
+REPORT_JSON_NPM_AUDIT="$REPO_ROOT/security-audit-npm-audit.json"
+REPORT_JSON_GITLEAKS="$REPO_ROOT/security-audit-gitleaks.json"
+REPORT_JSON_TRIVY="$REPO_ROOT/security-audit-trivy.json"
+# Backwards-compat: REPORT_JSON points to the trivy file (last to run)
+# so the existing "(see $REPORT_JSON)" message in the summary still works
+REPORT_JSON="$REPORT_JSON_TRIVY"
 
 # ─── ANSI colors (only on TTY) ──────────────────────────────────────────
 if [ -t 1 ]; then
@@ -187,7 +194,7 @@ check_npm_audit() {
         record_check "npm-audit" "SKIP" "npm audit returned no output"
         return
     fi
-    echo "$audit_json" > "$REPORT_JSON"
+    echo "$audit_json" > "$REPORT_JSON_NPM_AUDIT"
     # Parse the vulnerability counts
     local critical high moderate low info
     critical=$(echo "$audit_json" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{try{const j=JSON.parse(s); console.log(j.metadata?.vulnerabilities?.critical||0)}catch{console.log('?')}})" 2>/dev/null || echo '?')
@@ -195,10 +202,10 @@ check_npm_audit() {
     moderate=$(echo "$audit_json" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{try{const j=JSON.parse(s); console.log(j.metadata?.vulnerabilities?.moderate||0)}catch{console.log('?')}})" 2>/dev/null || echo '?')
     low=$(echo "$audit_json" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{try{const j=JSON.parse(s); console.log(j.metadata?.vulnerabilities?.low||0)}catch{console.log('?')}})" 2>/dev/null || echo '?')
     if [ "$critical" = "0" ] && [ "$high" = "0" ]; then
-        record_check "npm-audit" "PASS" "0 critical / 0 high / $moderate moderate / $low low"
+        record_check "npm-audit" "PASS" "0 critical / 0 high / $moderate moderate / $low low (see $REPORT_JSON_NPM_AUDIT)"
     elif [ "$critical" != "0" ] || [ "$high" != "0" ]; then
         if [ "$STRICT" -eq 1 ]; then
-            record_check "npm-audit" "FAIL" "$critical critical / $high high (see $REPORT_JSON)"
+            record_check "npm-audit" "FAIL" "$critical critical / $high high (see $REPORT_JSON_NPM_AUDIT)"
         else
             record_check "npm-audit" "WARN" "$critical critical / $high high (use --strict to fail)"
         fi
@@ -217,7 +224,7 @@ check_gitleaks() {
     info "scanning full git history (this may take 10-30s)"
     local leaks_out
     local leaks_exit=0
-    leaks_out=$(gitleaks detect --source . --report-path "$REPORT_JSON" --no-banner 2>&1) || leaks_exit=$?
+    leaks_out=$(gitleaks detect --source . --report-path "$REPORT_JSON_GITLEAKS" --no-banner 2>&1) || leaks_exit=$?
     # gitleaks exit 0 = no findings, 1 = findings, >1 = error
     if [ $leaks_exit -eq 0 ]; then
         record_check "gitleaks" "PASS" "0 secrets in git history"
@@ -245,12 +252,34 @@ check_trivy() {
     trivy_out=$(trivy fs --severity HIGH,CRITICAL --no-progress --format json \
         --output "$REPORT_JSON" \
         src/ training/ Dockerfile docker/ 2>&1) || trivy_exit=$?
-    if [ $trivy_exit -eq 0 ]; then
+    # Always parse the JSON for actual finding counts. trivy may exit
+    # non-zero on a Dockerfile parser error (e.g. ARG before FROM) but
+    # still produce a valid JSON with 0 findings — don't false-positive.
+    local crit high
+    crit=$(node -e "
+        try {
+          const j = JSON.parse(require('fs').readFileSync('$REPORT_JSON','utf8'));
+          let c=0, h=0;
+          // Old trivy JSON shape: {Results:[{Vulnerabilities:[{Severity}]}]}
+          if (Array.isArray(j.Results)) {
+            for (const r of j.Results) for (const v of (r.Vulnerabilities||[])) {
+              if (v.Severity==='CRITICAL') c++;
+              else if (v.Severity==='HIGH') h++;
+            }
+          // Newer trivy 'audit report v2' shape: {metadata.vulnerabilities:{critical,high,...}}
+          } else if (j.metadata && j.metadata.vulnerabilities) {
+            c = j.metadata.vulnerabilities.critical || 0;
+            h = j.metadata.vulnerabilities.high || 0;
+          }
+          console.log(c+'/'+h);
+        } catch { console.log('?/?'); }
+    " 2>/dev/null || echo '?/?')
+    if [ "$trivy_exit" -eq 0 ] && [ "$crit" = "0/0" ]; then
         record_check "trivy" "PASS" "0 HIGH/CRITICAL findings in src/, training/, Dockerfiles"
+    elif [ "$crit" = "0/0" ]; then
+        # non-zero exit (e.g. Dockerfile parser error) but no real findings
+        record_check "trivy" "WARN" "trivy exited $trivy_exit but no HIGH/CRITICAL findings in JSON (likely Dockerfile parser error, see $REPORT_JSON)"
     else
-        # Parse JSON for counts
-        local crit high
-        crit=$(node -e "try{const j=JSON.parse(require('fs').readFileSync('$REPORT_JSON','utf8')); let c=0,h=0; for(const r of (j.Results||[])){for(const v of (r.Vulnerabilities||[])){if(v.Severity==='CRITICAL')c++; else if(v.Severity==='HIGH')h++}} console.log(c+'/'+h)}catch{console.log('?/?')}" 2>/dev/null || echo '?/?')
         if [ "$STRICT" -eq 1 ]; then
             record_check "trivy" "FAIL" "HIGH/CRITICAL findings: $crit (see $REPORT_JSON)"
         else
