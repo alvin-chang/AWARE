@@ -11,7 +11,9 @@
     "lint": "eslint src/",
     "ui-dev": "cd src/ui && npm start",
     "ui-build": "cd src/ui && npm run build",
-    "ui-install": "cd src/ui && npm install"
+    "ui-install": "cd src/ui && npm install",
+    "config:show": "node -e \"const c = require('./src/config/index.cjs'); console.log(JSON.stringify(c.snapshot(), null, 2))\"",
+    "config:validate": "node -e \"const c = require('./src/config/index.cjs'); try { c.validate(); console.log('OK'); } catch (e) { console.error('FAIL:', e.message); process.exit(1); }\""
   },
   "keywords": [
     "cluster",
