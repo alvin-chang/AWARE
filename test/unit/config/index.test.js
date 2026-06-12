@@ -20,7 +20,9 @@ function clearV2Env() {
       k === 'AWARE_KILL_SWITCH' || k === 'AWARE_GATEWAY_KILL_SWITCH' ||
       k === 'AWARE_HEAVY_THINK_PATH' ||
       k === 'AWARE_MODE' || k === 'OLLAMA_URL' ||
-      k === 'LLM_API_KEY' || k === 'MINIMAX_API_HOST'
+      k === 'LLM_API_KEY' || k === 'MINIMAX_API_HOST' ||
+      k === 'AWARE_PRM_CACHE_ENABLED' || k === 'AWARE_PRM_CACHE_TTL_DAYS' ||
+      k === 'AWARE_PRM_CACHE_TABLE'
     ) {
       delete process.env[k];
     }
@@ -216,7 +218,7 @@ test('config: snapshot() shape is stable', (t) => {
 
   const snap = config.snapshot();
   assert.deepEqual(Object.keys(snap).sort(), [
-    'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'warnings',
+    'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
     'host', 'killSwitch', 'port', 'requestCostCapUsd', 'requestTimeoutMs',
@@ -230,6 +232,9 @@ test('config: snapshot() shape is stable', (t) => {
   assert.deepEqual(Object.keys(snap.heavyThink), ['path']);
   assert.deepEqual(Object.keys(snap.db).sort(), [
     'connectionTimeoutMs', 'database', 'enabled', 'host', 'password', 'port', 'user',
+  ]);
+  assert.deepEqual(Object.keys(snap.prmCache).sort(), [
+    'enabled', 'table', 'ttlDays',
   ]);
 });
 
@@ -259,4 +264,38 @@ test('config: 0 is a valid port (OS picks)', (t) => {
   // convention. Validation should not throw.
   assert.equal(config.gateway.port, 0);
   assert.doesNotThrow(() => config.validate());
+});
+
+// --- Phase 2.2: prmCache namespace --------------------------------------
+
+test('config: prmCache.enabled defaults to true', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.prmCache.enabled, true);
+});
+
+test('config: prmCache.ttlDays defaults to 30', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.prmCache.ttlDays, 30);
+});
+
+test('config: prmCache.table defaults to aware_prm_cache', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.prmCache.table, 'aware_prm_cache');
+});
+
+test('config: prmCache.enabled honors env override (false)', (t) => {
+  process.env.AWARE_PRM_CACHE_ENABLED = 'false';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.prmCache.enabled, false);
+});
+
+test('config: prmCache.ttlDays honors env override', (t) => {
+  process.env.AWARE_PRM_CACHE_TTL_DAYS = '7';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.prmCache.ttlDays, 7);
 });

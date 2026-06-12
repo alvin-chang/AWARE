@@ -144,6 +144,17 @@ const config = {
     get enabled() { return bool('AWARE_DB_ENABLED', true); },
     get connectionTimeoutMs() { return num('AWARE_DB_CONNECTION_TIMEOUT_MS', 2000, { min: 100, max: 30_000 }); },
   },
+
+  // PRM score cache (Phase 2.2)
+  // Architecture decision P (content-hash key) + X (env-var kill switch).
+  // When enabled=false the cache is a no-op and every /coordinate call
+  // hits the live PRM judge. When enabled=true (default), the cache
+  // short-circuits the LLM call for repeated {problem, reasoning, ...} inputs.
+  prmCache: {
+    get enabled() { return bool('AWARE_PRM_CACHE_ENABLED', true); },
+    get ttlDays() { return num('AWARE_PRM_CACHE_TTL_DAYS', 30, { min: 1, max: 3650 }); },
+    get table() { return str('AWARE_PRM_CACHE_TABLE', 'aware_prm_cache'); },
+  },
 };
 
 // --- validation ---------------------------------------------------------
@@ -233,6 +244,11 @@ config.snapshot = function snapshot() {
       password: redact('password', c.db.password),
       enabled: c.db.enabled,
       connectionTimeoutMs: c.db.connectionTimeoutMs,
+    },
+    prmCache: {
+      enabled: c.prmCache.enabled,
+      ttlDays: c.prmCache.ttlDays,
+      table: c.prmCache.table,
     },
     warnings: c.warnings(),
   };
