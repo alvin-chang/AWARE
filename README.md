@@ -1,10 +1,14 @@
 # AWARE — Autonomous Compliance Infrastructure for AI Agents
 
-**Project Key:** `aware`  
-**Source:** https://github.com/GoodCISO/aware  
+**Project Key:** `aware`
+**Source:** https://github.com/GoodCISO/aware
 **License:** Apache-2.0
 
-> AWARE v1.0.0 — Autonomous compliance infrastructure shipped to GitHub (GoodCISO/aware). 185 clean files. Apache 2.0 license.
+> AWARE v2.0 — Compliance infrastructure for autonomous AI agents, with a
+> self-improving feedback loop. The v2 pipeline (Phase 1 → 5) is in active
+> development. v1.0.0 (the bio-inspired routing + compliance layer) is
+> shipped to GitHub and continues to run on its own port set (3000, 3001).
+> v2 lives in the 18xxx port range and is the focus of this README.
 
 ---
 
@@ -15,113 +19,219 @@ AWARE is **open-source autonomous compliance infrastructure for AI agents**.
 Autonomous AI agents operate across organisational boundaries, spawn child agents, and make independent decisions. Existing compliance frameworks — SOC 2 checklists, ISO 27001 templates, periodic audits — assume human oversight at every step. They don't apply to systems that act autonomously.
 
 AWARE is different. It's infrastructure that makes compliance happen on its own:
+
 - Every agent gets a **cryptographic identity** it can't fake
 - Every action is **evaluated against policy before it executes**
 - **Revocation cascades automatically** when an agent is compromised — kill the parent, the children go too
 - **Full audit trails build themselves** — every decision, every context access, every escalation
+- **(v2)** Every preference-pair disagreement becomes **DPO training data** — the system improves itself from real production traffic
 
-AWARE implements **T0-T4 constraint levels** — from fully human-controlled (T0) to full autonomous operation with cryptographic identity (T4). Agents self-enforce the constraint level you define. You don't babysit them.
+AWARE implements **T0–T4 constraint levels** — from fully human-controlled (T0) to full autonomous operation with cryptographic identity (T4). Agents self-enforce the constraint level you define. You don't babysit them.
 
 **Core thesis:** Bio-inspired coordination algorithms are the right primitive for autonomous agent orchestration and compliance. Pheromone-based routing, distributed consensus, and self-healing topologies translate directly to agent governance.
 
 ---
 
-## Key Differentiators
+## AWARE 2.0 — what's new
 
-| Pattern | What It Means for Autonomous Compliance |
-|---------|-------------|
-| **Cryptographic Agent Identity** | Every agent has NHI (Non-Human Identity) with cryptographic credentials — the foundation for autonomous self-governance |
-| **Self-Enforcing Policies** | T0-T4 constraint levels evaluated before action executes — not checklists, infrastructure |
-| **Automatic Revocation Cascade** | Kill the parent via Raft consensus, every child agent is revoked automatically |
-| **Observable Decision Trails** | Every routing decision logged with rationale — self-documenting compliance |
-| **Quality-Gated Pheromone Evolution** | Only high-quality, compliant routing trajectories get reinforced (AMRO-S research, 4.7x speedup) |
-| **Modularity with Explicit Interfaces** | Each layer (orchestrator, agent host, compliance, tools) evolves independently — compliance is embedded, not bolted on |
-
----
-
-## Architecture
-
-AWARE's layered architecture makes compliance autonomous — not just visible:
+AWARE 1.0 was the bio-inspired routing + compliance layer (Phases 1–4 of the v1 plan, all shipped). AWARE 2.0 extends that with a **5-stage self-improving feedback loop**:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    ORCHESTRATOR                      │
-│         (goal decomposition, task assignment)       │
-├─────────────────────────────────────────────────────┤
-│                   AGENT HOST                         │
-│          (tool execution, context, memory)          │
-├─────────────────────────────────────────────────────┤
-│              COMPLIANCE LAYER                        │
-│     (policy enforcement, autonomous revocation)     │
-├─────────────────────────────────────────────────────┤
-│                   TOOL LAYER                        │
-│            (I/O, external APIs, computation)         │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  1. Coordinator       routes /coordinate calls, picks tier,          │
+│                        enforces budget + cost cap + kill switch     │
+│                                                                      │
+│  2. Conversation      logs every /coordinate to Postgres             │
+│     Logger            (aware_conversations + aware_preference_pairs) │
+│                                                                      │
+│  3. PRM Score Cache   caches PRM judge scores by content hash        │
+│                        (aware_prm_cache, 30-day TTL default)         │
+│                                                                      │
+│  4. AZR Self-Play     runs AZR task proposer/solver on Modal A100    │
+│                        (gated by `--profile training`)               │
+│                                                                      │
+│  5. DPO Trainer       packages preference pairs → DPO dataset →      │
+│                        submits Modal QLoRA job on trained-model           │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Each layer makes compliance autonomous:**
-- **Orchestrator:** Goal decomposition respects constraint boundaries — agents can't be assigned tasks outside their authority
-- **Agent Host:** Tool execution is policy-gated — agents self-enforce before every action
-- **Compliance Layer:** Pheromone routing with security-weighted heuristics — agents self-organize within policy bounds
-- **Tool Layer:** External I/O is identity-verified — every call is attributed and logged
+Each stage writes to Postgres; the next stage consumes what the previous wrote. When the loop closes (Phase 4 evaluation harness, not done), we'll have a system that improves itself from real production traffic with no operator intervention.
 
-**Existing foundation (queen/worker hierarchy):** Maps cleanly to orchestrator/agent host roles. Extension is additive, not a rewrite.
+**Detailed design:** see `docs/adr/ADR-020.md` (the v2 architecture) and `<internal-doc>` (where each phase stands today).
 
 ---
 
-## Implementation Phases
+## Quickstart (v2)
 
-| Phase | Name | ADR | Status |
-|-------|------|-----|--------|
-| 1.1 | Agent Identity Layer | — | ✅ Complete |
-| 1.2 | Per-Agent Sandbox Policies | — | ✅ Complete |
-| 1.3 | Behavioural Baseline | — | ✅ Complete |
-| 1.4 | Kill Switch (Raft Consensus) | — | ✅ Complete |
-| 2.1 | Pheromone Specialists | ADR-009 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 2.2 | Security-Weighted Heuristic | ADR-010 | ✅ Complete (9/9 tests PASS) |
-| 2.3 | Quality-Gated Reinforcement | ADR-011 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 2.4 | Hot-Reload Policy | ADR-012 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 3.1A | JWT Identity Provider | ADR-013 | ✅ Complete (27/27 tests PASS) |
-| 3.1B | Behavioural Anomaly Detection | ADR-014 | ✅ Complete (14/14 tests PASS) |
-| 3.1C | Tool Access Control | ADR-015 | ✅ Complete (40/40 tests PASS) |
-| 3.1C | Compliance Mapping | ADR-016 | ✅ Complete (40/40 tests PASS) |
-| 3.2 | Kill Switch Propagation | ADR-017 | ✅ Complete (APPROVED) |
-| 3.3 | Decision-Chain Traceability | ADR-018 | ✅ Complete (APPROVED + IMPLEMENTED) |
-| 3.4 | GitOps Agent-as-Code | ADR-019 | ✅ Complete (APPROVED, alert-only) |
+Requires: Docker, Node 22+, curl, npm, jq (for the bring-up script).
 
-**Phase 1 is complete** — all sub-phases (1.1–1.4) delivered and tested.
+```bash
+# 1. Clone + enter
+git clone https://github.com/GoodCISO/aware
+cd aware
 
-**Phase 2 is complete** — all ADRs (009–012) approved, implemented, and tested.
+# 2. Copy the env template
+cp deploy/env.example .env
+$EDITOR .env   # uncomment + fill in what you have; defaults are safe for dev
 
-**Phase 3 is complete** — all ADRs (013–019) approved, implemented, and tested.
+# 3. Validate the config parses
+npm run config:validate
 
-**Phase 4 is complete** — compliance mapping documented and aligned with CSA AI Controls Matrix.
+# 4. (Optional) Run the test suite — should be green
+npm test
+
+# 5. Bring up the v2 stack
+./scripts/aware-up
+
+# 6. Verify health
+curl -sS http://localhost:18080/health
+# {"ok":true,"status":"live"}
+```
+
+To also start the trainer poller (Phase 3 AZR self-play):
+
+```bash
+./scripts/aware-up --profile training
+```
+
+The trainer stays in **disabled-by-config** state until you set `AWARE_TRAINER_ENABLED=1` in `.env` AND run the one-time Modal deploy:
+
+```bash
+MODAL_PROFILE=goodciso modal deploy training/run.py
+```
+
+See `docs/sop/sop-phase-3-azr-self-play.json` for the full operator-action sequence.
 
 ---
 
-## Autonomous Compliance Mapping
+## What's done vs. what isn't (honest)
 
-AWARE's phases map directly to CSA AI Controls Matrix requirements for autonomous agent systems:
+**Done (v2.0, code-complete, tests green, on `feature/aware-2.0`):**
 
-| Phase | Capability | Compliance Coverage |
-|-------|-----------|--------------------|
-| Phase 1 (1.1–1.4) | Identity + Sandbox + Kill Switch | Agent identity governance, revocation chain controls |
-| Phase 2 (2.1–2.4) | Pheromone Routing + Quality Gating | Secure routing with compliance-weighted heuristics |
-| Phase 3 (3.1–3.4) | JWT IdP + Anomaly Detection + Tool Access | Policy enforcement, anomaly detection, self-documenting audit trails |
-| Phase 4 | Compliance Mapping | CSA AI Controls Matrix alignment and documentation |
+- Phase 1: Coordinator Foundation (`537ea66`)
+- Phase 1 polish: ADR-021 centralised config + `config:show` / `config:validate` (`05a41ff`)
+- Phase 2.1: Conversation Logger (Postgres-backed) (`be382b5`)
+- Phase 2.2: PRM Score Cache (Postgres + content-hash) (`2a093cf`)
+- Phase 2.3: Budget Watchdog (rolling window, soft + hard cap) (`e990303` + `bf6d560`)
+- Phase 3: AZR Self-Play on Modal (sandbox + trainer poller + config) (`c572bfd`)
+- Phase 3 follow-up: real `modal@0.8.0` JS SDK surface + trained-model base model (`6ff1cd2`)
+- R2: real JS SDK surface, `@app.function()` deploy wrapper, real-SDK bring-up smoke (`cbf5511` + `6f15240`)
+- Phase 4 first slice: outcome filter + real DPO dataset packaging (`89238df` + `bfe7a5b`)
+- Phase 5 R1: `deploy/env.example` (24 v2 env vars documented) (`d58c4b8`) — this commit
+- Phase 5 R3: `scripts/aware-up` single-command bring-up (`5fa4f9a`) — this commit
+
+**In progress / not done:**
+
+- Phase 4 remaining: AZR results table + cross-join, coordinator weight-reload hook, evaluation harness, benchmark delta vs. base model
+- Phase 5 remaining: fresh-VM-in-30-min test, test coverage ≥80%, dev guide, security audit (bandit/npm audit/gitleaks/trivy), single-binary packaging
+
+**Status tracking:** every phase closure is recorded in `<internal-doc>` and mirrored to `<host-config>/sops/`. Every phase has a SOP in `docs/sop/`.
 
 ---
 
-## Academic Backing
+## Architecture (v2)
 
-**AMRO-S** (arXiv:2603.12933) — Efficient and Interpretable Multi-Agent LLM Routing via Ant Colony Optimisation:
+```
+       Telegram / A2A / curl
+                │
+                ▼
+   ┌──────────────────────────┐
+   │  Gateway  :18080         │  ← BFF / proxy, kill switch, CORS, request log
+   └──────────┬───────────────┘
+              │  /coordinate → COORDINATOR_URL
+              ▼
+   ┌──────────────────────────┐
+   │  Coordinator :18081      │  ← tier routing (online/hybrid/offline)
+   │   - budget watchdog      │     cost cap, soft + hard limit
+   │   - PRM score cache      │     content-hash keyed, 30-day TTL
+   │   - conversation logger  │     aware_conversations + preference pairs
+   │   - awareness scoring    │     tier fallthrough with PRM judge
+   └──────────┬───────────────┘
+              │
+              ├──→ Ollama sidecar :11434  (qwen2.5:7b, local fallback)
+              ├──→ minimax API            (primary tier, env-var token)
+              └──→ <secondary-llm> API            (final fallback)
 
-- Pheromone-based path selection across layered AI agent graphs
-- Task-specific pheromone specialists prevent cross-task interference
-- Quality-gated evolution reinforces only high-quality routing trajectories
-- **4.7x speedup** over existing multi-agent routing with better accuracy
+   ┌──────────────────────────┐         ┌──────────────────────────┐
+   │  Postgres  :18432        │         │  Redis  :18379           │
+   │   - aware_conversations  │         │   - rate limits          │
+   │   - aware_preference_pairs│        │   - session state        │
+   │   - aware_prm_cache      │         └──────────────────────────┘
+   └──────────┬───────────────┘
+              │
+              ▼  (poller, --profile training)
+   ┌──────────────────────────┐         ┌──────────────────────────┐
+   │  Trainer poller          │ ──submit──▶ │  Modal                │
+   │   - outcome filter       │             │   - AZR self-play      │
+   │   - DPO dataset packager │             │   - QLoRA on trained-model  │
+   │   - Modal client (real)  │             │   - weights → /root/   │
+   └──────────────────────────┘             └──────────────────────────┘
+```
 
-What AMRO-S does NOT address (AWARE's differentiation): security heuristics, identity governance, kill switches, compliance mapping, blast radius containment.
+**Key files:**
+
+- `src/coordinator/` — coordinator HTTP service
+- `src/gateway/` — gateway HTTP service (BFF)
+- `src/budget/` — Phase 2.3 budget watchdog
+- `src/prm-cache/` — Phase 2.2 PRM score cache
+- `src/logger/` — Phase 2.1 conversation logger
+- `src/trainer/` — Phase 3 + 4 trainer poller + outcome filter
+- `training/run.py` — Modal QLoRA training function (operator deploys once)
+- `eval/` — Phase 4 evaluation harness (scaffold, not started)
+- `docs/adr/ADR-020.md` — the v2 architecture decision
+- `docs/adr/ADR-021.md` — centralised config (Phase 1 polish)
+
+---
+
+## Repo layout
+
+```
+AWARE/
+├── src/                  # v2 source (coordinator, gateway, logger, etc.)
+├── training/             # Modal training function (Python)
+├── eval/                 # Phase 4 evaluation harness (scaffold)
+├── deploy/               # env.example, compose fragments
+├── docker/               # Dockerfiles (coordinator, gateway, training)
+├── scripts/              # aware-up, bring-up-coordinator.sh
+├── config/               # modal-training.json + v2 runtime config
+├── docs/
+│   ├── adr/              # architecture decision records (ADR-009..021)
+│   ├── sop/              # Standard Operating Procedures per phase
+│   └── EVOLUTION-BRIEF.md
+├── <internal-doc>             # closure status of every phase
+├── README.md             # this file
+├── docker-compose.yml    # v1.0.0 stack (legacy, port 3000/3001)
+├── docker-compose.coordinator.yml   # v2 stack (port 18080-18432)
+├── .env.example          # v1.0.0 env reference (legacy)
+├── deploy/env.example    # v2 env reference (24 vars)
+└── package.json          # v2 Node deps
+```
+
+---
+
+## Stack
+
+**v1 (shipped):** Node.js, Express.js, React, Material-UI, Docker, Nginx, Raft Consensus, Ant Colony Optimization. Ports 3000/3001/80/443/5001.
+
+**v2 (in development):** Node 22, Postgres 16, Redis 7, Ollama (qwen2.5:7b), Modal (trained-model + A100-80GB), minimax M3 (primary), <secondary-llm> qwen3.6-plus (fallback). Ports 18080/18081/11434/18432/18379.
+
+**Boundaries:**
+
+- Plugin SDK boundary: v2 extensions cross into core through `<runtime>/plugin-sdk/*` only (inherited from <runtime>, not v1).
+- Channel boundary: v1 Telegram bot is in `src/agent.js`; v2 channels (Telegram, A2A) live in `src/channels/`.
+- Protocol boundary: gateway schema is contract — additive evolution only.
+
+---
+
+## Quick Links
+
+- **Status:** [<internal-doc>](<internal-doc>) — closure status of every phase
+- **v2 architecture:** [docs/adr/ADR-020.md](docs/adr/ADR-020.md)
+- **v1 evolution brief:** [docs/EVOLUTION-BRIEF.md](docs/EVOLUTION-BRIEF.md)
+- **SOPs:** [docs/sop/](docs/sop/) — per-phase operator procedures
+- **SOP mirror:** `<host-config>/sops/` (canonical SOP store)
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md)
+- **Compliance matrix (v1):** [docs/compliance-matrix.md](docs/compliance-matrix.md)
 
 ---
 
@@ -134,32 +244,17 @@ What AMRO-S does NOT address (AWARE's differentiation): security heuristics, ide
 | Okta Agent Gateway | Agent access | Distributed kill switch via Raft consensus — not centralised. |
 | Galileo Agent Control | Open runtime | Pheromone routing + autonomous compliance mapping on top. |
 
----
-
-## Status
-
-- [x] Phase 1: Complete (1.1–1.4 all delivered and tested)
-- [x] Phase 2.2: COMPLETE (ADR-010, 9/9 tests PASS)
-- [x] Phase 3: COMPLETE ✅
-  - ADR-013 (Phase 3.1A): COMPLETE (27/27 tests PASS)
-  - ADR-014 (Phase 3.1B): COMPLETE (14/14 tests PASS)
-  - ADR-015 (Phase 3.1C): COMPLETE (40/40 tests PASS)
-  - ADR-016 (Phase 3.2): COMPLETE (40/40 tests PASS)
-  - ADR-017 (Phase 3.2/3.3): COMPLETE (2026-04-01 22:38 BST)
-- [x] Phase 4: COMPLETE ✅ — Compliance matrix documented
+**Plus v2:** the self-improving DPO loop means the system gets better the more you use it, without the operator shipping new model versions manually.
 
 ---
 
-## Quick Links
+## Academic Backing
 
-- [Evolution Brief](docs/EVOLUTION-BRIEF.md) — Full project direction and research
-- [Architecture](docs/adr/PHASE-3-ADR-ARCHITECTURE.md) — Detailed technical architecture
-- [OpenAPI Spec](docs/openapi.yaml) — API reference
-- [Compliance Matrix](docs/compliance-matrix.md) — Security and compliance mapping
-- [Changelog](CHANGELOG.md) — Version history
+**AMRO-S** (arXiv:2603.12933) — Efficient and Interpretable Multi-Agent LLM Routing via Ant Colony Optimisation:
 
----
+- Pheromone-based path selection across layered AI agent graphs
+- Task-specific pheromone specialists prevent cross-task interference
+- Quality-gated evolution reinforces only high-quality routing trajectories
+- **4.7x speedup** over existing multi-agent routing with better accuracy
 
-## Stack
-
-Node.js · Express.js · React · Material-UI · Docker · Nginx · Raft Consensus · Ant Colony Optimization
+What AMRO-S does NOT address (AWARE's differentiation): security heuristics, identity governance, kill switches, compliance mapping, blast radius containment. And in v2: preference-pair collection, DPO self-training, and the evaluation harness that closes the loop.
