@@ -127,6 +127,8 @@ See `docs/sop/sop-phase-3-azr-self-play.json` for the full operator-action seque
 
 **Status tracking:** every phase closure is recorded in `<internal-doc>` and mirrored to `<host-config>/sops/`. Every phase has a SOP in `docs/sop/`.
 
+**Test coverage:** c8 measures v2 source paths only (coordinator, gateway, db, trainer, budget, config — not v1). Run `npm run coverage` for the full report, `npm run coverage:summary` for a quick per-file table. Current numbers (commit d32d653): **88.42% lines** above the ADR-020 ≥80% gate. Bring-up smoke 8i (`BRINGUP_FULL=1`) enforces the gate.
+
 ---
 
 ## Architecture (v2)

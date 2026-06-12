@@ -1,0 +1,40 @@
+{
+  "//comment": "c8 config for AWARE 2.0. Per ADR-020 Phase 5 deliverable 'test coverage ≥80% on new code'. Measures v2 source paths only — v1 source paths are explicitly excluded.",
+  "all": true,
+  "include": [
+    "src/coordinator/**/*.js",
+    "src/gateway/**/*.js",
+    "src/budget/**/*.js",
+    "src/db/**/*.js",
+    "src/trainer/**/*.js",
+    "src/config/**/*.cjs"
+  ],
+  "exclude": [
+    "src/ui/**",
+    "src/kill-switch/**",
+    "src/agents/**",
+    "src/audit/**",
+    "src/api/**",
+    "src/routing/**",
+    "src/monitoring/**",
+    "src/data/**",
+    "src/compliance/**",
+    "src/policies/**",
+    "src/election/**",
+    "src/emergency/**",
+    "src/node-discovery/**",
+    "src/server.js",
+    "test/**",
+    "node_modules/**"
+  ],
+  "reporter": [
+    "text",
+    "lcov",
+    "html"
+  ],
+  "reports-dir": "./coverage",
+  "check-coverage": false,
+  "skip-full": false,
+  "clean": true,
+  "exclude-after-remap": false
+}

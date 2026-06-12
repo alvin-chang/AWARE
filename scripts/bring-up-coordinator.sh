@@ -457,8 +457,65 @@ node --input-type=module -e "
   console.log('OK: TrainerPoller has _packageDataset, _fetchUnconsumedPairPaths, _readPreferencePairFiles, _recordRunCancelled');
 " || fail "trainer: Phase 4 dataset-packaging methods are missing (regression in 8g)"
 
+# 8h. Phase 5 (ADR-020 685-718) test coverage harness: c8 is installed
+# and produces an lcov.info that contains a TOTAL line with lines
+# covered / lines found ratio at >= 0.80. The bring-up enforces the
+# ≥80% gate here; raising the threshold is a separate operator
+# decision. The harness itself (npm run coverage) is a normal
+# `c8 --reporter=lcov npm test` invocation; the static check below
+# only verifies the harness WORKS (produces parseable lcov), not
+# that coverage is currently 80% — that is the bring-up's job.
+log "smoke test: c8 is installed and coverage lcov.info is parseable"
+node --input-type=module -e "
+  import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+  import { execSync } from 'node:child_process';
+  // Run c8 on the budget test (cheap, single file, fast) to verify
+  // the harness is wired. We don't run the full 239-test suite here
+  // because the bring-up script is already slow enough.
+  mkdirSync('coverage', { recursive: true });
+  execSync('npx c8 --reporter=lcov --reports-dir=./coverage node --test test/unit/budget/watchdog.test.js 2>/dev/null', { stdio: 'ignore' });
+  if (!existsSync('coverage/lcov.info')) {
+    console.error('FAIL: c8 did not produce coverage/lcov.info — harness is broken');
+    process.exit(1);
+  }
+  const lcov = readFileSync('coverage/lcov.info', 'utf8');
+  // lcov.info has a summary at the end:
+  //   end_of_record
+  //   lcov.info:lines......: 78.4% (123 of 157 lines)
+  // Actually c8 with --reporter=lcov writes a different summary. Let's
+  // check at least one end_of_record is present and parseable.
+  const records = lcov.split('end_of_record').filter(r => r.trim());
+  if (records.length === 0) {
+    console.error('FAIL: lcov.info has no end_of_record blocks — harness produced empty output');
+    process.exit(1);
+  }
+  console.log('OK: c8 produced coverage/lcov.info with ' + records.length + ' end_of_record blocks');
+" || fail "coverage: c8 harness is broken (regression in 8h)"
+
+# 8i. Phase 5 (ADR-020 685-718) test coverage gate: c8 produces a
+# per-file lines-covered >= 80% on the v2 source paths. This is the
+# bring-up's enforcement of the ADR-020 "≥80% coverage on new code"
+# deliverable. Slow (runs full test suite) — only runs in --full mode
+# so the default bring-up stays under 2 minutes.
+if [ "${BRINGUP_FULL:-0}" = "1" ]; then
+  log "smoke test: v2 source coverage >= 80% lines (BRINGUP_FULL=1)"
+  npm run --silent coverage:text 2>&1 | tail -25 | tee /tmp/aware-coverage.txt
+  node --input-type=module -e "
+    import { readFileSync } from 'node:fs';
+    const out = readFileSync('/tmp/aware-coverage.txt', 'utf8');
+    // c8 text reporter: 'All files | 88.42 | 78.71 | 84.71 | 88.42 |' — 4 columns
+    // (Stmts, Branch, Funcs, Lines). The conventional coverage gate is
+    // % Lines (4th column). Grab the whole match and pick the 4th.
+    const m = out.match(/All files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/);
+    if (!m) { console.error('FAIL: could not parse All files line from c8 output'); process.exit(1); }
+    const pct = Number(m[4]);  // % Lines
+    if (pct < 80) { console.error('FAIL: v2 source coverage is ' + pct + '% lines, below 80% gate (Stmts=' + m[1] + ' Branch=' + m[2] + ' Funcs=' + m[3] + ')'); process.exit(1); }
+    console.log('OK: v2 source coverage is ' + pct + '% lines, above 80% gate (Stmts=' + m[1] + ' Branch=' + m[2] + ' Funcs=' + m[3] + ')');
+  " || fail "coverage: v2 source coverage dropped below 80% (regression in 8i)"
+fi
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled). Phase 4 outcome filter + dataset packaging + cancelled-run path verified (20 smoke tests when the training profile is enabled)."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled). Phase 4 outcome filter + dataset packaging + cancelled-run path verified (20 smoke tests when the training profile is enabled). Phase 5 test coverage harness verified (21 smoke tests when training profile is enabled; +1 coverage-gate check at 22 when BRINGUP_FULL=1)."
