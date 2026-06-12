@@ -484,7 +484,22 @@ const isMain = (() => {
 })();
 
 if (isMain) {
-  const poller = new TrainerPoller();
+  // Production entrypoint: wire the real Modal client. The poller
+  // already checks the kill switch + token presence; this just gives
+  // it a real `submit` to call. We import lazily so unit tests that
+  // construct TrainerPoller directly don't have to install the modal
+  // SDK on their classpath.
+  let modalClient = null;
+  try {
+    const { makeModalClient } = await import('./modal-client.js');
+    modalClient = makeModalClient();
+  } catch (e) {
+    // The import is best-effort. If modal isn't installed (dev laptop
+    // without the SDK), we still want the trainer to boot so the
+    // operator gets a clear "no Modal client" error in logs.
+    console.warn('[aware-trainer] could not load modal-client.js:', e?.message || e);
+  }
+  const poller = new TrainerPoller({ modalClient });
   poller.start().catch((e) => {
     console.error('[aware-trainer] FATAL:', e);
     process.exit(1);

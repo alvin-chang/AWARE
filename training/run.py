@@ -256,19 +256,33 @@ def gen_azr_corpus(
     # Lazy imports — training-optimizer is ~3GB and we don't want to fail at import
     # time for non-GPU environments.
     import torch  # noqa: F401  (validates CUDA presence)
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from azr.executor import SandboxExecutor
 
-    # Load base model in 4-bit. The "bnb-4bit" training-optimizer repo is pre-quantized;
-    # loading via HF transformers gives us the same 4-bit weights.
+    # 4-bit quantization via BitsAndBytesConfig. This is required for
+    # the trained-model base model because no training-optimizer-pre-quantized 4-bit
+    # build exists on HF (the prior Qwen2.5 path used
+    # `unsloth/Qwen2.5-7B-Instruct-bnb-4bit` directly). We quantize
+    # ourselves, then load. This adds ~2s of model-load time but
+    # keeps the trained-model weights within 6GB VRAM (vs ~16GB fp16).
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+
+    # Load base model in 4-bit. The AZR corpus generator only needs
+    # forward passes (no gradients through the base), so we still wrap
+    # the model in inference_mode() in the corpus loop below.
     log("azr_base_model_loading", base_model=base_model_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id)
     model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
-        torch_dtype="auto",
+        quantization_config=bnb_config,
         device_map="auto",
     )
-    log("azr_base_model_loaded", device=str(model.device))
+    log("azr_base_model_loaded", device=str(model.device), quant="4bit-nf4")
 
     executor = SandboxExecutor(
         scratch_dir="/tmp/azr-sandbox",
@@ -509,33 +523,61 @@ def rows_to_hf_dataset(rows: list[dict[str, Any]]):
 
 def load_model_with_lora(base_model_id: str, max_seq_length: int, lora_r: int,
                          lora_alpha: int, lora_dropout: float, *, smoke: bool = False):
-    """Load base model with training-optimizer + apply LoRA adapters.
+    """Load base model with 4-bit bnb quantization + apply LoRA adapters.
 
-    Lazy-imports training-optimizer so non-GPU environments can still parse config
-    and load datasets without crashing.
+    Lazy-imports the heavy ML stack so non-GPU environments can still
+    parse config and load datasets without crashing.
+
+    As of the 2026-06-11 trained-model bump, we use the bnb + peft path
+    directly rather than training-optimizer's `FastLanguageModel.from_pretrained`.
+    Rationale: training-optimizer's loader is optimized for the
+    `unsloth/<model>-bnb-4bit` repos, which exist for Qwen2.5 but
+    not yet for Qwen3. Loading the official trained-model through bnb
+    ourselves is the known-good path; we still get training-optimizer's
+    training-speed benefit by calling `get_peft_model` (training-optimizer's
+    optimized LoRA attach) on the result.
     """
-    from unsloth import FastLanguageModel
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-    log("model_loading", base_model=base_model_id, max_seq_length=max_seq_length)
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=base_model_id,
-        max_seq_length=max_seq_length,
-        dtype=None,  # auto-detect
+    log("model_loading", base_model=base_model_id, max_seq_length=max_seq_length, quant="4bit-nf4")
+    bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+    if tokenizer.pad_token is None:
+        # Qwen3 tokenizer ships without a pad token by default.
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model_id,
+        quantization_config=bnb_config,
+        device_map="auto",
+    )
+    # prepare_model_for_kbit_training handles the layer-norm /
+    # output-grad tweaks that 4-bit training requires. Without it,
+    # DPO loss is unstable on Qwen3.
+    model = prepare_model_for_kbit_training(
+        model, use_gradient_checkpointing=True
     )
     log("model_loaded", base_model=base_model_id)
 
-    model = FastLanguageModel.get_peft_model(
-        model,
+    # Qwen3 attention projection names match Qwen2.5's, so the same
+    # target_modules list applies.
+    lora_config = LoraConfig(
         r=lora_r,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
         bias="none",
-        use_gradient_checkpointing="unsloth",
-        random_state=42,
+        task_type="CAUSAL_LM",
     )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
     log("lora_applied", r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
     return model, tokenizer
 

@@ -179,9 +179,9 @@ const config = {
     get minPairsPerRun() { return num('AWARE_TRAINER_MIN_PAIRS_PER_RUN', 100, { min: 1, max: 1000000 }); },
     get configPath() { return str('AWARE_TRAINER_CONFIG', 'config/modal-training.json'); },
     get weightsDir() { return str('AWARE_TRAINER_WEIGHTS_DIR', '/root/aware-weights'); },
-    get baseModel() { return str('AWARE_TRAINER_BASE_MODEL', 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit'); },
+    get baseModel() { return str('AWARE_TRAINER_BASE_MODEL', 'Qwen/trained-model'); },
     get gpuType() { return str('AWARE_TRAINER_GPU_TYPE', 'A100-80GB'); },
-    get jobTimeoutSec() { return num('AWARE_TRAINER_JOB_TIMEOUT_SEC', 14400, { min: 60, max: 86400 }); },
+    get jobTimeoutSec() { return num('AWARE_TRAINER_JOB_TIMEOUT_SEC', 18000, { min: 60, max: 86400 }); },
     // Modal auth — read from the canonical credential store
     // (ACTIVE-CREDENTIALS.env) at runtime. NEVER in the repo.
     get modalTokenId() { return str('MODAL_TOKEN_ID', undefined); },

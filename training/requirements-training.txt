@@ -11,20 +11,29 @@
 #
 # Tested against: Python 3.10, CUDA 12.4, torch 2.4.x with cu124
 # wheels. The Dockerfile.training image is built FROM nvidia/cuda:12.4.
+#
+# Version envelope rationale (post-trained-model bump, 2026-06-11):
+# - unsloth 2025.4.1: first stable release with Qwen3 LoRA support
+# - trl 0.15.0: DPOTrainer + Qwen3 chat-template compatibility fix
+# - transformers 4.51.0: Qwen3 architecture introduced
+# - peft 0.14.0: LoRA init changes needed for newer Qwen attention
+# - accelerate 1.1.0: bnb 4-bit CPU-offload + Qwen3 tokenizer fix
+# - bitsandbytes 0.45.0: Qwen3 tensor-parallel bug fixed
+# - torch 2.4.1: STAY on 2.4.x — torch 2.5/2.6 broke some training-optimizer paths
 
 # Core ML stack (the load-bearing trio)
 torch==2.4.1
-trl==0.11.4
-peft==0.13.2
-bitsandbytes==0.44.1
-unsloth==2024.10.7
-unsloth_zoo==2024.10.7
+trl==0.15.0
+peft==0.14.0
+bitsandbytes==0.45.0
+unsloth==2025.4.1
+unsloth_zoo==2025.4.1
 
 # Transformers / accelerate (peer deps of TRL + peft)
-transformers==4.45.2
-accelerate==1.0.1
+transformers==4.51.0
+accelerate==1.1.0
 safetensors==0.4.5
-tokenizers==0.20.1
+tokenizers==0.21.0
 
 # Dataset handling (preference-pair JSONL → HF Dataset)
 datasets==3.1.0

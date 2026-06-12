@@ -383,10 +383,10 @@ test('config: trainer.minPairsPerRun defaults to 100', (t) => {
   assert.equal(config.trainer.minPairsPerRun, 100);
 });
 
-test('config: trainer.baseModel defaults to Qwen 2.5 7B 4-bit', (t) => {
+test('config: trainer.baseModel defaults to trained-model', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
-  assert.match(config.trainer.baseModel, /Qwen2\.5-7B-Instruct-bnb-4bit/);
+  assert.equal(config.trainer.baseModel, 'Qwen/trained-model');
 });
 
 test('config: trainer.gpuType defaults to A100-80GB', (t) => {
@@ -395,10 +395,10 @@ test('config: trainer.gpuType defaults to A100-80GB', (t) => {
   assert.equal(config.trainer.gpuType, 'A100-80GB');
 });
 
-test('config: trainer.jobTimeoutSec defaults to 14400 (4h)', (t) => {
+test('config: trainer.jobTimeoutSec defaults to 18000 (5h)', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
-  assert.equal(config.trainer.jobTimeoutSec, 14400);
+  assert.equal(config.trainer.jobTimeoutSec, 18000);
 });
 
 test('config: trainer.configPath defaults to config/modal-training.json', (t) => {

@@ -24,12 +24,13 @@
     "_comment": "8 CPU cores for data loading + AZR self-play verification (the Python executor spawns subprocesses, so cores matter for parallel verification). 32 GB RAM is generous for a 7B-model training run."
   },
 
-  "timeout_seconds": 14400,
-  "_comment_timeout": "4 hours hard cap. A full 10K-pair DPO run on Qwen 2.5 7B with these hyperparameters takes ~3 hours on A100-80GB. 4h gives 33% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
+  "timeout_seconds": 18000,
+  "_comment_timeout": "5 hours hard cap. A full 10K-pair DPO run on trained-model (full-precision → 4-bit QLoRA, batch 4, grad-accum 4, ctx 4096) takes ~3.5-4 hours on A100-80GB. 5h gives 25% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
 
   "dpo_defaults": {
-    "base_model": "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
-    "max_seq_length": 2048,
+    "base_model": "Qwen/trained-model",
+    "_comment_base_model": "Official trained-model (April 2025). We do NOT use the training-optimizer pre-quantized 4-bit build because no unsloth/trained-model-bnb-4bit exists yet on HF; we quantize to 4-bit in run.py via BitsAndBytesConfig before LoRA attach. This is the recommended path for first-party Qwen3 fine-tunes.",
+    "max_seq_length": 4096,
     "lora_r": 16,
     "lora_alpha": 16,
     "lora_dropout": 0.05,
