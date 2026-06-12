@@ -1,0 +1,42 @@
+{
+  "id": "sop-phase-5-r3-scripts-aware-up",
+  "title": "AWARE 2.0 Phase 5 R3 — scripts/aware-up (single-command bring-up)",
+  "version": "1.0.0",
+  "created": "2026-06-12",
+  "closed": "2026-06-12",
+  "adr_ref": "ADR-020 §Phase 5 (685-718)",
+  "phase": 5,
+  "slice": "R3",
+  "deliverable": "Operator bring-up ergonomics: single command boot",
+  "operator": "alfie",
+  "operator_action": "./scripts/aware-up [--profile training|--test|--teardown|--logs|--help]",
+  "status": "closed",
+  "what_shipped": [
+    "scripts/aware-up (new file, 267 lines, mode 0755)",
+    "Pre-flight: docker/curl/node/npm PATH checks, repo root markers, .env presence",
+    "Config validation: 'npm run config:validate' before compose pull",
+    "Optional test smoke: --test runs 'npm test' first",
+    "Bring-up: docker compose -f docker-compose.coordinator.yml -p aware-2 up -d with optional --profile training",
+    "Health wait: 60s deadline per service, polls gateway/coordinator/ollama",
+    "Summary: operator-action URLs, profile opt-ins, where to look next"
+  ],
+  "usage": [
+    "./scripts/aware-up                     # base v2 stack",
+    "./scripts/aware-up --profile training  # also start the trainer poller",
+    "./scripts/aware-up --test              # run npm test first",
+    "./scripts/aware-up --teardown          # docker compose down -v and exit",
+    "./scripts/aware-up --logs              # tail logs from all services",
+    "./scripts/aware-up --help              # help text"
+  ],
+  "verification": {
+    "syntax_check": "bash -n scripts/aware-up → OK",
+    "help_renders_cleanly": "yes (no leaked sentinel from help extraction)",
+    "bogus_arg_exits_1": "yes (./scripts/aware-up --bogus → exit 1)",
+    "pre_flight_executes_under_1s": "yes (no docker daemon exercised in this turn)",
+    "executable_mode": "0755",
+    "lines": 267
+  },
+  "commit": "5fa4f9a",
+  "status_md_section": "Phase 5 R3 — scripts/aware-up single-command bring-up (2026-06-12)",
+  "next_slice": "Fresh-VM-in-30-min test (separate slice, blocked on operator manual run)"
+}

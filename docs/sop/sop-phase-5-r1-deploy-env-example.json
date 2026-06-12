@@ -1,0 +1,40 @@
+{
+  "id": "sop-phase-5-r1-deploy-env-example",
+  "title": "AWARE 2.0 Phase 5 R1 — deploy/env.example (all v2 env vars in one template)",
+  "version": "1.0.0",
+  "created": "2026-06-12",
+  "closed": "2026-06-12",
+  "adr_ref": "ADR-020 §Phase 5 (685-718)",
+  "phase": 5,
+  "slice": "R1",
+  "deliverable": "All env vars in a single template file",
+  "operator": "alfie",
+  "operator_action": "cp deploy/env.example .env && \\$EDITOR .env",
+  "status": "closed",
+  "what_shipped": [
+    "deploy/env.example (new file, 161 lines)",
+    "24 v2 env vars documented across 8 config namespaces",
+    "Secrets sourced from ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env",
+    "v1 fallback vars documented separately for upgrade path"
+  ],
+  "env_vars_documented": {
+    "coordinator": ["COORDINATOR_PORT", "COORDINATOR_HOST", "AWARE_REQUEST_TIMEOUT_MS", "AWARE_REQUEST_COST_CAP_USD", "AWARE_KILL_SWITCH"],
+    "gateway": ["GATEWAY_PORT", "GATEWAY_HOST", "GATEWAY_PROXY_TIMEOUT_MS", "COORDINATOR_URL", "AWARE_GATEWAY_KILL_SWITCH"],
+    "model": ["AWARE_MODE", "<redacted-credential-name>", "MINIMAX_API_HOST", "OLLAMA_URL"],
+    "heavy_think": ["AWARE_HEAVY_THINK_PATH"],
+    "db": ["AWARE_DB_HOST", "AWARE_DB_PORT", "AWARE_DB_DATABASE", "AWARE_DB_USER", "AWARE_POSTGRES_PASSWORD", "AWARE_DB_ENABLED", "AWARE_DB_CONNECTION_TIMEOUT_MS"],
+    "prm_cache": ["AWARE_PRM_CACHE_ENABLED", "AWARE_PRM_CACHE_TTL_DAYS", "AWARE_PRM_CACHE_TABLE"],
+    "budget": ["AWARE_BUDGET_ENABLED", "AWARE_BUDGET_WINDOW_DAYS", "AWARE_BUDGET_SOFT_LIMIT_USD", "AWARE_BUDGET_HARD_LIMIT_USD"],
+    "trainer": ["AWARE_TRAINER_ENABLED", "AWARE_TRAINER_POLL_INTERVAL_SEC", "AWARE_TRAINER_MIN_PAIRS_PER_RUN", "AWARE_TRAINER_CONFIG", "AWARE_TRAINER_WEIGHTS_DIR", "AWARE_TRAINER_BASE_MODEL", "AWARE_TRAINER_GPU_TYPE", "AWARE_TRAINER_JOB_TIMEOUT_SEC", "AWARE_TRAINER_FILTER_RULE", "AWARE_TRAINER_FILTER_MIN_GAP", "AWARE_TRAINER_FILTER_ALLOWED_TASK_TYPES", "<redacted-credential-name>", "<redacted-credential-name>"],
+    "v1_fallback": ["API_PORT", "DISCOVERY_PORT", "BROADCAST_PORT"]
+  },
+  "verification": {
+    "no_real_token_values": "grep -E 'ak-|as-|sk-' deploy/env.example → 0 matches",
+    "parses_as_plain_text": "yes (no broken comment structure)",
+    "all_getters_documented": "yes (24 env vars, 24 getters in src/config/index.cjs)",
+    "secret_handling": "sourced from canonical credential store, never in repo"
+  },
+  "commit": "d58c4b8",
+  "status_md_section": "Phase 5 R1 — deploy/env.example (2026-06-12)",
+  "next_slice": "R2 — v2 README (c55673e) + R3 — scripts/aware-up (5fa4f9a)"
+}
