@@ -1,0 +1,50 @@
+{
+  "id": "sop-phase-5-r5-dev-guide",
+  "title": "AWARE 2.0 Phase 5 R5 — dev guide (CONTRIBUTING.md + docs/dev/architecture.md)",
+  "version": "1.0.0",
+  "created": "2026-06-12",
+  "closed": "2026-06-12",
+  "adr_ref": "ADR-020 §Phase 5 (685-718)",
+  "phase": 5,
+  "slice": "R5",
+  "deliverable": "Documentation: dev guide",
+  "operator": "alfie",
+  "operator_action": "cat CONTRIBUTING.md docs/dev/architecture.md (no env-var or compose action — documentation only)",
+  "status": "closed",
+  "what_shipped": [
+    "CONTRIBUTING.md (new, ~250 lines, 11 KB) — top-level dev guide",
+    "docs/dev/architecture.md (new, ~400 lines, 18 KB) — dev-side deep dive",
+    "README.md (modified, +2 lines) — Quick Links: add Dev guide + Dev deep dive"
+  ],
+  "contributing_md_sections": [
+    "30-second orientation (5-stage pipeline + public API table)",
+    "Setup (5 commands)",
+    "Workflow (branch → test → commit → push → PR)",
+    "Commit message prefix convention (aware: / docs: / test: / chore:)",
+    "Conventions (ESM imports, pure functions, test layout, config, coverage, heavy-think, Modal)",
+    "Where architectural decisions live (A/B/C + P/Q/R + X/Y menu, 4-5 token responses, no inventing)",
+    "Where operator actions live (3 things no code review can replace)",
+    "Pull request checklist (8 items)",
+    "Style (2-space, const, no emoji)"
+  ],
+  "architecture_md_sections": [
+    "Full 5-stage pipeline diagram with key files + outbound tables",
+    "Data flow for a single /coordinate request (5 steps)",
+    "Postgres schema (5 tables + migration ownership)",
+    "Trainer lifecycle state machine diagram (7 states)",
+    "Configuration section (lazy getters, redaction, validation)",
+    "Modal integration (real @app.function() shape, NOT Function.from_training_script)",
+    "Why heavy-think is a sibling repo (decoupling trade-offs)",
+    "Open questions (A/X/Y menu referenced)"
+  ],
+  "verification": {
+    "no_real_token_values": "grep -E 'ak-|as-|sk-' CONTRIBUTING.md docs/dev/architecture.md → 0 matches",
+    "all_commit_hashes_resolvable": "yes (20/20 hashes referenced in docs are resolvable via git cat-file -t)",
+    "npm_test": "239/239 pass, 0 fail, 0 skip (unchanged — docs only)",
+    "coverage": "88.42% lines (unchanged — docs only)",
+    "public_api_table_accurate": "yes (table contents sourced from actual grep of src/*/export statements)"
+  },
+  "commit": "fed0a53",
+  "status_md_section": "Phase 5 R5 — dev guide (2026-06-12)",
+  "next_slice": "Phase 5 R6 — security audit harness (separate slice, no decision needed)"
+}
