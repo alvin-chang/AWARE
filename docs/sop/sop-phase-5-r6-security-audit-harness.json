@@ -1,0 +1,57 @@
+{
+  "id": "sop-phase-5-r6-security-audit-harness",
+  "title": "AWARE 2.0 Phase 5 R6 — security audit harness (bandit + npm audit + gitleaks + trivy)",
+  "version": "1.0.0",
+  "created": "2026-06-12",
+  "closed": "2026-06-12",
+  "adr_ref": "ADR-020 §Phase 5 (685-718)",
+  "phase": 5,
+  "slice": "R6",
+  "deliverable": "Security audit: Bandit, npm audit, gitleaks, container scan",
+  "operator": "alfie",
+  "operator_action": "./scripts/security-scan.sh   # or: ./scripts/security-scan.sh --strict",
+  "status": "closed",
+  "what_shipped": [
+    "scripts/security-scan.sh (new, 12.7 KB, 4 check_* functions, executable)",
+    "scripts/bring-up-coordinator.sh (modified, +2 smokes: 8j default, 8k BRINGUP_FULL=1)",
+    "README.md (modified, +2 lines) — 'Security audit' section",
+    ".gitignore (modified, +4 lines) — ignore security-audit-report.{txt,json}"
+  ],
+  "checks": {
+    "check_bandit": "Python AST security linter on training/*.py. Skips-with-warn if bandit not on PATH.",
+    "check_npm_audit": "Node dependency CVE scanner (npm audit --json). Always runs (npm is a hard dep).",
+    "check_gitleaks": "git history secret scanner. Skips-with-warn if gitleaks not on PATH.",
+    "check_trivy": "filesystem + Dockerfile scanner on src/, training/, Dockerfiles. Skips-with-warn if trivy not on PATH. Does NOT scan built images (operator-action for 'trivy image aware:tag')."
+  },
+  "flags": {
+    "--strict": "Promote warnings to errors (exit 1 on any finding). For CI use.",
+    "--tool X": "Run only check X (bandit|npm-audit|gitleaks|trivy).",
+    "--help": "Render help text."
+  },
+  "verification": {
+    "syntax_check": "bash -n scripts/security-scan.sh → OK; bash -n scripts/bring-up-coordinator.sh → OK",
+    "default_exit_code": "0 (warn-only)",
+    "strict_exit_code": "1 on findings (verified with --tool bandit --strict; bandit has 6 findings on this host)",
+    "help_renders_cleanly": "yes",
+    "bogus_arg_exits_1": "yes (--bogus → exit 1 with 'Unknown argument' error)",
+    "single_tool_works": "yes (--tool bandit, --tool npm-audit both verified)",
+    "graceful_degradation": "yes (gitleaks + trivy skipped with 'not on PATH' warning)",
+    "npm_test_unchanged": "239/239 pass, 0 fail, 0 skip",
+    "no_real_tokens": "0 matches in scripts/security-scan.sh (grep ak-/as-/sk-)"
+  },
+  "real_findings_on_this_host": {
+    "npm-audit": "0 critical / 0 high / 1 moderate / 0 low",
+    "bandit": "1 low (B110:try_except_pass at training/run.py:104) + 5 medium (B615:huggingface_unsafe_download at training/run.py:279-280 — no revision= pinning on from_pretrained)"
+  },
+  "commit": "526ae0b",
+  "status_md_section": "Phase 5 R6 — security audit harness (2026-06-12)",
+  "follow_up_slices": [
+    "Fix the 1 bandit B110 (silent except: pass) at training/run.py:104",
+    "Fix the 5 bandit B615 findings (add revision= pinning to from_pretrained calls at training/run.py:279-280)",
+    "Resolve the 1 moderate npm audit finding (run 'npm audit' to see what)",
+    "Install gitleaks + trivy on operator host (brew install gitleaks trivy) so all 4 checks run",
+    "Tighten bandit config to fail on medium+ in --strict mode (currently warns on medium)",
+    "Add a separate script: scripts/trivy-image-scan.sh that scans the built coordinator + training images (operator-action, ~2hr)"
+  ],
+  "next_slice": "Phase 5 R7 — fresh-VM-in-30-min test (operator-action, no decisions needed)"
+}
