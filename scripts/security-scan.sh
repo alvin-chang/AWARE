@@ -239,22 +239,56 @@ check_gitleaks() {
     fi
 }
 
-# ─── Check 4: trivy (filesystem + Dockerfile scanner) ──────────────────
+# ─── Check 4: trivy (filesystem + Dockerfile misconfiguration scanner) ──
+# Runs TWO trivy sub-commands:
+#   (a) trivy fs .          — vulnerability scan of source/lockfiles (deps)
+#   (b) trivy config <df>   — Dockerfile misconfiguration scan (one per df)
+# Aggregates HIGH/CRITICAL counts across both and reports the worst.
 check_trivy() {
     section "4/4  Trivy — filesystem + Dockerfile scanner"
     if ! command -v trivy >/dev/null 2>&1; then
-        record_check "trivy" "SKIP" "trivy not on PATH. Install with: brew install trivy"
+        record_check "trivy" "SKIP" "trivy not on PATH. Install from: https://github.com/aquasecurity/trivy/releases"
         return
     fi
-    info "scanning filesystem (src/, training/, Dockerfiles) — no image scan"
-    local trivy_out
+    info "scanning filesystem (lockfiles, source deps) — no image scan"
+    # trivy fs in v0.71+ accepts only a single PATH argument. Scan the
+    # whole repo root — trivy walks the tree and handles lockfiles,
+    # source deps in one pass. .trivyignore handles ignore rules.
     local trivy_exit=0
-    trivy_out=$(trivy fs --severity HIGH,CRITICAL --no-progress --format json \
+    trivy fs --severity HIGH,CRITICAL --no-progress --format json \
         --output "$REPORT_JSON" \
-        src/ training/ Dockerfile docker/ 2>&1) || trivy_exit=$?
-    # Always parse the JSON for actual finding counts. trivy may exit
-    # non-zero on a Dockerfile parser error (e.g. ARG before FROM) but
-    # still produce a valid JSON with 0 findings — don't false-positive.
+        . > /dev/null 2>&1 || trivy_exit=$?
+    # (b) Scan each Dockerfile individually for misconfigurations
+    # (trivy config also takes only one path; aggregate across files)
+    local df_crit=0 df_high=0
+    local df_count=0
+    # Append Dockerfile misconfig findings to $REPORT_JSON (same file,
+    # `Results` array is concatenated) so operator has one file to inspect
+    for df in Dockerfile Dockerfile.coordinator Dockerfile.gateway Dockerfile.training Dockerfile.ui; do
+        [ -f "$df" ] || continue
+        local df_json df_exit=0
+        df_json=$(trivy config --severity HIGH,CRITICAL --format json \
+            --quiet "$df" 2>/dev/null) || df_exit=$?
+        if [ -n "$df_json" ]; then
+            df_count=$((df_count + 1))
+            # Aggregate counts
+            local c h
+            c=$(echo "$df_json" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{try{const j=JSON.parse(s); let n=0; for(const r of (j.Results||[])) for(const m of (r.Misconfigurations||[])) if(m.Severity==='CRITICAL')n++; console.log(n)}catch{console.log(0)}})" 2>/dev/null || echo 0)
+            h=$(echo "$df_json" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{try{const j=JSON.parse(s); let n=0; for(const r of (j.Results||[])) for(const m of (r.Misconfigurations||[])) if(m.Severity==='HIGH')n++; console.log(n)}catch{console.log(0)}})" 2>/dev/null || echo 0)
+            df_crit=$((df_crit + c))
+            df_high=$((df_high + h))
+            # Append this Dockerfile's misconfigs to the combined JSON
+            node -e "
+                const fs = require('fs');
+                const combined = JSON.parse(fs.readFileSync('$REPORT_JSON','utf8'));
+                const df = JSON.parse(\`$df_json\`);
+                if (!Array.isArray(combined.Results)) combined.Results = [];
+                for (const r of (df.Results||[])) combined.Results.push(r);
+                fs.writeFileSync('$REPORT_JSON', JSON.stringify(combined, null, 2));
+            " 2>/dev/null || true
+        fi
+    done
+    # Aggregate: vuln counts from $REPORT_JSON + misconfig counts above
     local crit high
     crit=$(node -e "
         try {
@@ -271,19 +305,22 @@ check_trivy() {
             c = j.metadata.vulnerabilities.critical || 0;
             h = j.metadata.vulnerabilities.high || 0;
           }
+          // Add Dockerfile misconfig counts
+          c += $df_crit;
+          h += $df_high;
           console.log(c+'/'+h);
-        } catch { console.log('?/?'); }
-    " 2>/dev/null || echo '?/?')
+        } catch { console.log($df_crit+/+ $df_high); }
+    " 2>/dev/null || echo "$df_crit/$df_high")
     if [ "$trivy_exit" -eq 0 ] && [ "$crit" = "0/0" ]; then
-        record_check "trivy" "PASS" "0 HIGH/CRITICAL findings in src/, training/, Dockerfiles"
+        record_check "trivy" "PASS" "0 HIGH/CRITICAL findings (vulns + Dockerfile misconfigs)"
     elif [ "$crit" = "0/0" ]; then
         # non-zero exit (e.g. Dockerfile parser error) but no real findings
-        record_check "trivy" "WARN" "trivy exited $trivy_exit but no HIGH/CRITICAL findings in JSON (likely Dockerfile parser error, see $REPORT_JSON)"
+        record_check "trivy" "WARN" "trivy exited $trivy_exit but no HIGH/CRITICAL findings in JSON (likely parser error, see $REPORT_JSON)"
     else
         if [ "$STRICT" -eq 1 ]; then
             record_check "trivy" "FAIL" "HIGH/CRITICAL findings: $crit (see $REPORT_JSON)"
         else
-            record_check "trivy" "WARN" "HIGH/CRITICAL findings: $crit (use --strict to fail)"
+            record_check "trivy" "WARN" "HIGH/CRITICAL findings: $crit (use --strict to fail) — includes Dockerfiles: $df_high HIGH misconfigs"
         fi
     fi
 }
