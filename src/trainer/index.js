@@ -260,6 +260,16 @@ export class TrainerPoller {
     // "unconsumed" = preference pairs logged since the last completed run.
     // We use the started_at of the most recent completed run as the
     // watermark. Pairs with ts > that watermark are unconsumed.
+    //
+    // We filter on `pair_path IS NOT NULL` because the actual
+    // (chosen, rejected) content lives in the heavy-think JSONL file
+    // at that path — the aware_conversations row is just the metadata
+    // pointer. (Earlier revisions of this query filtered on
+    // `c.chosen IS NOT NULL AND c.rejected IS NOT NULL`, which are
+    // columns that don't exist on the schema — see
+    // db/migrations/001_conversations.sql. That filter never matched
+    // any row in production; the trainer's unconsumed count was
+    // always 0. Fixed in Phase 4.)
     const r = await this.deps.pool.query(`
       WITH last_run AS (
         SELECT MAX(completed_at) AS ts FROM aware_training_runs
@@ -270,8 +280,7 @@ export class TrainerPoller {
         COUNT(*) AS total
       FROM aware_conversations c, last_run
       WHERE c.ok = true
-        AND c.chosen IS NOT NULL
-        AND c.rejected IS NOT NULL
+        AND c.pair_path IS NOT NULL
     `);
     const row = r.rows[0] || {};
     return {
@@ -343,19 +352,75 @@ export class TrainerPoller {
     );
   }
 
+  /**
+   * Record a cancelled run. Used by _submitNewRun when the outcome
+   * filter drops every pair (no DPO dataset to train on, so we
+   * never submit to Modal). Different from _recordRunFailed: no
+   * exit_code (the run never started) and the error_message
+   * explains WHY it was cancelled (so the operator can see the
+   * filter is too aggressive).
+   */
+  async _recordRunCancelled(runId, datasetPath, nSourcePairs, reason) {
+    if (!this.deps.pool) return;
+    await this.deps.pool.query(
+      `INSERT INTO aware_training_runs
+         (run_id, started_at, completed_at, status, source, dataset_path,
+          n_pairs, modal_app_name, base_model, gpu_type, error_message)
+       VALUES ($1, NOW(), NOW(), 'cancelled', $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (run_id) DO NOTHING`,
+      [
+        runId,
+        'preference_pairs_volume',
+        datasetPath,
+        nSourcePairs,
+        this._trainingConfig?.app_name || 'aware-trainer',
+        config.trainer.baseModel,
+        config.trainer.gpuType,
+        reason.slice(0, 4000),
+      ]
+    );
+  }
+
   // -- Submit / poll / finalize ---------------------------------------
 
   async _submitNewRun(runId, counts) {
     this.deps.logger.info(`submitting new run: ${runId} (pairs=${counts.unconsumed})`);
     const datasetPath = path.join(this.deps.dataDir, `${runId}.jsonl`);
-    // In the real implementation we'd write the DPO dataset from
-    // Postgres to datasetPath here. The format matches heavy-think's
-    // toDpoDataset output. For now we record a placeholder; the
-    // actual write is part of the Phase 4 integration (PRD: "AZR
-    // outcome filter gates MetaClaw preference pairs").
-    await fsp.writeFile(datasetPath, '');
 
-    await this._recordRunStart(runId, datasetPath, counts.unconsumed);
+    // Phase 4 (ADR-020 618-627): package the latest preference pairs
+    // as a real DPO dataset. Pipeline:
+    //   1. SELECT the unconsumed aware_conversations rows (ts > last
+    //      completed-run watermark, ok=true, pair_path IS NOT NULL)
+    //   2. Group by pair_path, read each unique JSONL file
+    //   3. Parse all lines, dedup by _content_hash
+    //   4. Apply outcome filter (default: noop; configurable via
+    //      config.trainer.filterRule)
+    //   5. Run heavy-think's toDpoDataset to produce the DPO rows
+    //   6. Write the rows to datasetPath (one JSON object per line)
+    //   7. If the file is non-empty, proceed to submit. If empty
+    //      (e.g. all records filtered out), record a cancelled run
+    //      and skip the Modal submit.
+    const { rowsWritten, rowsDropped, sourceFilesRead } =
+      await this._packageDataset(datasetPath);
+
+    this.deps.logger.info(
+      `dataset packaged: path=${datasetPath} rows=${rowsWritten} ` +
+      `dropped=${rowsDropped} source_files=${sourceFilesRead}`
+    );
+
+    if (rowsWritten === 0) {
+      // No usable pairs after the filter. Don't burn GPU credit on
+      // an empty dataset — record a cancelled run and bail.
+      this.deps.logger.warn(
+        `run ${runId} cancelled: no pairs survived outcome filter ` +
+        `(${rowsDropped} dropped across ${sourceFilesRead} source files)`
+      );
+      await this._recordRunCancelled(runId, datasetPath, counts.unconsumed,
+        `no pairs after outcome filter (dropped=${rowsDropped})`);
+      return;
+    }
+
+    await this._recordRunStart(runId, datasetPath, rowsWritten);
 
     try {
       const job = await this.deps.modalClient.submit({
@@ -369,6 +434,132 @@ export class TrainerPoller {
       this.deps.logger.error(`run ${runId} submit failed: ${e?.message || e}`);
       await this._recordRunFailed(runId, 1, e?.message || String(e));
     }
+  }
+
+  /**
+   * Package the latest preference pairs as a DPO dataset.
+   *
+   * Returns { rowsWritten, rowsDropped, sourceFilesRead }.
+   * Pure I/O wrapper — all filtering / dedup logic is delegated to
+   * heavy-think's toDpoDataset() and outcome-filter.js.
+   */
+  async _packageDataset(datasetPath) {
+    // 1. Fetch the unconsumed pair_path values from aware_conversations
+    const pairPaths = await this._fetchUnconsumedPairPaths();
+    if (pairPaths.length === 0) {
+      // No new pairs to package — write an empty file and return.
+      await fsp.writeFile(datasetPath, '');
+      return { rowsWritten: 0, rowsDropped: 0, sourceFilesRead: 0 };
+    }
+
+    // 2. Read each unique JSONL file, parse all lines
+    const allRecords = await this._readPreferencePairFiles(pairPaths);
+
+    // 3. Apply the outcome filter (default: noop)
+    const filterRule = config.trainer.filterRule || 'noop';
+    const filterOptions = { rule: filterRule };
+    if (filterRule === 'min_score_gap') {
+      filterOptions.minGap = config.trainer.filterMinGap;
+    } else if (filterRule === 'tag_match') {
+      const raw = config.trainer.filterAllowedTaskTypes;
+      filterOptions.allowedTaskTypes = raw
+        ? raw.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+    }
+    const { filterOutcomePairs } = await import('./outcome-filter.js');
+    const filterResult = filterOutcomePairs(allRecords, filterOptions);
+    if (filterResult.dropped.length > 0) {
+      this.deps.logger.debug(
+        `outcome-filter dropped ${filterResult.dropped.length}/${allRecords.length} ` +
+        `records (rule=${filterRule}); first reasons: ` +
+        filterResult.dropped.slice(0, 3).map(d => d.reason).join(', ')
+      );
+    }
+
+    // 4. Run heavy-think's toDpoDataset (handles minScoreGap + dedup)
+    const { toDpoDataset } = await import(config.heavyThink.path);
+    const { rows, skipped } = toDpoDataset(filterResult.kept, {
+      format: 'messages',
+      minScoreGap: 0.05,
+      dedupeByHash: true,
+    });
+
+    // 5. Write the JSONL output
+    const jsonl = rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
+    await fsp.writeFile(datasetPath, jsonl, 'utf8');
+
+    return {
+      rowsWritten: rows.length,
+      rowsDropped: skipped.lowGap + skipped.duplicate + skipped.invalid +
+        filterResult.dropped.length,
+      sourceFilesRead: pairPaths.length,
+    };
+  }
+
+  /**
+   * SELECT the distinct pair_path values for unconsumed
+   * aware_conversations rows.
+   *
+   * @returns {Promise<string[]>}
+   */
+  async _fetchUnconsumedPairPaths() {
+    if (!this.deps.pool) {
+      throw new Error('_fetchUnconsumedPairPaths: pool is null');
+    }
+    const r = await this.deps.pool.query(`
+      WITH last_run AS (
+        SELECT MAX(completed_at) AS ts FROM aware_training_runs
+        WHERE status = 'completed'
+      )
+      SELECT DISTINCT c.pair_path
+      FROM aware_conversations c, last_run
+      WHERE c.ok = true
+        AND c.pair_path IS NOT NULL
+        AND c.ts > COALESCE(last_run.ts, '1970-01-01'::timestamptz)
+    `);
+    return r.rows.map(row => row.pair_path).filter(Boolean);
+  }
+
+  /**
+   * Read each unique preference-pair JSONL file, parse all lines,
+   * and return the concatenated record list. Malformed lines are
+   * dropped silently (logged at debug); an empty / missing file
+   * contributes zero records without throwing.
+   *
+   * @param {string[]} paths
+   * @returns {Promise<Object[]>}
+   */
+  async _readPreferencePairFiles(paths) {
+    const seen = new Set();    // dedup by _content_hash across files
+    const records = [];
+    for (const p of paths) {
+      let text;
+      try {
+        text = await fsp.readFile(p, 'utf8');
+      } catch (e) {
+        this.deps.logger.warn(
+          `preference-pair file unreadable: path=${p} err=${e?.message || e}`
+        );
+        continue;
+      }
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let rec;
+        try {
+          rec = JSON.parse(trimmed);
+        } catch {
+          this.deps.logger.debug(`preference-pair line not JSON: ${trimmed.slice(0, 80)}`);
+          continue;
+        }
+        if (rec && rec._content_hash) {
+          if (seen.has(rec._content_hash)) continue;
+          seen.add(rec._content_hash);
+        }
+        records.push(rec);
+      }
+    }
+    return records;
   }
 
   async _pollInflightRun(row) {

@@ -243,7 +243,8 @@ test('config: snapshot() shape is stable', (t) => {
     'enabled', 'hardLimitUsd', 'softLimitUsd', 'windowDays',
   ]);
   assert.deepEqual(Object.keys(snap.trainer).sort(), [
-    'baseModel', 'configPath', 'enabled', 'gpuType', 'jobTimeoutSec',
+    'baseModel', 'configPath', 'enabled', 'filterAllowedTaskTypes',
+    'filterMinGap', 'filterRule', 'gpuType', 'jobTimeoutSec',
     'minPairsPerRun', 'modalTokenId', 'modalTokenSecret', 'pollIntervalSec', 'weightsDir',
   ]);
 });
