@@ -1,15 +1,18 @@
 // test/unit/trainer/modal-client.test.js
-// Tests for src/trainer/modal-client.js. All Modal SDK calls are
-// mocked via the `sdkImport` seam — no real network, no real Modal
-// account required.
+// Tests for src/trainer/modal-client.js. The mock SDK uses the
+// REAL JS SDK method shapes (verified against modal@0.8.0's
+// index.d.ts by venv-introspection in 6ff1cd2+R2):
 //
-// The test strategy:
-//   - `preflightModal` is unit-tested by injecting a fake SDK object
-//     via dynamic import (we register a custom module name in
-//     createRequire + Module._cache).
-//   - `makeModalClient().submit` is tested by passing a `sdkImport`
-//     that resolves to a hand-rolled mock. The mock's `Function` and
-//     `Volume` track calls and return canned data.
+//   - modal.ModalClient (class, no from_training_script anywhere)
+//   - client.volumes.fromName(name, {createIfMissing: true})
+//   - client.functions.fromName(appName, functionName)
+//   - fn.spawn(args, kwargs) → FunctionCall
+//   - call.functionCallId (the job id)
+//   - call.get({timeoutMs: N}) — resolves on success, throws on failure
+//
+// The pre-flight smoke (bring-up 8e) does the same checks against
+// the REAL modal@0.8.0 SDK, not a mock. Mocks with the wrong shape
+// passed tests but broke in production (R1 bug at 6ff1cd2).
 
 'use strict';
 
@@ -18,102 +21,82 @@ const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const Module = require('node:module');
 
 const MODAL_CLIENT_PATH = path.resolve(
   __dirname, '..', '..', '..', 'src', 'trainer', 'modal-client.js'
 );
 
 // -- Mock Modal SDK factory ------------------------------------------
+// Mirrors the REAL JS SDK surface: ModalClient is the top-level
+// class, with .volumes.fromName() and .functions.fromName().
+// There is no `modal.Function.from_training_script` — verified.
 
-/**
- * Build a mock Modal SDK object. The real SDK exposes
- * `Function.from_training_script` (returns an App with .remote()),
- * `Volume.fromName`, and `FunctionCall.from_id`. We mock all three.
- */
 function makeMockSdk({
   callId = 'fc-mock-1234',
-  appHandle = null,
-  callGetResult = { status: 'running' },
-  callFetchResult = null,
-  fetchThrows = false,
+  getResult = { ok: true, value: { status: 'completed' } },
+  getThrows = null,
 } = {}) {
-  const remoteCalls = [];
-  const fromTrainingScriptCalls = [];
-  const volumeLookups = [];
+  const fromNameCalls = [];
+  const spawnCalls = [];
+  const getCalls = [];
 
-  const app = {
-    async remote(args, opts) {
-      remoteCalls.push({ args, opts });
-      return {
-        function_call_id: callId,
-        id: callId,
-        object_id: callId,
-        async get(timeoutSec) {
-          this._lastTimeout = timeoutSec;
-          return callGetResult;
-        },
-        async fetch(p) {
-          this._lastFetch = p;
-          if (fetchThrows) {
-            throw new Error(`mock fetch failed for ${p}`);
-          }
-          return callFetchResult;
-        },
-      };
+  const call = {
+    functionCallId: callId,
+    async get(params) {
+      getCalls.push(params);
+      if (getThrows) throw getThrows;
+      return getResult.value;
+    },
+  };
+
+  const fn = {
+    async spawn(args, kwargs) {
+      spawnCalls.push({ args, kwargs });
+      return call;
+    },
+  };
+
+  const client = {
+    volumes: {
+      async fromName(name, params) {
+        fromNameCalls.push({ name, params });
+        return { name, _id: 'vol-mock' };
+      },
+    },
+    functions: {
+      async fromName(appName, functionName) {
+        fromNameCalls.push({ appName, functionName });
+        return fn;
+      },
     },
   };
 
   const sdk = {
-    Function: {
-      async from_training_script(name, dockerfile, opts) {
-        fromTrainingScriptCalls.push({ name, dockerfile, opts });
-        return appHandle !== null ? appHandle : app;
-      },
+    ModalClient: function MockModalClient() {
+      return client;
     },
-    Volume: {
-      fromName(name) {
-        volumeLookups.push(name);
-        return { name };
-      },
-    },
-    FunctionCall: {
-      async from_id(id) {
-        return appHandle !== null ? appHandle : null;
-      },
-    },
+    // The real SDK also exports these as named classes; tests don't
+    // use them directly but we mirror the shape for completeness.
+    Function_: class {},
+    Volume: class {},
+    FunctionCall: class {},
   };
 
-  return {
-    sdk,
-    spies: { remoteCalls, fromTrainingScriptCalls, volumeLookups },
-  };
+  return { sdk, spies: { fromNameCalls, spawnCalls, getCalls }, client, fn, call };
 }
 
-// -- Helper: register a fake SDK module that preflightModal will import
+// -- Helper: write a fake SDK file that preflightModal can import
 
-const origResolveFilename = Module._resolveFilename;
-const origLoad = Module._load;
-const fakeSdkRegistry = new Map();
-
-function installFakeSdk(name, sdkObject) {
-  fakeSdkRegistry.set(name, sdkObject);
-  // We can't easily intercept a top-level dynamic import of `modal`
-  // without setting up a custom loader. But modal-client uses
-  // `await import(sdkImport)` where sdkImport is the *literal string*
-  // passed in opts. So in tests we pass a name like
-  // `./__mock_modal_sdk__.js` and the file *is* a real path on disk.
-  // That gives us a real dynamic import without needing loader hooks.
-}
-
-function cleanupFakeSdks() {
-  fakeSdkRegistry.clear();
+function writeFakeSdkFile(impl) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-mock-'));
+  const fakePath = path.join(tmpDir, 'fake-sdk.mjs');
+  fs.writeFileSync(fakePath, impl, 'utf8');
+  return { fakePath, tmpDir };
 }
 
 // -- preflightModal: missing tokens ----------------------------------
 
 test('preflight: returns modal_tokens_missing when env unset', async () => {
-  // Snapshot env, strip tokens, run, restore.
   const oldId = process.env.<redacted-credential-name>;
   const oldSecret = process.env.<redacted-credential-name>;
   delete process.env.<redacted-credential-name>;
@@ -132,8 +115,8 @@ test('preflight: returns modal_tokens_missing when env unset', async () => {
 });
 
 test('preflight: returns modal_sdk_unimportable when SDK not installed', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
   try {
     const { preflightModal } = await import(MODAL_CLIENT_PATH);
@@ -147,21 +130,47 @@ test('preflight: returns modal_sdk_unimportable when SDK not installed', async (
   }
 });
 
-test('preflight: returns modal_sdk_surface_incomplete when SDK missing required surface', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+test('preflight: returns modal_sdk_surface_incomplete when ModalClient missing', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
-  // Write a fake SDK file that exports a partial surface (no Volume).
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-fake-'));
-  const fakePath = path.join(tmpDir, 'fake-incomplete-sdk.mjs');
-  fs.writeFileSync(fakePath, 'export const Function = {};\n', 'utf8');
+  // Fake SDK that exports the wrong shape (Python-shaped: modal.Function
+  // with from_training_script, no ModalClient class).
+  const { fakePath, tmpDir } = writeFakeSdkFile(
+    'export const Function = { from_training_script: () => {} };\n' +
+    'export const Volume = { fromName: () => {} };\n'
+  );
 
   try {
     const { preflightModal } = await import(MODAL_CLIENT_PATH);
     const r = await preflightModal({ sdkImport: fakePath });
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'modal_sdk_surface_incomplete');
-    assert.match(r.detail, /modal\.Volume/);
+    assert.match(r.detail, /ModalClient/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});
+
+test('preflight: returns modal_sdk_surface_incomplete when client lacks .volumes.fromName', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+
+  // Fake SDK where ModalClient exists but the instance doesn't
+  // expose .volumes. This catches a future SDK version that
+  // breaks the surface.
+  const { fakePath, tmpDir } = writeFakeSdkFile(
+    'export class ModalClient { constructor() { return { functions: { fromName: () => {} } }; } }\n'
+  );
+
+  try {
+    const { preflightModal } = await import(MODAL_CLIENT_PATH);
+    const r = await preflightModal({ sdkImport: fakePath });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'modal_sdk_surface_incomplete');
+    assert.match(r.detail, /\.volumes\.fromName/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     delete process.env.<redacted-credential-name>;
@@ -170,16 +179,11 @@ test('preflight: returns modal_sdk_surface_incomplete when SDK missing required 
 });
 
 test('preflight: returns ok=true with sdk reference on success', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-ok-'));
-  const fakePath = path.join(tmpDir, 'fake-ok-sdk.mjs');
-  fs.writeFileSync(
-    fakePath,
-    'export const Function = { from_training_script: () => {} };\n' +
-    'export const Volume = { fromName: () => {} };\n',
-    'utf8'
+  const { fakePath, tmpDir } = writeFakeSdkFile(
+    'export class ModalClient { constructor() { return { volumes: { fromName: () => {} }, functions: { fromName: () => {} } }; } }\n'
   );
 
   try {
@@ -187,7 +191,7 @@ test('preflight: returns ok=true with sdk reference on success', async () => {
     const r = await preflightModal({ sdkImport: fakePath });
     assert.equal(r.ok, true);
     assert.ok(r.sdk);
-    assert.equal(typeof r.sdk.Function.from_training_script, 'function');
+    assert.equal(typeof r.sdk.ModalClient, 'function');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     delete process.env.<redacted-credential-name>;
@@ -246,47 +250,52 @@ test('submit: surfaces preflight failure as a typed error', async () => {
 });
 
 // -- makeModalClient().submit: full happy path with mock SDK --------
+//
+// The mock uses the REAL JS SDK method shapes: ModalClient → client.
+// volumes.fromName + client.functions.fromName(app, fn) + fn.spawn → FunctionCall
 
-test('submit: full happy path — calls from_training_script, remote, returns handle', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+test('submit: full happy path — calls fromName, spawn, returns handle', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
-  // Write a real file for the SDK import.
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-happy-'));
-  const fakeSdkPath = path.join(tmpDir, 'fake-happy-sdk.mjs');
-  const calls = { fromTrainingScript: [], remote: [] };
-  const happyApp = {
-    async remote(args, opts) {
-      calls.remote.push({ args, opts });
-      return {
-        function_call_id: 'fc-abcdef-1234',
-        id: 'fc-abcdef-1234',
-        object_id: 'fc-abcdef-1234',
-        async get(t) { this._lastTimeout = t; return { status: 'running' }; },
-        async fetch(p) { return null; },
-      };
-    },
-  };
-  fs.writeFileSync(
-    fakeSdkPath,
-    'export const Function = { from_training_script: async (n, df, opts) => { globalThis.__ftnCalls = globalThis.__ftnCalls || []; globalThis.__ftnCalls.push({n, df, opts}); return { remote: async (args, opts) => { globalThis.__remoteCalls = globalThis.__remoteCalls || []; globalThis.__remoteCalls.push({args, opts}); return { function_call_id: "fc-abcdef-1234", id: "fc-abcdef-1234", object_id: "fc-abcdef-1234", get: async (t) => ({status: "running"}), fetch: async () => null }; } }; } };\n' +
-    'export const Volume = { fromName: (n) => ({ name: n }) };\n',
-    'utf8'
-  );
+  const mock = makeMockSdk({ callId: 'fc-real-shape-1234' });
 
   // Create a real dataset file so the client can read its byte size.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-happy-'));
   const datasetPath = path.join(tmpDir, 'dataset.jsonl');
   fs.writeFileSync(datasetPath, '{"prompt":"x","chosen":"y","rejected":"z"}\n', 'utf8');
 
   try {
     const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    // The mock uses the REAL JS SDK method shapes:
+    //   client.functions.fromName(app, name) returns fn
+    //   fn.spawn(args, kwargs) returns FunctionCall
+    //   FunctionCall.functionCallId is the job id
+    //   FunctionCall.get({timeoutMs}) resolves on success
+    const fakeSdkPath = path.join(tmpDir, 'mock-sdk.mjs');
+    fs.writeFileSync(
+      fakeSdkPath,
+      'export class ModalClient { constructor() { return { ' +
+        'volumes: { fromName: () => ({}) }, ' +
+        'functions: { fromName: (app, name) => { ' +
+          'globalThis.__fromNameCalls = globalThis.__fromNameCalls || []; ' +
+          'globalThis.__fromNameCalls.push({app, name}); ' +
+          'return { spawn: async (args, kwargs) => { ' +
+            'globalThis.__spawnCalls = globalThis.__spawnCalls || []; ' +
+            'globalThis.__spawnCalls.push({args, kwargs}); ' +
+            'return { functionCallId: "fc-real-shape-1234", get: async (p) => ({}) }; ' +
+          '}}; ' +
+        '} } ' +
+      '}; } }\n',
+      'utf8'
+    );
     const c = makeModalClient({ sdkImport: fakeSdkPath });
     const handle = await c.submit({
       runId: 'run-test-1',
       datasetPath,
       config: {
         app_name: 'aware-trainer',
-        image_dockerfile: 'Dockerfile.training',
+        function_name: 'train',
         gpu: { type: 'A100-80GB' },
         resources: { cpu_cores: 8, memory_mb: 32768 },
         timeout_seconds: 14400,
@@ -295,36 +304,50 @@ test('submit: full happy path — calls from_training_script, remote, returns ha
       },
     });
 
-    assert.equal(handle.jobId, 'fc-abcdef-1234');
+    assert.equal(handle.jobId, 'fc-real-shape-1234');
     assert.equal(handle.appName, 'aware-trainer');
     assert.equal(typeof handle.poll, 'function');
     assert.equal(typeof handle.getCheckpoint, 'function');
 
-    // Validate the closure translated Modal's running status to ours.
-    const pollRes = await handle.poll();
-    assert.equal(pollRes.status, 'running');
+    // Verify the SDK was called with the right names
+    const fromNameCalls = globalThis.__fromNameCalls || [];
+    assert.equal(fromNameCalls.length, 1, 'client.functions.fromName called once');
+    assert.equal(fromNameCalls[0].app, 'aware-trainer');
+    assert.equal(fromNameCalls[0].name, 'train');
 
-    const ckptRes = await handle.getCheckpoint();
-    assert.match(ckptRes.checkpointPath, /checkpoints\/run-test-1/);
+    // Verify spawn was called with positional args matching the
+    // training script's signature: (run_id, dataset_path, config)
+    const spawnCalls = globalThis.__spawnCalls || [];
+    assert.equal(spawnCalls.length, 1, 'fn.spawn called once');
+    assert.equal(spawnCalls[0].args[0], 'run-test-1');        // run_id
+    assert.match(spawnCalls[0].args[1], /\/root\/aware-data\/datasets\/run-test-1\.jsonl/);
+    assert.equal(spawnCalls[0].args[2].app_name, 'aware-trainer');
+
+    // Cleanup globals
+    delete globalThis.__fromNameCalls;
+    delete globalThis.__spawnCalls;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete globalThis.__ftnCalls;
-    delete globalThis.__remoteCalls;
     delete process.env.<redacted-credential-name>;
     delete process.env.<redacted-credential-name>;
   }
 });
 
-test('submit: poll translates modal "success" → completed/exitCode=0', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+test('submit: poll translates modal success (resolved promise) → completed/exitCode=0', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-success-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-success-sdk.mjs');
   fs.writeFileSync(
     fakeSdkPath,
-    'export const Function = { from_training_script: async () => ({ remote: async () => ({ function_call_id: "fc-success", get: async () => ({status: "success"}), fetch: async () => null }) }) };\n' +
-    'export const Volume = { fromName: () => ({}) };\n',
+    'export class ModalClient { constructor() { return { ' +
+      'volumes: { fromName: () => ({}) }, ' +
+      'functions: { fromName: () => ({ spawn: async () => ({ ' +
+        'functionCallId: "fc-success", ' +
+        'get: async () => ({status: "completed"}) ' +
+      '}) }) } ' +
+    '}; } }\n',
     'utf8'
   );
   const datasetPath = path.join(tmpDir, 'd.jsonl');
@@ -336,7 +359,7 @@ test('submit: poll translates modal "success" → completed/exitCode=0', async (
     const handle = await c.submit({
       runId: 'r-success',
       datasetPath,
-      config: { app_name: 'aware-trainer', timeout_seconds: 100, modal_volume: { name: 'v', mount_path: '/m' } },
+      config: { app_name: 'aware-trainer', function_name: 'train', timeout_seconds: 100, modal_volume: { name: 'v', mount_path: '/m' } },
     });
     const pollRes = await handle.poll();
     assert.equal(pollRes.status, 'completed');
@@ -348,16 +371,21 @@ test('submit: poll translates modal "success" → completed/exitCode=0', async (
   }
 });
 
-test('submit: poll translates modal "failure" → failed/exitCode=1/exception as errorMessage', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
+test('submit: poll translates modal failure (thrown) → failed/exitCode=1/exception as errorMessage', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-fail-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-fail-sdk.mjs');
   fs.writeFileSync(
     fakeSdkPath,
-    'export const Function = { from_training_script: async () => ({ remote: async () => ({ function_call_id: "fc-fail", get: async () => ({status: "failure", exception: "boom"}), fetch: async () => null }) }) };\n' +
-    'export const Volume = { fromName: () => ({}) };\n',
+    'export class ModalClient { constructor() { return { ' +
+      'volumes: { fromName: () => ({}) }, ' +
+      'functions: { fromName: () => ({ spawn: async () => ({ ' +
+        'functionCallId: "fc-fail", ' +
+        'get: async () => { throw new Error("boom"); } ' +
+      '}) }) } ' +
+    '}; } }\n',
     'utf8'
   );
   const datasetPath = path.join(tmpDir, 'd.jsonl');
@@ -369,7 +397,7 @@ test('submit: poll translates modal "failure" → failed/exitCode=1/exception as
     const handle = await c.submit({
       runId: 'r-fail',
       datasetPath,
-      config: { app_name: 'aware-trainer', timeout_seconds: 100, modal_volume: { name: 'v', mount_path: '/m' } },
+      config: { app_name: 'aware-trainer', function_name: 'train', timeout_seconds: 100, modal_volume: { name: 'v', mount_path: '/m' } },
     });
     const pollRes = await handle.poll();
     assert.equal(pollRes.status, 'failed');
@@ -384,33 +412,12 @@ test('submit: poll translates modal "failure" → failed/exitCode=1/exception as
 
 // -- resolveInflight -----------------------------------------------
 
-test('resolveInflight: returns null when preflight fails', async () => {
-  delete process.env.<redacted-credential-name>;
-  delete process.env.<redacted-credential-name>;
+test('resolveInflight: returns null (R2 — no from_id in JS SDK)', async () => {
+  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
+  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
   const { resolveInflight } = await import(MODAL_CLIENT_PATH);
   const r = await resolveInflight('r1', 'fc-x');
   assert.equal(r, null);
-});
-
-test('resolveInflight: returns null when FunctionCall.from_id returns null', async () => {
-  process.env.<redacted-credential-name> = 'ak-test-12345678';
-  process.env.<redacted-credential-name> = 'as-test-12345678';
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-resolve-'));
-  const fakeSdkPath = path.join(tmpDir, 'fake-resolve-sdk.mjs');
-  fs.writeFileSync(
-    fakeSdkPath,
-    'export const Function = {};\n' +
-    'export const Volume = {};\n' +
-    'export const FunctionCall = { from_id: async () => null };\n',
-    'utf8'
-  );
-  try {
-    const { resolveInflight } = await import(MODAL_CLIENT_PATH);
-    const r = await resolveInflight('r1', 'fc-stale', { sdkImport: fakeSdkPath });
-    assert.equal(r, null);
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
-  }
+  delete process.env.<redacted-credential-name>;
+  delete process.env.<redacted-credential-name>;
 });

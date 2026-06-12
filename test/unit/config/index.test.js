@@ -24,7 +24,8 @@ function clearV2Env() {
       k === 'AWARE_PRM_CACHE_ENABLED' || k === 'AWARE_PRM_CACHE_TTL_DAYS' ||
       k === 'AWARE_PRM_CACHE_TABLE' ||
       k === 'AWARE_BUDGET_ENABLED' || k === 'AWARE_BUDGET_WINDOW_DAYS' ||
-      k === 'AWARE_BUDGET_SOFT_LIMIT_USD' || k === 'AWARE_BUDGET_HARD_LIMIT_USD'
+      k === 'AWARE_BUDGET_SOFT_LIMIT_USD' || k === 'AWARE_BUDGET_HARD_LIMIT_USD' ||
+      k === '<redacted-credential-name>' || k === '<redacted-credential-name>'
     ) {
       delete process.env[k];
     }
