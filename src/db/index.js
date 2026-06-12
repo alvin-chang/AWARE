@@ -45,7 +45,7 @@ const dbStatus = {
   lastError: () => lastError,
   // Reset for tests
   _reset() {
-    if (pool) {
+    if (pool && typeof pool.end === 'function') {
       pool.end().catch(() => {});
     }
     pool = null;
@@ -54,6 +54,33 @@ const dbStatus = {
     lastConnectAttempt = 0;
   },
 };
+
+/**
+ * Test-only: install a stub pool that bypasses the real connection.
+ * The stub must implement .query(sql, params) returning a thenable or
+ * throwing on demand. Production code paths never call this.
+ *
+ * Always pair with a `dbStatus._reset()` in the test teardown to clear
+ * the stub before the next test.
+ *
+ * Note: this does NOT mark `migrationsRun = true`. Tests that exercise
+ * `runMigrations()` need to do that work themselves, because the
+ * test's stub pool is the one that gets the migration SQL.
+ *
+ * @param {{query: (sql: string, params: unknown[]) => Promise<unknown>}} fakePool
+ */
+export function _setPoolForTest(fakePool) {
+  // Assign directly to the module-level `pool` slot so that
+  // getPool()'s `if (pool) return pool;` short-circuit returns the
+  // stub on the first call without ever opening a real socket.
+  pool = fakePool;
+  // Reset migrationsRun so a test that wants to exercise runMigrations
+  // can do so from a clean slate. Tests that DON'T care about
+  // migrations can call runMigrations() and ignore the result.
+  migrationsRun = false;
+  lastError = null;
+  lastConnectAttempt = 0;
+}
 
 /**
  * Build the pg config object from the AWARE config module.
@@ -174,3 +201,5 @@ export async function closePool() {
   }
   migrationsRun = false;
 }
+
+export { dbStatus };
