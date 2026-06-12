@@ -229,6 +229,8 @@ AWARE/
 
 - **Status:** [<internal-doc>](<internal-doc>) — closure status of every phase
 - **v2 architecture:** [docs/adr/ADR-020.md](docs/adr/ADR-020.md)
+- **Dev guide:** [CONTRIBUTING.md](CONTRIBUTING.md) — for anyone reading or modifying v2 source
+- **Dev deep dive:** [docs/dev/architecture.md](docs/dev/architecture.md) — pipeline, data flow, trainer lifecycle
 - **v1 evolution brief:** [docs/EVOLUTION-BRIEF.md](docs/EVOLUTION-BRIEF.md)
 - **SOPs:** [docs/sop/](docs/sop/) — per-phase operator procedures
 - **SOP mirror:** `<host-config>/sops/` (canonical SOP store)
