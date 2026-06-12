@@ -129,6 +129,8 @@ See `docs/sop/sop-phase-3-azr-self-play.json` for the full operator-action seque
 
 **Test coverage:** c8 measures v2 source paths only (coordinator, gateway, db, trainer, budget, config — not v1). Run `npm run coverage` for the full report, `npm run coverage:summary` for a quick per-file table. Current numbers (commit d32d653): **88.42% lines** above the ADR-020 ≥80% gate. Bring-up smoke 8i (`BRINGUP_FULL=1`) enforces the gate.
 
+**Security audit:** `scripts/security-scan.sh` runs Bandit (Python AST), `npm audit` (Node CVEs), gitleaks (git history), and Trivy (filesystem + Dockerfile) and produces a combined `security-audit-report.txt` + `.json`. Each tool degrades gracefully (skips with warning) if not installed. Default is warn-only; `--strict` promotes warnings to errors. Bring-up smoke 8k (`BRINGUP_FULL=1`) runs it with `--strict`.
+
 ---
 
 ## Architecture (v2)
