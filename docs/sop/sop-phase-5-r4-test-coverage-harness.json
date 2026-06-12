@@ -1,0 +1,60 @@
+{
+  "id": "sop-phase-5-r4-test-coverage-harness",
+  "title": "AWARE 2.0 Phase 5 R4 — c8 test coverage harness + ≥80% gate (ADR-020 deliverable)",
+  "version": "1.0.0",
+  "created": "2026-06-12",
+  "closed": "2026-06-12",
+  "adr_ref": "ADR-020 §Phase 5 (685-718)",
+  "phase": 5,
+  "slice": "R4",
+  "deliverable": "Test coverage ≥80% on new code",
+  "operator": "alfie",
+  "operator_action": "npm run coverage   # or BRINGUP_FULL=1 ./scripts/bring-up-coordinator.sh",
+  "status": "closed",
+  "what_shipped": [
+    ".nycrc.json (new file, c8 config — v2 source paths only)",
+    "scripts/coverage-summary.mjs (new file, lcov.info → per-file table)",
+    "package.json: c8@^10.1.3 devDep + 4 new scripts",
+    "scripts/bring-up-coordinator.sh: +2 smokes (8h harness sanity, 8i ≥80% gate)",
+    "README.md: 'Test coverage' section"
+  ],
+  "config_design": {
+    "include_paths": ["src/coordinator/**", "src/gateway/**", "src/budget/**", "src/db/**", "src/trainer/**", "src/config/**"],
+    "exclude_paths": ["src/ui/**", "src/kill-switch/**", "src/agents/**", "src/audit/**", "src/api/**", "src/routing/**", "src/monitoring/**", "src/data/**", "src/compliance/**", "src/policies/**", "src/election/**", "src/emergency/**", "src/node-discovery/**", "src/server.js", "test/**", "node_modules/**"],
+    "rationale": "ADR-020 says 'coverage ≥80% on new code'. 'New code' = v2 code (ADR-020 596-684). v1 code is shipped and out of scope."
+  },
+  "bringup_smokes": {
+    "8h_harness_sanity": "runs c8 on test/unit/budget/watchdog.test.js alone, asserts lcov.info exists with >= 1 end_of_record block. Fast (~200ms). Always runs in default bring-up.",
+    "8i_gate_enforcement": "runs full `npm run coverage:text`, parses 'All files | % Stmts | % Branch | % Funcs | % Lines', asserts % Lines >= 80. Opt-in via BRINGUP_FULL=1."
+  },
+  "verification": {
+    "npm_test": "239/239 pass, 0 fail, 0 skip",
+    "npm_run_coverage_text": "All files: 88.42% Stmts, 78.71% Branch, 84.71% Funcs, 88.42% Lines",
+    "gate_80_lines": "PASS (88.42% > 80%)",
+    "harness_8h": "OK — lcov.info produced with 13 end_of_record blocks",
+    "syntax_checks": "bash -n bring-up-coordinator.sh, node --check coverage-summary.mjs, .nycrc.json parses"
+  },
+  "per_file_coverage": {
+    "100.0%": ["src/coordinator/heavyskill-integration.js (83 lines)"],
+    "99.1%": ["src/config/index.cjs (337 lines)", "src/coordinator/model-router.js (214 lines)"],
+    "98.8%": ["src/trainer/outcome-filter.js (171 lines)"],
+    "93.8%": ["src/coordinator/index.js (144 lines)"],
+    "92.0%": ["src/budget/watchdog.js (176 lines)"],
+    "90.1%": ["src/coordinator/http-server.js (456 lines)"],
+    "88.5%": ["src/trainer/index.js (706 lines)"],
+    "85.8%": ["src/trainer/modal-client.js (367 lines)"],
+    "84.0%": ["src/gateway/server.js (250 lines)"],
+    "80.5%": ["src/db/prm-cache.js (257 lines)"],
+    "69.3%": ["src/db/index.js (176 lines)"],
+    "68.4%": ["src/db/logger.js (171 lines)"],
+    "total": "88.42% lines (3102/3508)"
+  },
+  "commit": "74fec35",
+  "status_md_section": "Phase 5 R4 — c8 test coverage harness (2026-06-12)",
+  "follow_up_slices": [
+    "Close db/logger.js + db/index.js coverage gap (add stubbed-pool unit tests for connection-failure paths; would lift total from 88.42% to ~95%)",
+    "Raise Branch gate to ≥80% (currently 78.71% — add edge-case tests for the outcome-filter's three rules)",
+    "Per-file coverage floors in .nycrc.json (e.g., `check-coverage: { lines: 80, per-file: { lines: 60 } }` to catch the db/logger.js-style gap earlier)"
+  ],
+  "next_slice": "Phase 5 R5 — dev guide (separate slice, no decision needed)"
+}
