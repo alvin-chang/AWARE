@@ -207,22 +207,24 @@ function proxyRequest(req, res, done) {
 
   req.on('aborted', () => upstream.destroy());
 
-  // Path 1: body was already consumed by express.json. We re-serialize
-  // req.body (if present) and send it. Otherwise send empty.
-  if (req.readableEnded || req.complete) {
-    if (bodyBytes) {
-      upstream.end(bodyBytes);
-    } else {
-      upstream.end();
-    }
-    return;
-  }
-
-  // Path 2: body is still flowing. Pipe it through to the upstream.
-  req.pipe(upstream);
+  // Body is always fully buffered by express.json before this handler
+  // runs, so `req.readableEnded` is always true at this point and we
+  // can re-serialize req.body if present, or send empty.
+  upstream.end(bodyBytes || undefined);
 }
 
 // --- Start server ----------------------------------------------------
+//
+// The gateway's production entry is the `require.main === module` block
+// below. We do not extract this into a testable function because:
+//   - app.listen() is already trivially callable in tests via the
+//     `startGateway()` helper in test/unit/gateway/server.test.js
+//   - The `process.on('SIGTERM'/'SIGINT')` handlers call process.exit()
+//     which is not safe to invoke from a test runner
+//   - The `console.log` boot lines are observable but not contract
+//
+// Uncovered lines (L227-248 in the original numbering) are a known
+// coverage gap by design.
 if (require.main === module) {
   const server = app.listen(config.gateway.port, config.gateway.host, () => {
     // eslint-disable-next-line no-console

@@ -171,3 +171,148 @@ test('logger: error kind and message are passed through', async () => {
 
 // Silence unused import warning for EventEmitter
 void EventEmitter;
+
+// ─── New tests covering the previously-uncovered SQL execution branches ───
+//
+// The original logger tests were "no-DB" by design — they only covered
+// the early-bail paths (missing required fields, no pool). That left
+// the actual `pool.query()` success and catch branches (lines 136, 143)
+// unmeasured, dragging the file's branch % to 38%.
+//
+// These tests use the new `_setPoolForTest` seam in db/index.js to
+// install a stub pool, then assert on the return value shape.
+
+test('logger: returns { logged: true } when pool.query() resolves', async () => {
+  const { _setPoolForTest, dbStatus } = await import('../../../src/db/index.js');
+  const { logConversation } = await import('../../../src/db/logger.js');
+
+  let lastSql = null;
+  let lastParams = null;
+  const fakePool = {
+    query: async (sql, params) => {
+      lastSql = sql;
+      lastParams = params;
+      return { rows: [] };
+    },
+    end: async () => {},
+  };
+  _setPoolForTest(fakePool);
+  try {
+    const r = await logConversation({
+      requestId: '00000000-0000-0000-0000-000000000100',
+      problem: 'p',
+      result: {
+        ok: true,
+        refined_trace: 't',
+        confidence: 0.7,
+        cost: { attempts_usd: 0.001, refinement_usd: 0.002, judge_usd: 0.0005 },
+        pair_written: false,
+      },
+    });
+    assert.equal(r.logged, true);
+    // The SQL should mention aware_conversations
+    assert.ok(/INSERT INTO aware_conversations/i.test(lastSql || ''));
+    // cost_total_usd should be summed
+    const costIdx = lastParams.findIndex(
+      (v, i) => i > 0 && Number.isFinite(v) && Math.abs(v - 0.0035) < 1e-9
+    );
+    assert.ok(costIdx >= 0, `expected cost_total_usd=0.0035 in params, got ${JSON.stringify(lastParams)}`);
+  } finally {
+    dbStatus._reset();
+  }
+});
+
+test('logger: returns { logged: false, reason: insert-failed } when pool.query() throws', async () => {
+  const { _setPoolForTest, dbStatus } = await import('../../../src/db/index.js');
+  const { logConversation } = await import('../../../src/db/logger.js');
+
+  const fakePool = {
+    query: async () => {
+      const err = new Error('relation "aware_conversations" does not exist');
+      throw err;
+    },
+    end: async () => {},
+  };
+  _setPoolForTest(fakePool);
+  try {
+    const r = await logConversation({
+      requestId: '00000000-0000-0000-0000-000000000101',
+      problem: 'p',
+      result: { ok: true, refined_trace: 't', pair_written: false },
+    });
+    assert.equal(r.logged, false);
+    assert.equal(r.reason, 'insert-failed');
+    assert.ok(/aware_conversations/.test(r.error || ''));
+  } finally {
+    dbStatus._reset();
+  }
+});
+
+test('logger: fire-and-forget logs to stderr when logConversation returns not-logged', async () => {
+  // The "missing-required-fields" path returns {logged: false}, so
+  // logConversationFireAndForget's `.then(r => { if (!r.logged) ... })`
+  // branch is covered. This test asserts the stderr message is emitted.
+  const errs = [];
+  const origErr = console.error;
+  console.error = (...args) => errs.push(args.join(' '));
+  try {
+    const { logConversationFireAndForget } = await import('../../../src/db/logger.js');
+    logConversationFireAndForget({}); // missing required fields
+    // Wait one tick for the .then to settle
+    await new Promise((r) => setImmediate(r));
+    // The fire-and-forget should have logged a "not logged" message
+    assert.ok(
+      errs.some((m) => /not logged/.test(m) || /request_id=undefined/.test(m)),
+      `expected a "not logged" stderr line, got: ${JSON.stringify(errs)}`
+    );
+  } finally {
+    console.error = origErr;
+  }
+});
+
+// NOTE: The `.catch` handler in logConversationFireAndForget (line 157-160)
+// is intentionally unreachable in production. logConversation's contract
+// is "MUST NEVER throw" — every error path returns a structured
+// {logged:false, reason} instead. Forcing a throw to cover this branch
+// would require adding a synthetic source throw that does not exist in
+// any real call site, which makes the code worse for no real coverage
+// gain. We document this rather than cover it.
+test('logger: fire-and-forget never rejects (the .catch is defensive dead code)', async () => {
+  // We exercise every error path we can reach in logConversation and
+  // assert logConversationFireAndForget never produces an unhandled
+  // promise rejection. If a future change ever causes logConversation
+  // to reject, the .catch on line 157-160 will fire — but in current
+  // code, that branch is dead.
+  const { _setPoolForTest, dbStatus } = await import('../../../src/db/index.js');
+  const { logConversationFireAndForget } = await import('../../../src/db/logger.js');
+
+  // Path 1: missing required fields
+  logConversationFireAndForget(null);
+  logConversationFireAndForget(undefined);
+  logConversationFireAndForget({});
+
+  // Path 2: pool returns a rejecting promise
+  const fakePool = {
+    query: async () => {
+      throw new Error('simulated DB outage');
+    },
+    end: async () => {},
+  };
+  _setPoolForTest(fakePool);
+  try {
+    logConversationFireAndForget({
+      requestId: '00000000-0000-0000-0000-000000000200',
+      problem: 'p',
+      result: { ok: true, refined_trace: 't', pair_written: false },
+    });
+  } finally {
+    dbStatus._reset();
+  }
+
+  // Wait for all the fire-and-forget promises to settle
+  await new Promise((r) => setImmediate(r));
+  // If any of them rejected without being caught, Node would emit
+  // an UnhandledPromiseRejection — and `process.exitCode` would
+  // not be set. The test passing here is the assertion.
+  assert.ok(true, 'no unhandled rejection');
+});

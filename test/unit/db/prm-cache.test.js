@@ -186,6 +186,90 @@ test('prmCache: getCacheStats always includes enabled field', async () => {
   assert.equal(typeof stats.enabled, 'boolean');
 });
 
+// --- getCacheStats with stubbed pool -----------------------------------
+// Covers the success path (SQL query returns rows) and the error path
+// (SQL query throws). The previous tests only covered the no-pool
+// early-return, which is why branch % was at 55%.
+
+test('prmCache: getCacheStats returns shaped data when pool returns rows', async () => {
+  const { _setPoolForTest, dbStatus } = await import('../../../src/db/index.js');
+  const { getCacheStats } = await import('../../../src/db/prm-cache.js');
+
+  const now = new Date();
+  const earlier = new Date(now.getTime() - 60_000);
+  const fakePool = {
+    query: async () => ({
+      rows: [{
+        rows: 42,
+        hit_count_total: 137,
+        distinct_keys_24h: 28,
+        oldest_hit_at: earlier,
+        newest_hit_at: now,
+      }],
+    }),
+    end: async () => {},
+  };
+  _setPoolForTest(fakePool);
+  try {
+    const stats = await getCacheStats();
+    assert.equal(stats.enabled, true); // cache is enabled by default
+    assert.equal(stats.rows, 42);
+    assert.equal(stats.hit_count_total, 137);
+    assert.equal(stats.distinct_keys_24h, 28);
+    assert.equal(stats.error, null);
+    // Timestamps should be ISO strings, not raw Date objects
+    assert.equal(typeof stats.oldest_hit_at, 'string');
+    assert.equal(typeof stats.newest_hit_at, 'string');
+    assert.match(stats.oldest_hit_at, /^\d{4}-\d{2}-\d{2}T/);
+  } finally {
+    dbStatus._reset();
+  }
+});
+
+test('prmCache: getCacheStats returns error string when pool.query throws', async () => {
+  const { _setPoolForTest, dbStatus } = await import('../../../src/db/index.js');
+  const { getCacheStats } = await import('../../../src/db/prm-cache.js');
+
+  const fakePool = {
+    query: async () => {
+      throw new Error('relation "aware_prm_cache" does not exist');
+    },
+    end: async () => {},
+  };
+  _setPoolForTest(fakePool);
+  try {
+    const stats = await getCacheStats();
+    assert.equal(stats.rows, 0);
+    assert.equal(stats.hit_count_total, 0);
+    assert.equal(stats.distinct_keys_24h, 0);
+    assert.equal(stats.error, 'relation "aware_prm_cache" does not exist');
+  } finally {
+    dbStatus._reset();
+  }
+});
+
+test('prmCache: getCacheStats returns base (zeros) when cache is disabled', async () => {
+  // Covers the L225 early-return: when AWARE_PRM_CACHE_ENABLED=0,
+  // getCacheStats returns the base shape (all zeros, error: null)
+  // without ever touching the DB.
+  const { getCacheStats } = await import('../../../src/db/prm-cache.js');
+  const prev = process.env.AWARE_PRM_CACHE_ENABLED;
+  process.env.AWARE_PRM_CACHE_ENABLED = '0';
+  try {
+    const stats = await getCacheStats();
+    assert.equal(stats.enabled, false);
+    assert.equal(stats.rows, 0);
+    assert.equal(stats.hit_count_total, 0);
+    assert.equal(stats.distinct_keys_24h, 0);
+    assert.equal(stats.oldest_hit_at, null);
+    assert.equal(stats.newest_hit_at, null);
+    assert.equal(stats.error, null);
+  } finally {
+    if (prev === undefined) delete process.env.AWARE_PRM_CACHE_ENABLED;
+    else process.env.AWARE_PRM_CACHE_ENABLED = prev;
+  }
+});
+
 // --- shape / smoke ------------------------------------------------------
 
 test('prmCache: buildCacheKey with nested context is stable', async () => {

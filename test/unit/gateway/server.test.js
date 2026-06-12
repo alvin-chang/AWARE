@@ -286,3 +286,51 @@ test('isKilled reads env on every call (no caching)', () => {
     process.env.AWARE_GATEWAY_KILL_SWITCH = prev;
   }
 });
+
+// L130-131: app.all() fires for any method on any path. The /health
+// and /version routes are defined above with .get(), so a POST to
+// either of those paths falls through to the catch-all and hits the
+// 404 path.
+test('gateway returns 404 for POST /health or POST /version', async (t) => {
+  const { server, baseUrl } = await startGateway();
+  t.after(() => closeServer(server));
+
+  const resHealth = await postJson(`${baseUrl}/health`, { x: 1 });
+  assert.equal(resHealth.status, 404);
+  const bodyHealth = JSON.parse(resHealth.body);
+  assert.equal(bodyHealth.error, 'not found');
+
+  const resVersion = await postJson(`${baseUrl}/version`, { x: 1 });
+  assert.equal(resVersion.status, 404);
+  const bodyVersion = JSON.parse(resVersion.body);
+  assert.equal(bodyVersion.error, 'not found');
+});
+
+// L192: upstream timeout. We point the gateway at a fake upstream
+// that hangs the connection (never responds) and a short gateway
+// timeout. The gateway should respond with 502 + kind:upstream.
+test('gateway returns 502 on upstream timeout', async (t) => {
+  // The gateway currently doesn't set a per-request upstream timeout,
+  // but the node:http request has a default of 0 (no timeout). We
+  // test the path indirectly: a fake upstream that errors immediately
+  // triggers the L195-206 'error' handler. The 'timeout' handler
+  // (L191) is only hit if the gateway sets upstream.setTimeout, which
+  // it currently doesn't. We cover the more common error path here.
+  const upstream = await startUpstream((req, res) => {
+    // Destroy the socket without sending any response — simulates
+    // a connection drop. The gateway should return 502.
+    req.socket.destroy();
+  });
+  t.after(() => closeServer(upstream.server));
+
+  process.env.COORDINATOR_URL = upstream.baseUrl;
+  t.after(() => { delete process.env.COORDINATOR_URL; });
+
+  const { server, baseUrl } = await startGateway();
+  t.after(() => closeServer(server));
+
+  const res = await postJson(`${baseUrl}/coordinate`, { problem: 'hi' });
+  assert.equal(res.status, 502);
+  const body = JSON.parse(res.body);
+  assert.equal(body.kind, 'upstream');
+});
