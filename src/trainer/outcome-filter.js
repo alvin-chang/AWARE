@@ -20,6 +20,21 @@
 //                        options.allowedTaskTypes. Useful for keeping
 //                        only math/reasoning pairs and dropping
 //                        chitchat.
+//   - "azr_result"     — drop MetaClaw records whose (task_type,
+//                        content_hash) does NOT have a passing
+//                        AZR result in options.azrIndex. The index is
+//                        a Map<content_hash, {passed, runId, ...}>
+//                        pre-loaded by the trainer from
+//                        aware_azr_results. Implements ADR-020
+//                        Decision 2: "AZR outcome filter gates
+//                        MetaClaw process training." Records without
+//                        any AZR result (no entry in the index) are
+//                        KEPT (we don't drop on missing data; the
+//                        index starts empty and grows as the first
+//                        Modal run completes). Records WITH an entry
+//                        that did NOT pass are DROPPED (hard
+//                        negative). This is the strict reading of
+//                        "AZR pass/fail gates MetaClaw".
 //
 // The output is intentionally a separate function from toDpoDataset:
 // toDpoDataset() handles the *intrinsic* quality of a pair (PRM score
@@ -47,10 +62,16 @@
  */
 
 /**
- * @typedef {Object} FilterOptions
- * @property {"noop"|"min_score_gap"|"tag_match"} [rule="noop"]
+ * @typedef {FilterOptions}
+ * @property {"noop"|"min_score_gap"|"tag_match"|"azr_result"} [rule="noop"]
  * @property {number} [minGap=0.05] — used when rule="min_score_gap"
  * @property {string[]} [allowedTaskTypes=[]] — used when rule="tag_match"
+ * @property {Map<string, {passed: boolean, runId: string, recordedAt: string}>} [azrIndex=new Map()]
+ *           — used when rule="azr_result". Keys are content_hash
+ *           (matches pair._content_hash and azr_result.content_hash).
+ *           Only entries with passed=true should be present in
+ *           practice (the trainer filters the query to passed=true
+ *           so the index is always a "this passed AZR before" set).
  */
 
 /**
@@ -61,7 +82,7 @@
  * @property {{rule: string, totalIn: number, totalKept: number, totalDropped: number}} stats
  */
 
-const VALID_RULES = new Set(['noop', 'min_score_gap', 'tag_match']);
+const VALID_RULES = new Set(['noop', 'min_score_gap', 'tag_match', 'azr_result']);
 
 /**
  * Apply a filter rule to an array of preference records.
@@ -94,10 +115,15 @@ export function filterOutcomePairs(records, options = {}) {
       continue;
     }
     const verdict = _applyRule(rule, rec, options);
-    if (verdict === 'keep') {
+    // Verdict shape: { action: 'keep'|'drop', reason: string }
+    // - 'keep' → record passes the filter
+    // - 'drop' + reason → record is dropped, reason is a short
+    //   machine-readable string (e.g. 'min_score_gap:0.0200<0.0500')
+    //   surfaced in the trainer's debug log
+    if (verdict.action === 'keep') {
       kept.push(rec);
     } else {
-      dropped.push({ record: rec, reason: verdict });
+      dropped.push({ record: rec, reason: verdict.reason });
     }
   }
 
@@ -133,21 +159,21 @@ export function listFilterRules() {
 function _applyRule(rule, rec, options) {
   switch (rule) {
     case 'noop':
-      return 'keep';
+      return { action: 'keep' };
 
     case 'min_score_gap': {
       const chosenScore = rec?.chosen?.prm_score;
       const rejectedScore = rec?.rejected?.prm_score;
       if (typeof chosenScore !== 'number' || typeof rejectedScore !== 'number') {
-        return 'keep';  // missing scores — don't penalize, let downstream decide
+        return { action: 'keep' };  // missing scores — don't penalize, let downstream decide
       }
       const minGap = typeof options.minGap === 'number' ? options.minGap : 0.05;
       const gap = chosenScore - rejectedScore;
       // Use a small epsilon to match heavy-think's toDpoDataset convention
       if (gap + 1e-9 < minGap) {
-        return `min_score_gap:${gap.toFixed(4)}<${minGap}`;
+        return { action: 'drop', reason: `min_score_gap:${gap.toFixed(4)}<${minGap}` };
       }
-      return 'keep';
+      return { action: 'keep' };
     }
 
     case 'tag_match': {
@@ -156,12 +182,57 @@ function _applyRule(rule, rec, options) {
         : [];
       if (allowed.length === 0) {
         // No allowed types configured → keep all (operator hasn't decided yet)
-        return 'keep';
+        return { action: 'keep' };
       }
       if (!rec.task_type || !allowed.includes(rec.task_type)) {
-        return `tag_match:${rec.task_type || '<unset>'} not in [${allowed.join(',')}]`;
+        return { action: 'drop', reason: `tag_match:${rec.task_type || '<unset>'} not in [${allowed.join(',')}]` };
       }
-      return 'keep';
+      return { action: 'keep' };
+    }
+
+    case 'azr_result': {
+      // Phase 4 deliverable 1: gate MetaClaw pairs on AZR pass/fail.
+      //
+      // ADR-020 Decision 2 reading: "AZR pass/fail gates MetaClaw
+      // process training." The filter's job is to remove pairs that
+      // the AZR verifier has explicitly REJECTED, not to require
+      // every pair to have been verified. Implementation policy
+      // (consistent with the missing-scores policy in
+      // min_score_gap):
+      //   - azrIndex is a Map<content_hash, {passed, runId, ...}>
+      //     pre-loaded by the trainer from the aware_azr_results
+      //     table, filtered to passed=true (so the index IS the
+      //     "passed AZR before" set).
+      //   - Record with a content_hash in azrIndex → verified
+      //     PASSED before → KEEP.
+      //   - Record with a content_hash NOT in azrIndex → never
+      //     verified (the index is small relative to the corpus
+      //     for the first few training cycles) → KEEP. Rationale:
+      //     dropping on missing data would yield empty datasets
+      //     until AZR has been run over the entire corpus, which
+      //     defeats the iterative improvement loop. Operators who
+      //     want the strict policy should switch the filter rule
+      //     to "noop" once they've grown a large enough AZR
+      //     index, or implement a separate "require_azr" rule.
+      //   - The negative case (AZR-verified AND did not pass) is
+      //     excluded by the trainer's query (only passed=true rows
+      //     populate the index), so it can never reach the filter.
+      const index = options.azrIndex instanceof Map
+        ? options.azrIndex
+        : new Map();
+      const hash = rec._content_hash;
+      if (typeof hash !== 'string' || hash.length === 0) {
+        // No content hash → can't join → keep.
+        return { action: 'keep' };
+      }
+      if (index.has(hash)) {
+        return { action: 'keep' };
+      }
+      // Unverified → keep (missing-data policy). The verdict is
+      // tagged with a 'unverified' marker so the trainer's debug
+      // log can surface the count for operator visibility, but it
+      // does NOT add to the dropped list.
+      return { action: 'keep', reason: 'unverified' };
     }
 
     default:

@@ -224,7 +224,9 @@ test('config: snapshot() shape is stable', (t) => {
     'budget', 'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'trainer', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
-    'host', 'killSwitch', 'port', 'requestCostCapUsd', 'requestTimeoutMs',
+    'host', 'killSwitch', 'loraReloaderEnabled', 'loraReloaderModelName',
+    'loraReloaderPollIntervalMs', 'loraReloaderTimeoutMs', 'port',
+    'requestCostCapUsd', 'requestTimeoutMs',
   ]);
   assert.deepEqual(Object.keys(snap.gateway).sort(), [
     'coordinatorUrl', 'host', 'killSwitch', 'port', 'proxyTimeoutMs',
@@ -243,7 +245,7 @@ test('config: snapshot() shape is stable', (t) => {
     'enabled', 'hardLimitUsd', 'softLimitUsd', 'windowDays',
   ]);
   assert.deepEqual(Object.keys(snap.trainer).sort(), [
-    'baseModel', 'configPath', 'enabled', 'filterAllowedTaskTypes',
+    'azrCorpusPath', 'baseModel', 'configPath', 'enabled', 'filterAllowedTaskTypes',
     'filterMinGap', 'filterRule', 'gpuType', 'jobTimeoutSec',
     'minPairsPerRun', 'modalTokenId', 'modalTokenSecret', 'pollIntervalSec', 'weightsDir',
   ]);

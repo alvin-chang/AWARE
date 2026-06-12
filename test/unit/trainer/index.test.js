@@ -294,7 +294,10 @@ test('trainer: enough pairs — submits a new run, records to DB', async (t) => 
   // n_pairs in the INSERT should be the number of DPO rows we wrote
   // (2), not the unconsumed count from the SELECT (250).
   assert.equal(handlers.inserted.length, 1, 'expected INSERT for run start');
-  assert.equal(handlers.inserted[0][3], 2, 'expected n_pairs=2 (dataset rows)');
+  // Args: [runId, source, datasetPath, azrCorpusPath, nPairs, ...]
+  // nPairs is at index 4 (Phase 4 deliverable 1 added azrCorpusPath
+  // at index 3, shifting nPairs from 3 to 4).
+  assert.equal(handlers.inserted[0][4], 2, 'expected n_pairs=2 (dataset rows)');
   assert.equal(handlers.runningUpdates.length, 1, 'expected UPDATE to running');
   assert.equal(handlers.runningUpdates[0][1], 'modal-job-abc');
 

@@ -545,8 +545,73 @@ if [ "${BRINGUP_FULL:-0}" = "1" ]; then
   fi
 fi
 
+# 8l. Phase 4 (ADR-020 618-627) evaluation harness is loadable + has
+# 5 GSM8K + 5 LiveCodeBench fixtures. The full benchmark run
+# requires a live Ollama sidecar with the model loaded, which is
+# out of scope for the static bring-up (the operator runs
+# `npm run eval:baseline` explicitly when they have Ollama up).
+# This smoke catches import/parse failures + missing fixtures.
+log "smoke test: evaluation harness loads + has 5+5 fixtures"
+if node --input-type=module -e "
+  import { GSM8K_FIXTURES, LIVECODE_FIXTURES } from './src/training/eval-harness.js';
+  if (!Array.isArray(GSM8K_FIXTURES) || GSM8K_FIXTURES.length !== 5) {
+    console.error('FAIL: expected 5 GSM8K_FIXTURES, got', GSM8K_FIXTURES?.length);
+    process.exit(1);
+  }
+  if (!Array.isArray(LIVECODE_FIXTURES) || LIVECODE_FIXTURES.length !== 5) {
+    console.error('FAIL: expected 5 LIVECODE_FIXTURES, got', LIVECODE_FIXTURES?.length);
+    process.exit(1);
+  }
+  for (const f of GSM8K_FIXTURES) {
+    if (typeof f.finalAnswer !== 'number') {
+      console.error('FAIL: gsm8k fixture missing finalAnswer:', f.id);
+      process.exit(1);
+    }
+  }
+  for (const f of LIVECODE_FIXTURES) {
+    if (!Array.isArray(f.testCases) || f.testCases.length < 2) {
+      console.error('FAIL: livecodebench fixture missing testCases:', f.id);
+      process.exit(1);
+    }
+  }
+  console.log('smoke 8l OK');
+" > /dev/null 2>&1; then
+  ok "eval: harness loads + 5 GSM8K + 5 LiveCodeBench fixtures valid"
+else
+  warn "eval: harness did not load (likely a parse error in src/training/eval-harness.js — review and rerun)"
+fi
+
+# 8m. Phase 4 (ADR-020 618-627) LoRA reloader module is loadable +
+# the 4 coordinator.loraReloader* config keys are present in
+# config.snapshot(). Catches the integration drift between the
+# module and the config layer.
+log "smoke test: lora-reloader module + coordinator.loraReloader* config keys"
+if node --input-type=module -e "
+  import { createRequire } from 'node:module';
+  import { makeLoraReloader } from './src/coordinator/lora-reloader.js';
+  const require = createRequire(import.meta.url);
+  const config = require('./src/config/index.cjs');
+  const snap = config.snapshot();
+  const required = ['loraReloaderEnabled', 'loraReloaderPollIntervalMs', 'loraReloaderTimeoutMs', 'loraReloaderModelName'];
+  for (const k of required) {
+    if (!(k in snap.coordinator)) {
+      console.error('FAIL: missing config.coordinator.' + k);
+      process.exit(1);
+    }
+  }
+  if (typeof makeLoraReloader !== 'function') {
+    console.error('FAIL: makeLoraReloader is not exported');
+    process.exit(1);
+  }
+  console.log('smoke 8m OK');
+" > /dev/null 2>&1; then
+  ok "lora-reloader: module loads + 4 coordinator.loraReloader* keys present"
+else
+  warn "lora-reloader: integration drift (module or config keys missing — review)"
+fi
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled). Phase 4 outcome filter + dataset packaging + cancelled-run path verified (20 smoke tests when training profile is enabled). Phase 5 test coverage harness + security audit harness verified (22 smoke tests when training profile is enabled; +2 BRINGUP_FULL=1 checks at 24)."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled). Phase 4 outcome filter + dataset packaging + cancelled-run path + AZR results table + coordinator LoRA reloader + eval harness verified (24 smoke tests when training profile is enabled; +2 BRINGUP_FULL=1 checks at 26)."

@@ -9,6 +9,7 @@
 
 import { awareHeavyThink } from './heavyskill-integration.js';
 import { makeModelRouter, makeOllamaHealth } from './model-router.js';
+import { makeLoraReloader } from './lora-reloader.js';
 import config from '../config/index.cjs';
 
 export const COORDINATOR_VERSION = '0.2.0-phase-1-router';
@@ -141,4 +142,5 @@ function buildDefaultOllamaClient(baseUrl) {
 }
 
 export { makeModelRouter, makeOllamaHealth, buildDefaultOllamaClient };
+export { makeLoraReloader, resolveActiveTarget, shouldReload, buildModelfile, postOllamaCreate } from './lora-reloader.js';
 export { awareHeavyThink } from './heavyskill-integration.js';
