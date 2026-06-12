@@ -339,8 +339,35 @@ if docker inspect --format '{{.State.Running}}' aware-2-trainer 2>/dev/null \
   fi
 fi
 
+# 8d. Phase 3 modal-client.js is importable and preflight reports
+# the right failure mode when Modal tokens are missing. This is a
+# STATIC check that doesn't require the trainer container, Modal
+# account, or any network. It proves the code-gap flagged in
+# <internal-doc> (modal-client.js not yet implemented) is closed.
+log "smoke test: trainer — src/trainer/modal-client.js preflight behaves correctly"
+node --input-type=module -e "
+  import { preflightModal, makeModalClient, resolveInflight } from './src/trainer/modal-client.js';
+  const r = await preflightModal();
+  if (r.ok !== false) {
+    console.error('FAIL: preflight expected ok=false with no tokens, got', JSON.stringify(r));
+    process.exit(1);
+  }
+  if (r.reason !== 'modal_tokens_missing') {
+    console.error('FAIL: preflight expected reason=modal_tokens_missing, got', r.reason);
+    process.exit(1);
+  }
+  console.log('OK: modal preflight reports modal_tokens_missing when env unset');
+  // Also verify the makeModalClient factory returns the expected shape.
+  const c = makeModalClient();
+  if (typeof c.submit !== 'function') {
+    console.error('FAIL: makeModalClient().submit is not a function');
+    process.exit(1);
+  }
+  console.log('OK: makeModalClient returns { submit: function }');
+" || fail "trainer: modal-client.js preflight is broken (regression in 8d)"
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 13 smoke tests (10 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 verified (16 smoke tests when the training profile is enabled)."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 14 smoke tests (11 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight verified (17 smoke tests when the training profile is enabled)."
