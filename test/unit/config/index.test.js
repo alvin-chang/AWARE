@@ -220,7 +220,7 @@ test('config: snapshot() shape is stable', (t) => {
 
   const snap = config.snapshot();
   assert.deepEqual(Object.keys(snap).sort(), [
-    'budget', 'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'warnings',
+    'budget', 'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'trainer', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
     'host', 'killSwitch', 'port', 'requestCostCapUsd', 'requestTimeoutMs',
@@ -240,6 +240,10 @@ test('config: snapshot() shape is stable', (t) => {
   ]);
   assert.deepEqual(Object.keys(snap.budget).sort(), [
     'enabled', 'hardLimitUsd', 'softLimitUsd', 'windowDays',
+  ]);
+  assert.deepEqual(Object.keys(snap.trainer).sort(), [
+    'baseModel', 'configPath', 'enabled', 'gpuType', 'jobTimeoutSec',
+    'minPairsPerRun', 'modalTokenId', 'modalTokenSecret', 'pollIntervalSec', 'weightsDir',
   ]);
 });
 
@@ -357,4 +361,104 @@ test('config: budget.hardLimitUsd honors env override', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
   assert.equal(config.budget.hardLimitUsd, 250.50);
+});
+
+// -- Trainer (Phase 3) ---------------------------------------------------
+
+test('config: trainer.enabled defaults to false (kill switch off)', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.enabled, false);
+});
+
+test('config: trainer.pollIntervalSec defaults to 300', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.pollIntervalSec, 300);
+});
+
+test('config: trainer.minPairsPerRun defaults to 100', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.minPairsPerRun, 100);
+});
+
+test('config: trainer.baseModel defaults to Qwen 2.5 7B 4-bit', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.match(config.trainer.baseModel, /Qwen2\.5-7B-Instruct-bnb-4bit/);
+});
+
+test('config: trainer.gpuType defaults to A100-80GB', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.gpuType, 'A100-80GB');
+});
+
+test('config: trainer.jobTimeoutSec defaults to 14400 (4h)', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.jobTimeoutSec, 14400);
+});
+
+test('config: trainer.configPath defaults to config/modal-training.json', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.configPath, 'config/modal-training.json');
+});
+
+test('config: trainer.enabled honors env override (true)', (t) => {
+  process.env.AWARE_TRAINER_ENABLED = '1';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.enabled, true);
+});
+
+test('config: trainer.pollIntervalSec honors env override', (t) => {
+  process.env.AWARE_TRAINER_POLL_INTERVAL_SEC = '60';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.pollIntervalSec, 60);
+});
+
+test('config: trainer.modalTokenId unset by default', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.modalTokenId, undefined);
+});
+
+test('config: trainer.modalTokenSecret unset by default', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.equal(config.trainer.modalTokenSecret, undefined);
+});
+
+test('config: trainer.modalTokenId redacted in snapshot', (t) => {
+  process.env.<redacted-credential-name> = 'ak-THIS-IS-A-SECRET-NEVER-LOG';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  const snap = config.snapshot();
+  const json = JSON.stringify(snap);
+  // The actual token value must never appear in the snapshot
+  assert.ok(!json.includes('ak-THIS-IS-A-SECRET-NEVER-LOG'),
+    'snapshot must not contain <redacted-credential-name> value');
+  // But the length is preserved for debug logs
+  assert.match(snap.trainer.modalTokenId, /length=29/);
+});
+
+test('config: trainer.modalTokenSecret redacted in snapshot', (t) => {
+  process.env.<redacted-credential-name> = 'as-THIS-IS-A-SECRET-NEVER-LOG-XYZ';
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  const snap = config.snapshot();
+  const json = JSON.stringify(snap);
+  assert.ok(!json.includes('as-THIS-IS-A-SECRET-NEVER-LOG-XYZ'),
+    'snapshot must not contain <redacted-credential-name> value');
+  assert.match(snap.trainer.modalTokenSecret, /length=33/);
+});
+
+test('config: validate() force-evaluates trainer getters without throwing', (t) => {
+  const config = require('../../../src/config/index.cjs');
+  t.after(() => { clearV2Env(); });
+  assert.doesNotThrow(() => config.validate());
 });

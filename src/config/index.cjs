@@ -71,7 +71,7 @@ function enumOf(name, allowed, fallback) {
   return v;
 }
 
-const SECRET_NAMES = new Set(['minimaxKey', 'password']);
+const SECRET_NAMES = new Set(['minimaxKey', 'password', 'modalTokenId', 'modalTokenSecret']);
 
 function redact(name, value) {
   if (SECRET_NAMES.has(name)) {
@@ -166,6 +166,27 @@ const config = {
     get softLimitUsd() { return num('AWARE_BUDGET_SOFT_LIMIT_USD', 80.0, { min: 0, max: 1_000_000 }); },
     get hardLimitUsd() { return num('AWARE_BUDGET_HARD_LIMIT_USD', 100.0, { min: 0, max: 1_000_000 }); },
   },
+
+  // Trainer (Phase 3 — AZR self-play on Modal).
+  // Architecture decision: B (env-var kill switch), X (token from
+  // canonical credential store, never in repo).
+  // The `enabled` flag is the AWARE_TRAINER_ENABLED kill switch; when
+  // false the trainer is a no-op (the bring-up script's
+  // `--profile training` exercises it).
+  trainer: {
+    get enabled() { return bool('AWARE_TRAINER_ENABLED', false); },
+    get pollIntervalSec() { return num('AWARE_TRAINER_POLL_INTERVAL_SEC', 300, { min: 10, max: 86400 }); },
+    get minPairsPerRun() { return num('AWARE_TRAINER_MIN_PAIRS_PER_RUN', 100, { min: 1, max: 1000000 }); },
+    get configPath() { return str('AWARE_TRAINER_CONFIG', 'config/modal-training.json'); },
+    get weightsDir() { return str('AWARE_TRAINER_WEIGHTS_DIR', '/root/aware-weights'); },
+    get baseModel() { return str('AWARE_TRAINER_BASE_MODEL', 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit'); },
+    get gpuType() { return str('AWARE_TRAINER_GPU_TYPE', 'A100-80GB'); },
+    get jobTimeoutSec() { return num('AWARE_TRAINER_JOB_TIMEOUT_SEC', 14400, { min: 60, max: 86400 }); },
+    // Modal auth — read from the canonical credential store
+    // (ACTIVE-CREDENTIALS.env) at runtime. NEVER in the repo.
+    get modalTokenId() { return str('<redacted-credential-name>', undefined); },
+    get modalTokenSecret() { return str('<redacted-credential-name>', undefined); },
+  },
 };
 
 // --- validation ---------------------------------------------------------
@@ -202,6 +223,9 @@ config.validate = function validate() {
   void config.budget.windowDays;
   void config.budget.softLimitUsd;
   void config.budget.hardLimitUsd;
+  void config.trainer.pollIntervalSec;
+  void config.trainer.minPairsPerRun;
+  void config.trainer.jobTimeoutSec;
   return config;
 };
 
@@ -269,6 +293,18 @@ config.snapshot = function snapshot() {
       windowDays: c.budget.windowDays,
       softLimitUsd: c.budget.softLimitUsd,
       hardLimitUsd: c.budget.hardLimitUsd,
+    },
+    trainer: {
+      enabled: c.trainer.enabled,
+      pollIntervalSec: c.trainer.pollIntervalSec,
+      minPairsPerRun: c.trainer.minPairsPerRun,
+      configPath: c.trainer.configPath,
+      weightsDir: c.trainer.weightsDir,
+      baseModel: c.trainer.baseModel,
+      gpuType: c.trainer.gpuType,
+      jobTimeoutSec: c.trainer.jobTimeoutSec,
+      modalTokenId: redact('modalTokenId', c.trainer.modalTokenId),
+      modalTokenSecret: redact('modalTokenSecret', c.trainer.modalTokenSecret),
     },
     warnings: c.warnings(),
   };

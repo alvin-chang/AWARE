@@ -1,0 +1,111 @@
+# Dockerfile.training — AWARE 2.0 Modal GPU training image
+#
+# This image is BUILT by Modal, not by docker compose. Modal reads
+# this Dockerfile when you call `modal.Image.from_dockerfile(...)`
+# (see config/modal-training.json). The image is then run on a
+# Modal A100-80GB pod with a Modal Volume mounted at /root/aware-data.
+#
+# SECURITY
+# ========
+# - No Modal token is baked into the image. The token is read at
+#   job-start time via `modal run` from the operator's environment
+#   (set in the trainer service's env in docker-compose.coordinator.yml).
+# - No source code, credentials, or model weights are baked into
+#   layers beyond what training/run.py explicitly needs.
+# - Image runs as root inside the Modal pod; this is fine because
+#   Modal pods are ephemeral and the network is namespaced.
+#
+# BUILD vs RUNTIME
+# ================
+# - BUILD: `modal.Image.from_dockerfile("Dockerfile.training")`
+#   → Modal builds on its own build infrastructure, no local GPU needed
+# - RUNTIME: triggered by src/trainer/index.js via `modal.Function.remote(...)`
+#   → spins up a fresh A100-80GB pod with this image + /root/aware-data volume
+
+# Use NVIDIA's CUDA 12.4 base. training-optimizer 2024.10.x requires cu124 wheels
+# and PyTorch 2.4. The runtime layer (cudnn, nccl) is included in the
+# base image; we only add Python tooling on top.
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+# Avoid tzdata interactive prompt during apt install
+ENV DEBIAN_FRONTEND=noninteractive
+# Disable Python's bytecode generation in /root/.pyc files; we want
+# to see source on inspect.
+ENV PYTHONDONTWRITEBYTECODE=1
+# Unbuffered stdout so the trainer service gets real-time training
+# progress (Modal forwards process stdout to the caller's logger).
+ENV PYTHONUNBUFFERED=1
+# Default Modal volume mount point (configured per-job by the trainer
+# service in docker-compose.coordinator.yml)
+ENV AWARE_DATA_DIR=/root/aware-data
+# Default base model — overridable per-job via env var
+ENV AWARE_BASE_MODEL=unsloth/Qwen2.5-7B-Instruct-bnb-4bit
+# Default DPO hyperparameters
+ENV AWARE_DPO_BETA=0.1
+ENV AWARE_DPO_LR=5e-6
+ENV AWARE_DPO_EPOCHS=1
+ENV AWARE_DPO_BATCH_SIZE=4
+ENV AWARE_DPO_GRAD_ACCUM=4
+
+# Install Python 3.10 (training-optimizer wheels target 3.10-3.12; 3.10 is the
+# conservative choice for the AWARE 2.0 build). apt-get for system
+# deps, then a separate layer for pip install so the heavy ML
+# wheels are cached separately.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 \
+        python3.10-venv \
+        python3.10-dev \
+        python3-pip \
+        git \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && python3 --version
+
+# Install Python deps in a venv so the system Python stays clean.
+# The venv lives in /opt/venv and is on PATH for subsequent RUN/CMD.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV VIRTUAL_ENV=/opt/venv
+
+# Copy requirements first (separate from the source) so pip install
+# is cached at the Modal image layer above the source code. This
+# means a one-line change to training/run.py doesn't bust the
+# multi-GB pip install layer.
+COPY training/requirements-training.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+# Copy the AWARE source we need. The trainer only uses azr/ (for the
+# AZR self-play verifier) and training/ (for run.py). It does NOT
+# need the coordinator, gateway, or any Node code.
+COPY azr/ /opt/aware/azr/
+COPY training/ /opt/aware/training/
+# Make azr importable as a package. The training script does
+# `from azr.executor import ...` so /opt/aware must be on PYTHONPATH.
+ENV PYTHONPATH="/opt/aware:${PYTHONPATH}"
+
+# Set the working directory. The trainer service runs the job from
+# /opt/aware so the imports resolve cleanly.
+WORKDIR /opt/aware
+
+# Default entrypoint. The trainer service overrides this per-job
+# with `python3 -m training.run --dataset <path> --output <path>`.
+# Keeping a default makes `docker run` on this image useful for
+# manual debugging (e.g. `docker run --gpus all -it aware-training:latest
+# /bin/bash`).
+ENTRYPOINT ["python3", "-m", "training.run"]
+CMD ["--help"]
+
+# HEALTHCHECK is intentionally absent. This image is not a long-running
+# service — it's a job runner. The trainer service (Node) is what polls
+# Modal for job status; the image's process exit code is the truth.
+
+# Modal's recommended label pattern (consumed by their dashboard)
+LABEL org.opencontainers.image.title="aware-2-training"
+LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (training-optimizer 4-bit QLoRA on Qwen 2.5 7B)"
+LABEL org.opencontainers.image.source="https://github.com/<runtime>/aware"
+LABEL org.opencontainers.image.licenses="Apache-2.0"

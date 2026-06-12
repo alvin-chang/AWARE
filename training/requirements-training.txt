@@ -1,0 +1,42 @@
+# Pinned Python ML dependencies for the AWARE 2.0 Modal training job
+# (Phase 3, ADR-020 Decision 2).
+#
+# Pinned to specific versions for reproducibility. Bumping any of
+# these requires a re-validation run (the bring-up script's
+# `--profile training` rebuilds the image and dry-runs a 1-pair job).
+#
+# The big three (training-optimizer, TRL, peft) are the load-bearing ones.
+# Everything else is a transitive dep of one of those, pinned to
+# match their version constraints.
+#
+# Tested against: Python 3.10, CUDA 12.4, torch 2.4.x with cu124
+# wheels. The Dockerfile.training image is built FROM nvidia/cuda:12.4.
+
+# Core ML stack (the load-bearing trio)
+torch==2.4.1
+trl==0.11.4
+peft==0.13.2
+bitsandbytes==0.44.1
+unsloth==2024.10.7
+unsloth_zoo==2024.10.7
+
+# Transformers / accelerate (peer deps of TRL + peft)
+transformers==4.45.2
+accelerate==1.0.1
+safetensors==0.4.5
+tokenizers==0.20.1
+
+# Dataset handling (preference-pair JSONL → HF Dataset)
+datasets==3.1.0
+
+# Modal SDK (called by training/run.py to write checkpoints to a
+# Modal Volume, and to log training metrics)
+modal==0.64.0
+
+# Stdlib-only things below (no install needed, listed for explicitness)
+# - json, os, sys, subprocess, tempfile — built into Python
+# - hashlib, hmac, base64, urllib — built into Python
+
+# Optional: progress bar (training-optimizer prints a tqdm bar; if not installed
+# we fall back to plain print)
+tqdm==4.66.5
