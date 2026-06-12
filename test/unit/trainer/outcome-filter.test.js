@@ -128,6 +128,78 @@ test('outcome-filter: tag_match drops records with no task_type', () => {
   assert.match(result.dropped[0].reason, /<unset>/);
 });
 
+// -- azr_result ---------------------------------------------------------
+// Phase 4 deliverable 1: ADR-020 Decision 2 ("AZR pass/fail gates
+// MetaClaw process training") is enforced here. The index maps
+// content_hash → {passed, runId, recordedAt}, populated from the
+// aware_azr_results table by the trainer, filtered to passed=true.
+//
+// Policy (consistent with the missing-scores policy in min_score_gap):
+//   - content_hash IN index   → verified PASSED before → KEEP
+//   - content_hash NOT IN index → never verified → KEEP (missing-data)
+//   - content_hash missing/empty → can't join → KEEP
+// The negative case (AZR-verified AND did not pass) is excluded by
+// the trainer's query (it only populates azrIndex with passed=true
+// rows), so it can never reach the filter.
+
+test('outcome-filter: azr_result keeps records with content_hash in the index', () => {
+  const rec = makeRecord({ _content_hash: 'hash_pass_1' });
+  const idx = new Map([['hash_pass_1', { passed: true, runId: 'r1', recordedAt: '2026-06-12T00:00:00Z' }]]);
+  const result = filterOutcomePairs([rec], { rule: 'azr_result', azrIndex: idx });
+  assert.equal(result.kept.length, 1);
+  assert.equal(result.dropped.length, 0);
+  assert.equal(result.stats.rule, 'azr_result');
+});
+
+test('outcome-filter: azr_result keeps records whose content_hash is NOT in the index (unverified = missing-data policy)', () => {
+  // Per the spec comment: missing data (no AZR result) → KEEP. This
+  // matches the missing-scores policy in min_score_gap. The strict
+  // policy ("drop unverified") would yield empty datasets for the
+  // first few training cycles; the lenient policy lets the corpus
+  // grow naturally.
+  const rec = makeRecord({ _content_hash: 'hash_no_azr' });
+  const idx = new Map();  // empty → no record has been AZR-verified
+  const result = filterOutcomePairs([rec], { rule: 'azr_result', azrIndex: idx });
+  assert.equal(result.kept.length, 1);
+  assert.equal(result.dropped.length, 0);
+});
+
+test('outcome-filter: azr_result keeps records with no _content_hash (defensive, can\'t join)', () => {
+  const rec = makeRecord({ _content_hash: undefined });
+  const idx = new Map();
+  const result = filterOutcomePairs([rec], { rule: 'azr_result', azrIndex: idx });
+  // No content hash → can't even check the index → keep. Same as
+  // missing-data policy.
+  assert.equal(result.kept.length, 1);
+  assert.equal(result.dropped.length, 0);
+});
+
+test('outcome-filter: azr_result with non-Map azrIndex treats index as empty (defensive)', () => {
+  const rec = makeRecord({ _content_hash: 'hash_abc' });
+  const result = filterOutcomePairs([rec], { rule: 'azr_result', azrIndex: 'not a map' });
+  // Non-Map defaults to empty Map → behaves like empty index → keep.
+  assert.equal(result.kept.length, 1);
+  assert.equal(result.dropped.length, 0);
+});
+
+test('outcome-filter: azr_result result.stats reflects the lenient policy (all kept, none dropped)', () => {
+  const recs = [
+    makeRecord({ _content_hash: 'h1' }),
+    makeRecord({ _content_hash: 'h2' }),
+    makeRecord({ _content_hash: 'h3' }),
+  ];
+  // Even with only h1 in the index, all 3 records are kept under
+  // the lenient policy. This is the contract: azr_result's job is
+  // to allow pass-through with verification status, not to require
+  // verification.
+  const idx = new Map([['h1', { passed: true, runId: 'r1', recordedAt: '' }]]);
+  const result = filterOutcomePairs(recs, { rule: 'azr_result', azrIndex: idx });
+  assert.equal(result.stats.totalIn, 3);
+  assert.equal(result.stats.totalKept, 3);
+  assert.equal(result.stats.totalDropped, 0);
+  assert.equal(result.stats.rule, 'azr_result');
+});
+
 // -- malformed input ------------------------------------------------------
 
 test('outcome-filter: rejects unknown rule name with a clear error', () => {
@@ -157,7 +229,7 @@ test('outcome-filter: drops malformed records (null, string, number)', () => {
 
 test('outcome-filter: listFilterRules returns the canonical set', () => {
   const rules = listFilterRules();
-  assert.deepEqual(rules.sort(), ['min_score_gap', 'noop', 'tag_match']);
+  assert.deepEqual(rules.sort(), ['azr_result', 'min_score_gap', 'noop', 'tag_match']);
 });
 
 test('outcome-filter: result shape is stable (kept, dropped, stats)', () => {

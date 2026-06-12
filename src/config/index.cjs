@@ -106,6 +106,19 @@ const config = {
     get requestTimeoutMs() { return num('AWARE_REQUEST_TIMEOUT_MS', 120_000, { min: 1000, max: 600_000 }); },
     get requestCostCapUsd() { return num('AWARE_REQUEST_COST_CAP_USD', 1.0, { min: 0, max: 1000 }); },
     get killSwitch() { return bool('AWARE_KILL_SWITCH', false); },
+    // Phase 4 (ADR-020 618-627) LoRA weight-reload hook (decision
+    // Y: HTTP/Ollama adapter reload). The coordinator watches
+    // `${weightsDir}/active` and re-POSTs to Ollama's /api/create
+    // when the symlink target changes. Operators can disable the
+    // reloader entirely by setting AWARE_LORA_RELOADER_ENABLED=0
+    // (useful for test environments where the symlink doesn't
+    // exist). The poll interval defaults to 5s — fast enough that
+    // a swap is picked up within ~pollIntervalMs, slow enough to
+    // not hammer Ollama.
+    get loraReloaderEnabled() { return bool('AWARE_LORA_RELOADER_ENABLED', true); },
+    get loraReloaderPollIntervalMs() { return num('AWARE_LORA_RELOADER_POLL_INTERVAL_MS', 5_000, { min: 100, max: 600_000 }); },
+    get loraReloaderTimeoutMs() { return num('AWARE_LORA_RELOADER_TIMEOUT_MS', 30_000, { min: 1_000, max: 600_000 }); },
+    get loraReloaderModelName() { return str('AWARE_LORA_RELOADER_MODEL_NAME', 'trained-model'); },
   },
 
   // Gateway HTTP service
@@ -199,6 +212,13 @@ const config = {
     // values to keep (comma-separated env var). Empty default =
     // "operator hasn't decided yet" → keep all (see outcome-filter.js).
     get filterAllowedTaskTypes() { return str('AWARE_TRAINER_FILTER_ALLOWED_TASK_TYPES', ''); },
+    // Phase 4 (ADR-020 618-627) AZR self-play corpus path. When set,
+    // the trainer records it on aware_training_runs.azr_corpus_path
+    // and ingests per-record results into aware_azr_results at
+    // run-completion time. Empty default = "--gen-azr-corpus not
+    // enabled" → no AZR results → the azr_result filter rule has
+    // no index to consult (lenient policy keeps all records).
+    get azrCorpusPath() { return str('AWARE_TRAINER_AZR_CORPUS_PATH', ''); },
     // Modal auth — read from the canonical credential store
     // (ACTIVE-CREDENTIALS.env) at runtime. NEVER in the repo.
     get modalTokenId() { return str('MODAL_TOKEN_ID', undefined); },
@@ -236,6 +256,8 @@ config.validate = function validate() {
   // not at first request.
   void config.coordinator.requestTimeoutMs;
   void config.coordinator.requestCostCapUsd;
+  void config.coordinator.loraReloaderPollIntervalMs;
+  void config.coordinator.loraReloaderTimeoutMs;
   void config.gateway.proxyTimeoutMs;
   void config.budget.windowDays;
   void config.budget.softLimitUsd;
@@ -274,6 +296,10 @@ config.snapshot = function snapshot() {
       requestTimeoutMs: c.coordinator.requestTimeoutMs,
       requestCostCapUsd: c.coordinator.requestCostCapUsd,
       killSwitch: c.coordinator.killSwitch,
+      loraReloaderEnabled: c.coordinator.loraReloaderEnabled,
+      loraReloaderPollIntervalMs: c.coordinator.loraReloaderPollIntervalMs,
+      loraReloaderTimeoutMs: c.coordinator.loraReloaderTimeoutMs,
+      loraReloaderModelName: c.coordinator.loraReloaderModelName,
     },
     gateway: {
       port: c.gateway.port,
@@ -326,6 +352,7 @@ config.snapshot = function snapshot() {
       filterRule: c.trainer.filterRule,
       filterMinGap: c.trainer.filterMinGap,
       filterAllowedTaskTypes: c.trainer.filterAllowedTaskTypes,
+      azrCorpusPath: c.trainer.azrCorpusPath,
       modalTokenId: redact('modalTokenId', c.trainer.modalTokenId),
       modalTokenSecret: redact('modalTokenSecret', c.trainer.modalTokenSecret),
     },

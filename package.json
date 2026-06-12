@@ -19,7 +19,9 @@
     "ui-build": "cd src/ui && npm run build",
     "ui-install": "cd src/ui && npm install",
     "config:show": "node -e \"const c = require('./src/config/index.cjs'); console.log(JSON.stringify(c.snapshot(), null, 2))\"",
-    "config:validate": "node -e \"const c = require('./src/config/index.cjs'); try { c.validate(); console.log('OK'); } catch (e) { console.error('FAIL:', e.message); process.exit(1); }\""
+    "config:validate": "node -e \"const c = require('./src/config/index.cjs'); try { c.validate(); console.log('OK'); } catch (e) { console.error('FAIL:', e.message); process.exit(1); }\"",
+    "eval:baseline": "node scripts/run-eval-baseline.mjs --label=baseline",
+    "eval:trained": "node scripts/run-eval-baseline.mjs --label=trained --model=trained-model"
   },
   "keywords": [
     "cluster",

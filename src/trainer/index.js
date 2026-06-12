@@ -289,19 +289,25 @@ export class TrainerPoller {
     };
   }
 
-  async _recordRunStart(runId, datasetPath, nPairs) {
+  async _recordRunStart(runId, datasetPath, nPairs, options = {}) {
     if (!this.deps.pool) return;
+    // Phase 4 deliverable 1: optionally store the AZR corpus path so
+    // _ingestAzrCorpus can find it after the run completes. Only
+    // set when the operator enabled --gen-azr-corpus on the
+    // training run (i.e. config.trainer.azrCorpusPath is set).
+    const azrCorpusPath = options.azrCorpusPath || config.trainer.azrCorpusPath || null;
     await this.deps.pool.query(
       `INSERT INTO aware_training_runs
-         (run_id, started_at, status, source, dataset_path, n_pairs,
+         (run_id, started_at, status, source, dataset_path, azr_corpus_path, n_pairs,
           modal_app_name, base_model, gpu_type,
           beta, learning_rate, epochs, per_device_batch_size)
-       VALUES ($1, NOW(), 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, NOW(), 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (run_id) DO NOTHING`,
       [
         runId,
         'preference_pairs_volume',
         datasetPath,
+        azrCorpusPath,
         nPairs,
         this._trainingConfig.app_name,
         config.trainer.baseModel,
@@ -337,6 +343,107 @@ export class TrainerPoller {
        WHERE run_id = $1`,
       [runId, exitCode, durationSec, checkpointPath, sizeMb]
     );
+    // Phase 4 deliverable 1: if this run generated an AZR corpus,
+    // ingest the per-record results into aware_azr_results so the
+    // next training tick's azr_result filter has something to gate
+    // against. Best-effort: log + continue on failure (we don't
+    // want a bad corpus file to fail the whole completion record).
+    await this._ingestAzrCorpus(runId);
+  }
+
+  /**
+   * Read the AZR self-play corpus (if any) for a completed run and
+   * insert one row per AZR result into aware_azr_results. The
+   * corpus path is stored in aware_training_runs.azr_corpus_path
+   * (set at run-start time when --gen-azr-corpus was enabled).
+   *
+   * Best-effort: errors are logged at warn and swallowed. The
+   * aware_azr_results table is a derived cache of the corpus JSONL
+   * (which is the canonical source); a failed ingestion just means
+   * the next training tick's azr_result filter will be slightly
+   * under-informed.
+   *
+   * Idempotent: re-running on the same corpus re-inserts the same
+   * rows. The PRIMARY KEY on aware_azr_results is a BIGSERIAL
+   * (id), not (run_id, content_hash), so duplicates accumulate
+   * rather than collide. Operators who care about dedup can run
+   * `DELETE FROM aware_azr_results WHERE run_id = $1` before
+   * re-ingesting. (Out of scope for this slice.)
+   *
+   * @param {string} runId
+   */
+  async _ingestAzrCorpus(runId) {
+    if (!this.deps.pool) return;
+    try {
+      const r = await this.deps.pool.query(
+        'SELECT azr_corpus_path FROM aware_training_runs WHERE run_id = $1',
+        [runId]
+      );
+      const corpusPath = r.rows[0]?.azr_corpus_path;
+      if (!corpusPath) {
+        this.deps.logger.debug(
+          `_ingestAzrCorpus: run ${runId} has no azr_corpus_path (--gen-azr-corpus not set?); skipping`
+        );
+        return;
+      }
+      let text;
+      try {
+        text = await fsp.readFile(corpusPath, 'utf8');
+      } catch (e) {
+        this.deps.logger.warn(
+          `_ingestAzrCorpus: cannot read corpus file ${corpusPath}: ${e?.message || e}; skipping`
+        );
+        return;
+      }
+      const lines = text.split('\n').filter(l => l.trim().length > 0);
+      let ingested = 0;
+      for (const line of lines) {
+        let rec;
+        try {
+          rec = JSON.parse(line);
+        } catch (e) {
+          continue;  // skip malformed lines silently
+        }
+        // The AZR corpus record shape (from training/run.py:gen_azr_corpus):
+        //   { ts, problem, task_type, chosen, rejected, verification: { method, passed, duration_ms }, cost, _content_hash }
+        if (!rec || typeof rec !== 'object') continue;
+        if (typeof rec._content_hash !== 'string' || rec._content_hash.length === 0) continue;
+        if (rec.task_type !== 'azr_self_play') continue;  // future: extend
+        const passed = rec.verification?.passed === true;
+        // The phase-4 decision is: tag-based join, but the join key
+        // we populated in the schema is (task_type, content_hash).
+        // problem_hash is also stored for future embedding-similarity
+        // joins (Phase 4+future).
+        const problemHash = await _sha256OfProblem(rec.problem || '');
+        await this.deps.pool.query(
+          `INSERT INTO aware_azr_results
+             (run_id, task_type, problem_hash, content_hash, passed,
+              verification_method, chosen_score, rejected_score,
+              duration_ms, corpus_path)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            runId,
+            rec.task_type,
+            problemHash,
+            rec._content_hash,
+            passed,
+            rec.verification?.method || 'azr.executor',
+            rec.chosen?.prm_score ?? null,
+            rec.rejected?.prm_score ?? null,
+            rec.verification?.duration_ms ?? null,
+            corpusPath,
+          ]
+        );
+        ingested += 1;
+      }
+      this.deps.logger.info(
+        `_ingestAzrCorpus: ingested ${ingested} AZR results for run ${runId} from ${corpusPath}`
+      );
+    } catch (e) {
+      this.deps.logger.warn(
+        `_ingestAzrCorpus: failed for run ${runId}: ${e?.message || e}; continuing`
+      );
+    }
   }
 
   async _recordRunFailed(runId, exitCode, errorMessage) {
@@ -465,6 +572,12 @@ export class TrainerPoller {
       filterOptions.allowedTaskTypes = raw
         ? raw.split(',').map(s => s.trim()).filter(Boolean)
         : [];
+    } else if (filterRule === 'azr_result') {
+      // Phase 4 deliverable 1: load the AZR pass index from the
+      // aware_azr_results table. The index is filtered to
+      // passed=true at the SQL level so the in-memory Map IS the
+      // "this problem has been AZR-verified and passed" set.
+      filterOptions.azrIndex = await this._loadAzrResultIndex();
     }
     const { filterOutcomePairs } = await import('./outcome-filter.js');
     const filterResult = filterOutcomePairs(allRecords, filterOptions);
@@ -518,6 +631,64 @@ export class TrainerPoller {
         AND c.ts > COALESCE(last_run.ts, '1970-01-01'::timestamptz)
     `);
     return r.rows.map(row => row.pair_path).filter(Boolean);
+  }
+
+  /**
+   * Load the AZR pass-result index from the aware_azr_results table.
+   *
+   * Phase 4 deliverable 1: this is the "AZR gates MetaClaw" join
+   * surface. We SELECT all content_hash values that have at least
+   * one row with passed=true, and return them as a Map<content_hash,
+   * {passed, runId, recordedAt}>. The in-memory map is what the
+   * outcome-filter's `azr_result` rule reads against.
+   *
+   * Performance: the partial index `idx_azr_results_join_key` on
+   * (task_type, content_hash) WHERE passed=true keeps this query
+   * O(matches) rather than O(table). For a corpus of 100k AZR
+   * results with 80% pass rate, the index is ~80k entries. Loading
+   * 80k rows on every training tick is acceptable (the trainer's
+   * pollIntervalSec is 5min by default, and pg can stream 80k rows
+   * in <500ms). If this becomes a bottleneck, add a
+   * `recorded_at > last_loaded_at` watermark + in-process cache.
+   *
+   * Returns an empty Map when pool is null (test/dev path) — the
+   * filter's lenient policy treats this as "no AZR results yet"
+   * and keeps every record.
+   *
+   * @returns {Promise<Map<string, {passed: boolean, runId: string, recordedAt: string}>>}
+   */
+  async _loadAzrResultIndex() {
+    if (!this.deps.pool) {
+      // Test/dev path: no DB → empty index → lenient policy keeps all.
+      return new Map();
+    }
+    const r = await this.deps.pool.query(`
+      SELECT content_hash, run_id, recorded_at
+      FROM aware_azr_results
+      WHERE passed = true
+    `);
+    const idx = new Map();
+    for (const row of r.rows) {
+      if (typeof row.content_hash !== 'string' || row.content_hash.length === 0) continue;
+      // If a content_hash appears in multiple runs, keep the most
+      // recent recorded_at. Both have passed=true, so the value is
+      // structurally identical for the filter's purposes; we just
+      // need a single entry per key.
+      const existing = idx.get(row.content_hash);
+      if (!existing || row.recorded_at > existing.recordedAt) {
+        idx.set(row.content_hash, {
+          passed: true,
+          runId: row.run_id,
+          recordedAt: typeof row.recorded_at?.toISOString === 'function'
+            ? row.recorded_at.toISOString()
+            : String(row.recorded_at),
+        });
+      }
+    }
+    this.deps.logger.info(
+      `azr-result index loaded: ${idx.size} content_hash entries from aware_azr_results`
+    );
+    return idx;
   }
 
   /**
@@ -703,4 +874,23 @@ if (isMain) {
     await poller.stop();
     process.exit(0);
   });
+}
+
+// -- Helpers -------------------------------------------------------------
+
+/**
+ * SHA-256 of a problem string (used to populate
+ * aware_azr_results.problem_hash for the future
+ * embedding-similarity join path). Returns the hex digest.
+ *
+ * @param {string} problem
+ * @returns {Promise<string>}
+ */
+async function _sha256OfProblem(problem) {
+  // node:crypto is available in Node 18+. The trainer is Node 22+
+  // (CLAUDE.md). Synchronous hash is fine — problems are <10KB.
+  const { createHash } = await import('node:crypto');
+  return createHash('sha256')
+    .update(String(problem).trim().toLowerCase().replace(/\s+/g, ' '), 'utf8')
+    .digest('hex');
 }

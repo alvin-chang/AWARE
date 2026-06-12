@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS aware_training_runs (
   -- DPO dataset metadata
   n_pairs          INTEGER,
   source           TEXT,         -- 'preference_pairs_volume' | 'azr_self_play' | 'combined'
-  dataset_path     TEXT,         -- path on the Modal Volume
+  dataset_path     TEXT,         -- path to the DPO dataset JSONL on the Modal Volume
+  azr_corpus_path  TEXT,         -- path to the AZR self-play corpus JSONL (if --gen-azr-corpus was set)
 
   -- Modal job metadata
   modal_job_id     TEXT,
