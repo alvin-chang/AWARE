@@ -1,0 +1,80 @@
+{
+  "id": "sop-aware-2.0-phase-4-dpo-dataset-pipeline",
+  "name": "AWARE 2.0 — Phase 4 first slice: outcome filter + real DPO dataset packaging",
+  "phase": "4",
+  "slice": "first",
+  "status": "active",
+  "author": "Alfie <alfie@localhost>",
+  "created": "2026-06-12T17:15:00+00:00",
+  "role": "orchestrator",
+  "task_type": "standard",
+  "applies_to_role": "orchestrator",
+  "goal": "Close the placeholder-JSONL gap in the trainer's _submitNewRun. The trainer previously wrote an empty file to datasetPath and submitted it to Modal — which would have trained on an empty dataset. This slice replaces that with a real end-to-end pipeline: SELECT unconsumed pair_path values from aware_conversations → read each unique heavy-think JSONL file → apply outcome filter → run toDpoDataset → write the DPO JSONL → submit to Modal (or record 'cancelled' if the filter drops everything). This is the left half of Phase 4 (ADR-020 618-627 deliverable 1 + 2 collapsed into one self-contained code path).",
+  "preconditions": [
+    "Working directory: /Users/alfie/src/AWARE",
+    "Branch: feature/aware-2.0 (clean working tree at 6f15240 or later)",
+    "Phase 3 trainer shipped — src/trainer/index.js has the TrainerPoller class, deps.modalClient + deps.pool, _submitNewRun, _recordRunStart, _recordRunRunning, _recordRunCompleted, _recordRunFailed",
+    "Phase 2.1 conversation logger shipped — aware_conversations table exists with pair_path column",
+    "Heavy-think library exists at ~/src/heavy-think/ and exports toDpoDataset (resolvable via config.heavyThink.path which defaults to the dev-layout sibling)",
+    "All 235/235 v2 unit tests pass (post-R2 baseline)"
+  ],
+  "architecture_decisions": {
+    "join_strategy": "Pair the conversation row with the heavy-think JSONL line by (pair_path, content_hash). The conversation row gives the metadata + timestamp; the JSONL file at pair_path gives the actual (problem, chosen, rejected, task_type, prm_score) content. We dedup by _content_hash across files (heavy-think's writePreferencePair embeds the hash in each line, so the join is unambiguous without a per-row request_id which heavy-think doesn't store).",
+    "filter_layer_separation": "Two distinct filter layers: (1) outcome-filter.js handles the *meta* question of whether a pair should be in the training corpus at all (AZR pass/fail, task_type filter, future embedding-similarity). (2) heavy-think's toDpoDataset() handles the *intrinsic* quality of a pair (PRM score gap, dedup by content hash). The two compose: outcome-filter first, then toDpoDataset. Both have the same minScoreGap default (0.05) so the operator's mental model is consistent.",
+    "default_rule": "noop (keep everything). Phase 4 first slice ships with no real AZR data in production — the first AZR corpus comes from the first Modal training run via training/run.py:gen_azr_corpus(). Until then, the outcome filter should be a no-op so we don't lose pairs to an uninformed filter. The operator flips AWARE_TRAINER_FILTER_RULE once they have enough corpus + a real filter strategy.",
+    "empty_dataset_handling": "When the filter drops every pair (or no new pair_path values exist), record a 'cancelled' run in aware_training_runs (not 'failed' — the run never started) and skip the Modal submit. Never burn GPU credit on an empty dataset. The 'cancelled' status surfaces in the existing aware_training_runs table without a schema change.",
+    "no_new_migration": "The existing aware_conversations schema (Phase 2.1) is sufficient. The pair_path column already exists; the JSONL files at <host-config>/metaclaw/preference-pairs/YYYY-MM-DD.jsonl are the canonical content source. No new table needed for this slice. The AZR results table (for the next slice) will be a new migration."
+  },
+  "config_shape": {
+    "filterRule": "AWARE_TRAINER_FILTER_RULE (default 'noop'; one of noop, min_score_gap, tag_match)",
+    "filterMinGap": "AWARE_TRAINER_FILTER_MIN_GAP (default 0.05; threshold for the min_score_gap rule, range 0..1)",
+    "filterAllowedTaskTypes": "AWARE_TRAINER_FILTER_ALLOWED_TASK_TYPES (default ''; comma-separated task_type allow-list for the tag_match rule)"
+  },
+  "implementation_steps": [
+    "1. Add src/trainer/outcome-filter.js with filterOutcomePairs(records, options) + listFilterRules(). 3 rules: noop, min_score_gap, tag_match. Pure function, no I/O. Test with 14 unit cases covering each rule + malformed input.",
+    "2. Fix the Phase 3 count-query bug in src/trainer/index.js:_countPreferencePairs: change 'c.chosen IS NOT NULL AND c.rejected IS NOT NULL' to 'c.pair_path IS NOT NULL' (the columns don't exist on the schema).",
+    "3. Add three new methods to TrainerPoller: _fetchUnconsumedPairPaths() (SELECT DISTINCT c.pair_path), _readPreferencePairFiles(paths) (JSONL reader + cross-file dedup by _content_hash), _packageDataset(datasetPath) (orchestrates fetch → read → filter → toDpoDataset → write).",
+    "4. Add _recordRunCancelled(runId, datasetPath, nSourcePairs, reason) — INSERT into aware_training_runs with status='cancelled', started_at + completed_at both NOW(), error_message carries the reason. Distinct from _recordRunFailed (no exit_code).",
+    "5. Rewrite _submitNewRun to call _packageDataset, check rowsWritten, and branch: zero rows → record cancelled and return; non-zero → recordRunStart + submit (existing path).",
+    "6. Add three new config getters under config.trainer.* (filterRule, filterMinGap, filterAllowedTaskTypes), surface them in snapshot() so 'npm run config:show' reveals the active filter configuration.",
+    "7. Add 4 new trainer tests: outcome-filter drops all pairs → cancelled run; _fetchUnconsumedPairPaths returns DISTINCT; _readPreferencePairFiles dedupes by _content_hash across files; _readPreferencePairFiles skips missing files.",
+    "8. Update 2 existing trainer tests (enough pairs, submit failure) to provide real temp JSONL files so _packageDataset can read them.",
+    "9. Add bring-up smoke 8f (outcome-filter module loads + default rule is noop) and 8g (TrainerPoller prototype has the new methods).",
+    "10. Update test/unit/config/index.test.js snapshot-stability assertion to include the 3 new trainer keys.",
+    "11. Fix the in-flight test race condition: start() schedules an auto-tick via setTimeout(0) that races with the manual _tick() call. Add the same start → stop → reset _stopped/_timer → re-inject deps → manual _tick() pattern that the existing 'enough pairs' test uses. 20/20 stable after the fix."
+  ],
+  "files_added_or_modified": [
+    "src/trainer/outcome-filter.js (new, ~6KB)",
+    "test/unit/trainer/outcome-filter.test.js (new, 14 tests)",
+    "src/trainer/index.js (+3 methods, +1 _recordRunCancelled, _submitNewRun rewrite, count-query bug fix)",
+    "src/config/index.cjs (+3 trainer config getters, +3 snapshot() fields)",
+    "test/unit/trainer/index.test.js (pool stub handler for SELECT DISTINCT, 4 new Phase 4 tests, 2 existing tests updated, 2 in-flight tests stabilized)",
+    "test/unit/config/index.test.js (snapshot-stability assertion updated for 3 new trainer keys)",
+    "scripts/bring-up-coordinator.sh (+2 smokes: 8f, 8g)"
+  ],
+  "verification": {
+    "npm_test": "239/239 pass (was 235, +14 outcome-filter + 4 trainer Phase 4 tests - 4 replaced; net = +18 across both files)",
+    "stress_test": "Trainer test file 20/20 stable after the in-flight race-condition fix (was 1/20 failing before the fix)",
+    "python_tests": "31/32 + 1 skip (unchanged from R2)",
+    "config_validate": "npm run config:validate → OK",
+    "config_show": "npm run config:show → redacted snapshot includes new filterRule, filterMinGap, filterAllowedTaskTypes under trainer",
+    "compose_config": "docker compose -f docker-compose.coordinator.yml config --quiet → valid",
+    "bash_syntax": "bash -n scripts/bring-up-coordinator.sh → OK",
+    "bring_up_8f": "outcome-filter module loads, default rule is noop, listFilterRules returns [min_score_gap, noop, tag_match] — green in isolation",
+    "bring_up_8g": "TrainerPoller.prototype has _packageDataset, _fetchUnconsumedPairPaths, _readPreferencePairFiles, _recordRunCancelled — green in isolation",
+    "secret_scan": "git diff --cached | grep -E 'ak-|as-' → 0 real token values"
+  },
+  "out_of_scope_for_this_slice": {
+    "azr_results_table": "The outcome filter module has a clear extension point for an azr_result rule, but writing that requires the AZR results table schema (which the first Modal training run will produce via gen_azr_corpus() → verifier output). Schema is a follow-up migration.",
+    "coordinator_weight_reload": "The trainer does the atomic symlink swap (Phase 3 deliverable), but the coordinator's model router (Phase 1) does not yet read from AWARE_TRAINER_WEIGHTS_DIR/active to pick the new model. That's a ~50-line change in src/coordinator/model-router.js. Blocked on architectural decision: how does Ollama pick up a LoRA adapter swap? (Reload the model, or fall back to in-process transformers?)",
+    "evaluation_harness": "LiveCodeBench / GSM8K evaluation harness. Pure code, ~200 lines, no GPU needed for the harness itself. The training script doesn't yet emit evaluation metrics. Next slice.",
+    "benchmark_delta": "Benchmark delta measurement (+3pp LiveCodeBench target). Blocked on a real trained model (i.e., on the modal deploy + first real DPO run)."
+  },
+  "operator_actions_to_enable_filtering": [
+    "Default: noop (keep everything). No operator action required.",
+    "Enable min_score_gap filter: AWARE_TRAINER_FILTER_RULE=min_score_gap AWARE_TRAINER_FILTER_MIN_GAP=0.1 docker compose -p aware-2 --profile training up -d trainer",
+    "Enable tag_match filter: AWARE_TRAINER_FILTER_RULE=tag_match AWARE_TRAINER_FILTER_ALLOWED_TASK_TYPES=arithmetic,code,factual docker compose -p aware-2 --profile training up -d trainer",
+    "Inspect active filter: npm run config:show | jq .trainer"
+  ],
+  "notes": "This slice is intentionally 'no architectural decisions required'. The Phase 4 decisions (AZR results table shape, join strategy beyond content-hash, evaluation harness choice, coordinator weight-reload mechanism) are all deferred to their own slices, each with its own SOP step. The operator can ship this slice and start collecting real DPO data today — the filter is a no-op by default and becomes meaningful once they have a corpus + a filter strategy."
+}
