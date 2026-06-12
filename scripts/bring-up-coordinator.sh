@@ -401,8 +401,64 @@ node --input-type=module -e "
   console.log('OK: modal.Function.from_training_script does NOT exist (R1 regression guard)');
 " || fail "trainer: real modal SDK is missing the surface the JS poller depends on"
 
+# 8f. Phase 4 (ADR-020 618-627) outcome filter module: loads
+# cleanly, default rule is 'noop', listFilterRules returns the
+# canonical set. No DB, no Modal, no GPU — just a sanity check
+# that the module is importable and behaves the way the trainer
+# expects. Mirrors the 8d/8e pattern.
+log "smoke test: trainer — outcome-filter module loads, default rule is noop"
+node --input-type=module -e "
+  const m = await import('./src/trainer/outcome-filter.js');
+  // Module shape
+  if (typeof m.filterOutcomePairs !== 'function') {
+    console.error('FAIL: filterOutcomePairs is not a function');
+    process.exit(1);
+  }
+  if (typeof m.listFilterRules !== 'function') {
+    console.error('FAIL: listFilterRules is not a function');
+    process.exit(1);
+  }
+  // Default rule
+  const r = m.filterOutcomePairs([{ problem: 'x', chosen: { reasoning: 'A' }, rejected: { reasoning: 'B' } }]);
+  if (r.stats.rule !== 'noop') {
+    console.error('FAIL: default rule is not noop, got', r.stats.rule);
+    process.exit(1);
+  }
+  if (r.kept.length !== 1 || r.dropped.length !== 0) {
+    console.error('FAIL: noop should keep everything');
+    process.exit(1);
+  }
+  // Canonical rule set
+  const rules = m.listFilterRules().sort();
+  if (JSON.stringify(rules) !== JSON.stringify(['min_score_gap', 'noop', 'tag_match'])) {
+    console.error('FAIL: listFilterRules drifted:', rules);
+    process.exit(1);
+  }
+  console.log('OK: filterOutcomePairs is a function');
+  console.log('OK: default rule is noop (keeps all)');
+  console.log('OK: listFilterRules = [min_score_gap, noop, tag_match]');
+" || fail "trainer: outcome-filter module is broken (regression in 8f)"
+
+# 8g. Phase 4 (ADR-020 618-627) trainer dataset packaging: the
+# trainer's _packageDataset / _fetchUnconsumedPairPaths /
+# _readPreferencePairFiles methods exist on the TrainerPoller
+# prototype. Also verifies the cancelled-run recording path is
+# wired (new in Phase 4). Static check, no DB / Modal / GPU.
+log "smoke test: trainer — Phase 4 dataset-packaging methods exist on TrainerPoller"
+node --input-type=module -e "
+  const { TrainerPoller } = await import('./src/trainer/index.js');
+  const proto = TrainerPoller.prototype;
+  for (const m of ['_packageDataset', '_fetchUnconsumedPairPaths', '_readPreferencePairFiles', '_recordRunCancelled']) {
+    if (typeof proto[m] !== 'function') {
+      console.error('FAIL: TrainerPoller.prototype.' + m + ' is missing');
+      process.exit(1);
+    }
+  }
+  console.log('OK: TrainerPoller has _packageDataset, _fetchUnconsumedPairPaths, _readPreferencePairFiles, _recordRunCancelled');
+" || fail "trainer: Phase 4 dataset-packaging methods are missing (regression in 8g)"
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled)."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled). Phase 4 outcome filter + dataset packaging + cancelled-run path verified (20 smoke tests when the training profile is enabled)."
