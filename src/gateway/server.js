@@ -34,23 +34,20 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const http = require('node:http');
 const { randomUUID } = require('node:crypto');
+const config = require('../config/index.cjs');
 
-const PORT = Number(process.env.GATEWAY_PORT) || 18080;
-const HOST = process.env.GATEWAY_HOST || '0.0.0.0';
 const GATEWAY_VERSION = '0.1.0-phase-1-gateway';
-const PROXY_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS) || 120_000;
 
-// COORDINATOR_URL is read on every request (not just at module load)
-// so test code can override it per-test by mutating process.env
-// between requests, without needing delete-require-cache gymnastics.
-// In production, GATEWAY_PORT / COORDINATOR_URL / etc. are set once
-// at process start and never change.
-function getCoordinatorUrl() {
-  return process.env.COORDINATOR_URL || 'http://coordinator:8080';
-}
+// All env reads live in src/config/index.js. We validate at boot so a
+// bad value (e.g. non-numeric GATEWAY_PORT) fails fast here, not on
+// the first request. The kill-switch, COORDINATOR_URL, etc. are
+// re-read on every access (config getters are lazy) so toggling
+// process.env at runtime still works — that's how the tests work,
+// and how the gateway's per-request upstream switch could work.
+config.validate();
 
 function isKilled() {
-  return process.env.AWARE_GATEWAY_KILL_SWITCH === '1';
+  return config.gateway.killSwitch;
 }
 
 const app = express();
@@ -93,7 +90,7 @@ app.get('/health', (req, res) => {
     service: 'aware-gateway',
     version: GATEWAY_VERSION,
     kill_switch: killed,
-    upstream: getCoordinatorUrl(),
+    upstream: config.gateway.coordinatorUrl,
     request_id: req.id,
   });
 });
@@ -102,7 +99,7 @@ app.get('/version', (req, res) => {
   res.json({
     service: 'aware-gateway',
     version: GATEWAY_VERSION,
-    coordinator_url: getCoordinatorUrl(),
+    coordinator_url: config.gateway.coordinatorUrl,
     build_phase: 'phase-1-gateway',
     request_id: req.id,
   });
@@ -149,7 +146,7 @@ function proxyToCoordinator(req, res) {
 }
 
 function proxyRequest(req, res, done) {
-  const target = new URL(getCoordinatorUrl());
+  const target = new URL(config.gateway.coordinatorUrl);
   // Build the upstream options. We re-derive the body if express.json
   // has already consumed it (we have the parsed object in req.body),
   // and we strip Content-Length when there's no body so the upstream
@@ -182,7 +179,7 @@ function proxyRequest(req, res, done) {
     port: target.port || 80,
     path: req.originalUrl,
     headers: fwdHeaders,
-    timeout: PROXY_TIMEOUT_MS,
+    timeout: config.gateway.proxyTimeoutMs,
   };
 
   const upstream = http.request(opts, (upstreamRes) => {
@@ -227,11 +224,11 @@ function proxyRequest(req, res, done) {
 
 // --- Start server ----------------------------------------------------
 if (require.main === module) {
-  const server = app.listen(PORT, HOST, () => {
+  const server = app.listen(config.gateway.port, config.gateway.host, () => {
     // eslint-disable-next-line no-console
-    console.log(`[aware-gateway] listening on http://${HOST}:${PORT}`);
+    console.log(`[aware-gateway] listening on http://${config.gateway.host}:${config.gateway.port}`);
     // eslint-disable-next-line no-console
-    console.log(`[aware-gateway] upstream: ${getCoordinatorUrl()}`);
+    console.log(`[aware-gateway] upstream: ${config.gateway.coordinatorUrl}`);
     // eslint-disable-next-line no-console
     console.log(`[aware-gateway] kill-switch: ${isKilled() ? 'ENGAGED' : 'off'}`);
   });

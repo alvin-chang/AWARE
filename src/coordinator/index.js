@@ -7,10 +7,9 @@
 // at ./heavy-think/, so we resolve the import dynamically based on the
 // AWARE_HEAVY_THINK_PATH env var, falling back to the dev layout.
 
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
 import { awareHeavyThink } from './heavyskill-integration.js';
 import { makeModelRouter, makeOllamaHealth } from './model-router.js';
+import config from '../config/index.cjs';
 
 export const COORDINATOR_VERSION = '0.2.0-phase-1-router';
 export const COORDINATOR_BUILD_PHASE = 'phase-1-partial';
@@ -20,15 +19,16 @@ export const COORDINATOR_BUILD_PHASE = 'phase-1-partial';
  *
  * Resolution order:
  *   1. `opts.heavyThinkPath` (explicit injection; used by tests)
- *   2. `process.env.AWARE_HEAVY_THINK_PATH` (used in the Docker image)
- *   3. Dev layout: ../../../../src/heavy-think/src/index.js
- *      (resolves to <repo-root>/ from <repo-root>/src/coordinator/)
+ *   2. `config.heavyThink.path` (reads process.env.AWARE_HEAVY_THINK_PATH,
+ *      falls back to the dev layout)
+ *
+ * The config module owns the env-var lookup so the coordinator doesn't
+ * have to know the env-var name. Tests that want to override set
+ * `opts.heavyThinkPath` directly.
  */
 function resolveHeavyThinkPath(opts = {}) {
   if (opts.heavyThinkPath) return opts.heavyThinkPath;
-  if (process.env.AWARE_HEAVY_THINK_PATH) return process.env.AWARE_HEAVY_THINK_PATH;
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, '..', '..', '..', '..', 'src', 'heavy-think', 'src', 'index.js');
+  return config.heavyThink.path;
 }
 
 /**
@@ -74,14 +74,14 @@ export async function buildDefaultRouter(opts = {}) {
   const heavyThinkPath = resolveHeavyThinkPath(opts);
   const { makeMinimaxClient } = await import(heavyThinkPath);
 
-  const mode = opts.mode || process.env.AWARE_MODE || 'hybrid';
-  const ollamaUrl = opts.ollamaUrl || process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+  const mode = opts.mode || config.model.mode;
+  const ollamaUrl = opts.ollamaUrl || config.model.ollamaUrl;
 
   // Online: minimax (or whatever's passed in)
   let minimax;
   if (opts.minimaxClient) {
     minimax = opts.minimaxClient;
-  } else if (process.env.<redacted-credential-name>) {
+  } else if (config.model.minimaxKey) {
     minimax = {
       name: 'minimax',
       generate: async (prompt, genOpts) => {
