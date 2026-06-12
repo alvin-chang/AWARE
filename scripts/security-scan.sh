@@ -267,8 +267,12 @@ check_trivy() {
     for df in Dockerfile Dockerfile.coordinator Dockerfile.gateway Dockerfile.training Dockerfile.ui; do
         [ -f "$df" ] || continue
         local df_json df_exit=0
+        # trivy config honors .trivyignore if it exists in the working
+        # dir. The script's cwd is the repo root (we cd'd there at the
+        # top), so a .trivyignore at the repo root is picked up
+        # automatically. See .trivyignore for documented exceptions.
         df_json=$(trivy config --severity HIGH,CRITICAL --format json \
-            --quiet "$df" 2>/dev/null) || df_exit=$?
+            --quiet --ignorefile .trivyignore "$df" 2>/dev/null) || df_exit=$?
         if [ -n "$df_json" ]; then
             df_count=$((df_count + 1))
             # Aggregate counts

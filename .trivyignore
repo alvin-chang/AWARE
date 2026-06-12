@@ -1,0 +1,27 @@
+# .trivyignore — list of trivy findings to suppress, with rationale.
+#
+# Format: one finding per line, identified by the misconfig ID. Comments
+# on the same line explain why we suppress it. Trivy ignores findings
+# whose ID appears in this file (with a comment).
+#
+# Reference: https://aquasecurity.github.io/trivy/v0.71/docs/scanner/vulnerability/#ignoring-findings
+# (for .trivyignore; the misconfig-suppression syntax is the same)
+
+# DS-0002 (HIGH): "Image user should not be 'root'"
+# AWARE-Dockerfile.training: deliberate design choice. The training
+# image runs as root inside an ephemeral Modal GPU pod where:
+#   - the network is namespaced by Modal,
+#   - the only mounted volume is the per-job `aware-training-data`
+#     Volume (no other containers share it),
+#   - the job process exits within 5 hours (timeout 18000s).
+# Running as root is the v1.0.0 baseline and is documented inline
+# in the Dockerfile ("SECURITY" section). Changing to a non-root
+# user would require (a) creating a user, (b) chown'ing /opt/aware
+# and /root/aware-data, (c) ensuring GPU device access for the
+# unprivileged user, (d) re-testing on Modal. None of those are
+# trivial. The risk-vs-effort tradeoff is acceptable for an
+# ephemeral job runner; the gateway + coordinator images (which
+# DO run as non-root `aware`) are the long-running surfaces and
+# already follow the convention. Re-evaluate if Modal changes
+# their pod security model.
+DS-0002
