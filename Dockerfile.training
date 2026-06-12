@@ -38,8 +38,15 @@ ENV PYTHONUNBUFFERED=1
 # Default Modal volume mount point (configured per-job by the trainer
 # service in docker-compose.coordinator.yml)
 ENV AWARE_DATA_DIR=/root/aware-data
-# Default base model — overridable per-job via env var
-ENV AWARE_BASE_MODEL=unsloth/Qwen2.5-7B-Instruct-bnb-4bit
+# Default base model — overridable per-job via env var.
+# We do NOT default to unsloth/Qwen2.5-7B-Instruct-bnb-4bit here
+# because the active base model is now trained-model (see commit 6ff1cd2
+# "Phase 3 follow-up — modal-client.js + trained-model base model"). There
+# is no unsloth pre-quantized trained-model build on HF, so we quantize
+# to 4-bit in run.py via BitsAndBytesConfig instead. Keep this env
+# var in sync with config/modal-training.json:dpo_defaults.base_model
+# and training/run.py:_resolve_dpo_args().
+ENV AWARE_BASE_MODEL=Qwen/trained-model
 # Default DPO hyperparameters
 ENV AWARE_DPO_BETA=0.1
 ENV AWARE_DPO_LR=5e-6
@@ -106,6 +113,6 @@ CMD ["--help"]
 
 # Modal's recommended label pattern (consumed by their dashboard)
 LABEL org.opencontainers.image.title="aware-2-training"
-LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (training-optimizer 4-bit QLoRA on Qwen 2.5 7B)"
+LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (transformers 4-bit QLoRA on trained-model)"
 LABEL org.opencontainers.image.source="https://github.com/<runtime>/aware"
 LABEL org.opencontainers.image.licenses="Apache-2.0"

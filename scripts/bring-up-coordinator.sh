@@ -339,25 +339,20 @@ if docker inspect --format '{{.State.Running}}' aware-2-trainer 2>/dev/null \
   fi
 fi
 
-# 8d. Phase 3 modal-client.js is importable and preflight reports
-# the right failure mode when Modal tokens are missing. This is a
-# STATIC check that doesn't require the trainer container, Modal
-# account, or any network. It proves the code-gap flagged in
-# <internal-doc> (modal-client.js not yet implemented) is closed.
-log "smoke test: trainer — src/trainer/modal-client.js preflight behaves correctly"
+# 8d. Phase 3 modal-client.js preflight behaves correctly when
+# Modal tokens are missing. This is a STATIC check that doesn't
+# require the trainer container, Modal account, or any network.
+# It proves the code-gap flagged in <internal-doc> (modal-client.js
+# not yet implemented) is closed.
+log "smoke test: trainer — src/trainer/modal-client.js preflight reports modal_tokens_missing"
 node --input-type=module -e "
   import { preflightModal, makeModalClient, resolveInflight } from './src/trainer/modal-client.js';
   const r = await preflightModal();
-  if (r.ok !== false) {
-    console.error('FAIL: preflight expected ok=false with no tokens, got', JSON.stringify(r));
-    process.exit(1);
-  }
-  if (r.reason !== 'modal_tokens_missing') {
-    console.error('FAIL: preflight expected reason=modal_tokens_missing, got', r.reason);
+  if (r.ok !== false || r.reason !== 'modal_tokens_missing') {
+    console.error('FAIL: expected modal_tokens_missing, got', JSON.stringify(r));
     process.exit(1);
   }
   console.log('OK: modal preflight reports modal_tokens_missing when env unset');
-  // Also verify the makeModalClient factory returns the expected shape.
   const c = makeModalClient();
   if (typeof c.submit !== 'function') {
     console.error('FAIL: makeModalClient().submit is not a function');
@@ -366,8 +361,48 @@ node --input-type=module -e "
   console.log('OK: makeModalClient returns { submit: function }');
 " || fail "trainer: modal-client.js preflight is broken (regression in 8d)"
 
+# 8e. Phase 3 R2 fix: the REAL modal@0.8.0 SDK is installed and
+# exposes the surface src/trainer/modal-client.js depends on.
+# This is the smoke that would have caught the R1 bug at 6ff1cd2
+# (modal-client.js used modal.Function.from_training_script,
+# which does not exist in either JS or Python SDKs — verified
+# by venv-introspection in 2026-06-12).
+#
+# This is also a STATIC check: no Modal account, no network,
+# no GPU credit. We just confirm the SDK import path and the
+# method names the trainer calls actually exist.
+log "smoke test: trainer — real modal@0.8.0 SDK exposes the surface we depend on"
+node --input-type=module -e "
+  const m = await import('modal');
+  // Top-level class
+  if (typeof m.ModalClient !== 'function') {
+    console.error('FAIL: modal.ModalClient is not a function (got', typeof m.ModalClient, ')');
+    process.exit(1);
+  }
+  // Construct a client (no network call yet; lazy connection)
+  const client = new m.ModalClient();
+  if (!client.volumes || typeof client.volumes.fromName !== 'function') {
+    console.error('FAIL: client.volumes.fromName is not a function');
+    process.exit(1);
+  }
+  if (!client.functions || typeof client.functions.fromName !== 'function') {
+    console.error('FAIL: client.functions.fromName is not a function');
+    process.exit(1);
+  }
+  // R1 regression: the OLD code called modal.Function.from_training_script.
+  // That method does not exist. The smoke asserts that explicitly.
+  if (m.Function && typeof m.Function.from_training_script === 'function') {
+    console.error('FAIL: modal.Function.from_training_script should NOT exist');
+    process.exit(1);
+  }
+  console.log('OK: modal.ModalClient is a class');
+  console.log('OK: client.volumes.fromName is a function');
+  console.log('OK: client.functions.fromName is a function');
+  console.log('OK: modal.Function.from_training_script does NOT exist (R1 regression guard)');
+" || fail "trainer: real modal SDK is missing the surface the JS poller depends on"
+
 log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 14 smoke tests (11 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight verified (17 smoke tests when the training profile is enabled)."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 15 smoke tests (12 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres. Phase 3 trainer config + migration 004 + modal-client.js preflight + real modal@0.8.0 SDK surface check verified (18 smoke tests when the training profile is enabled)."

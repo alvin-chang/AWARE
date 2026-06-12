@@ -52,109 +52,158 @@
     {
       "step": 1,
       "name": "Read ADR-020 + <internal-doc> for ground truth",
-      "commands": ["read docs/adr/ADR-020.md (Phase 3 = weeks 7-10, AZR self-play on Modal, ADR-020 line 604-616)", "read <internal-doc> Phase 3 section"],
+      "commands": [
+        "read docs/adr/ADR-020.md (Phase 3 = weeks 7-10, AZR self-play on Modal, ADR-020 line 604-616)",
+        "read <internal-doc> Phase 3 section"
+      ],
       "verify": "Phases 1+2 closed, Phase 3 deliverables enumerated"
     },
     {
       "step": 2,
       "name": "Write azr/executor.py — sandboxed Python verifier",
-      "commands": ["write azr/__init__.py (empty)", "write azr/executor.py (~600 lines)"],
+      "commands": [
+        "write azr/__init__.py (empty)",
+        "write azr/executor.py (~600 lines)"
+      ],
       "verify": "python3 -c 'from azr.executor import verify; print(verify(\"def f(): return 1\\\\n\", \"assert f() == 1\").passed)' returns True"
     },
     {
       "step": 3,
       "name": "Write azr executor unit tests",
-      "commands": ["write test/unit/azr/test_executor.py"],
+      "commands": [
+        "write test/unit/azr/test_executor.py"
+      ],
       "verify": "python3 -m unittest test.unit.azr.test_executor → 32 tests, 31 pass, 1 skip (Linux-only memory test)"
     },
     {
       "step": 4,
       "name": "Write training/requirements-training.txt (pinned ML deps)",
-      "commands": ["write training/requirements-training.txt"],
+      "commands": [
+        "write training/requirements-training.txt"
+      ],
       "verify": "cat training/requirements-training.txt shows pinned versions for torch/trl/peft/unsloth/etc"
     },
     {
       "step": 5,
       "name": "Write Dockerfile.training (CUDA 12.4 + training-optimizer)",
-      "commands": ["write Dockerfile.training"],
+      "commands": [
+        "write Dockerfile.training"
+      ],
       "verify": "head Dockerfile.training shows FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04; grep -q 'COPY training/requirements-training.txt' Dockerfile.training"
     },
     {
       "step": 6,
       "name": "Write config/modal-training.json + schema",
-      "commands": ["write config/modal-training.json", "write config/modal-training.schema.json"],
+      "commands": [
+        "write config/modal-training.json",
+        "write config/modal-training.schema.json"
+      ],
       "verify": "python3 -c 'import json, jsonschema; jsonschema.validate(json.load(open(\"config/modal-training.json\")), json.load(open(\"config/modal-training.schema.json\")))' returns without error"
     },
     {
       "step": 7,
       "name": "Write training/run.py (DPO training script for Modal container)",
-      "commands": ["write training/__init__.py (empty)", "write training/run.py (~600 lines)"],
+      "commands": [
+        "write training/__init__.py (empty)",
+        "write training/run.py (~600 lines)"
+      ],
       "verify": "python3 -m training.run --help shows all CLI options; python3 -m training.run --dataset /nonexistent exits 3 with JSON-line log 'status':'dataset_not_found'"
     },
     {
       "step": 8,
       "name": "Add trainer namespace to src/config/index.cjs",
-      "commands": ["patch src/config/index.cjs (10 new env-driven getters)", "patch src/config/index.cjs (snapshot() block)", "patch src/config/index.cjs (validate() force-eval)", "patch src/config/index.cjs (SECRET_NAMES += modalTokenId, modalTokenSecret)"],
+      "commands": [
+        "patch src/config/index.cjs (10 new env-driven getters)",
+        "patch src/config/index.cjs (snapshot() block)",
+        "patch src/config/index.cjs (validate() force-eval)",
+        "patch src/config/index.cjs (SECRET_NAMES += modalTokenId, modalTokenSecret)"
+      ],
       "verify": "node -e 'const c = require(\"./src/config/index.cjs\"); c.validate(); console.log(c.snapshot().trainer)' shows all 10 trainer fields with modal tokens redacted as '<redacted length=N>'"
     },
     {
       "step": 9,
       "name": "Add trainer config tests",
-      "commands": ["patch test/unit/config/index.test.js (+14 trainer tests)"],
+      "commands": [
+        "patch test/unit/config/index.test.js (+14 trainer tests)"
+      ],
       "verify": "node --test test/unit/config/index.test.js → 45 tests, 45 pass"
     },
     {
       "step": 10,
       "name": "Write db/migrations/004_training_runs.sql",
-      "commands": ["write db/migrations/004_training_runs.sql"],
+      "commands": [
+        "write db/migrations/004_training_runs.sql"
+      ],
       "verify": "grep -q 'CREATE TABLE IF NOT EXISTS aware_training_runs' db/migrations/004_training_runs.sql"
     },
     {
       "step": 11,
       "name": "Write src/trainer/index.js (Node poller)",
-      "commands": ["write src/trainer/index.js (~500 lines)"],
+      "commands": [
+        "write src/trainer/index.js (~500 lines)"
+      ],
       "verify": "node --check src/trainer/index.js passes (parses); node -e 'import(\"./src/trainer/index.js\").then(m => console.log(typeof m.TrainerPoller))' shows 'function'"
     },
     {
       "step": 12,
       "name": "Write test/unit/trainer/index.test.js",
-      "commands": ["write test/unit/trainer/index.test.js"],
+      "commands": [
+        "write test/unit/trainer/index.test.js"
+      ],
       "verify": "node --test test/unit/trainer/index.test.js → 14 tests, 14 pass"
     },
     {
       "step": 13,
       "name": "Add trainer service to docker-compose.coordinator.yml",
-      "commands": ["patch docker-compose.coordinator.yml (replace placeholders for #6 + #7 with real trainer service)", "patch docker-compose.coordinator.yml (volumes: add aware-2-trainer-data)"],
+      "commands": [
+        "patch docker-compose.coordinator.yml (replace placeholders for #6 + #7 with real trainer service)",
+        "patch docker-compose.coordinator.yml (volumes: add aware-2-trainer-data)"
+      ],
       "verify": "docker compose -f docker-compose.coordinator.yml -p aware-2 --profile training config validates (rc=0)"
     },
     {
       "step": 14,
       "name": "Add Phase 3 smoke tests to bring-up-coordinator.sh",
-      "commands": ["patch scripts/bring-up-coordinator.sh (+3 smoke tests: migration 004, config validation, optional container check)"],
+      "commands": [
+        "patch scripts/bring-up-coordinator.sh (+3 smoke tests: migration 004, config validation, optional container check)"
+      ],
       "verify": "bash -n scripts/bring-up-coordinator.sh passes"
     },
     {
       "step": 15,
       "name": "Run full v2 test suite",
-      "commands": ["node --test 'test/unit/**/*.test.js' 2>&1 | tail -8", "python3 -m unittest test.unit.azr.test_executor 2>&1 | tail -5", "npm run config:validate"],
+      "commands": [
+        "node --test 'test/unit/**/*.test.js' 2>&1 | tail -8",
+        "python3 -m unittest test.unit.azr.test_executor 2>&1 | tail -5",
+        "npm run config:validate"
+      ],
       "verify": "Node: 208/208 pass. Python: 31/32 pass (1 Linux-only skip). Config: validate OK"
     },
     {
       "step": 16,
       "name": "Update <internal-doc> with Phase 3 closure",
-      "commands": ["patch <internal-doc> (Phase 3 = closed (code); add the 3 deliverables, 7 commit summary, runtime gate note)"],
+      "commands": [
+        "patch <internal-doc> (Phase 3 = closed (code); add the 3 deliverables, 7 commit summary, runtime gate note)"
+      ],
       "verify": "grep -q 'Phase 3' <internal-doc> and the new entry mentions the runtime gate (Modal account + token needed for actual training runs)"
     },
     {
       "step": 17,
       "name": "Write this SOP",
-      "commands": ["write docs/sop/sop-phase-3-azr-self-play.json"],
+      "commands": [
+        "write docs/sop/sop-phase-3-azr-self-play.json"
+      ],
       "verify": "jq .id docs/sop/sop-phase-3-azr-self-play.json shows the right id"
     },
     {
       "step": 18,
       "name": "Commit + push to Gitea feature/aware-2.0",
-      "commands": ["git add -A", "git status (sanity check no secrets committed)", "git commit -m 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'", "git push origin feature/aware-2.0"],
+      "commands": [
+        "git add -A",
+        "git status (sanity check no secrets committed)",
+        "git commit -m 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'",
+        "git push origin feature/aware-2.0"
+      ],
       "verify": "git ls-remote origin feature/aware-2.0 shows the new commit hash"
     }
   ],
@@ -170,5 +219,21 @@
     "Outbound dataset packaging — the trainer currently writes a placeholder JSONL to datasetPath. The real implementation queries aware_conversations for unconsumed pairs, runs heavy-think's toDpoDataset, and writes the result. Seamed via the _submitNewRun method; not implemented because Phase 4 owns the outcome filter.",
     "Postgres migration auto-apply — the coordinator's runMigrations() reads db/migrations/*.sql in order. The new 004 file will be picked up on next coordinator boot. Verified by the bring-up smoke test."
   ],
-  "commit_artifact": "Single commit on feature/aware-2.0 with 16+ new files and 1 modified file (src/config/index.cjs). Commit message: 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'. Pushed to Gitea origin/feature/aware-2.0."
+  "commit_artifact": "Single commit on feature/aware-2.0 with 16+ new files and 1 modified file (src/config/index.cjs). Commit message: 'aware: Phase 3 — AZR self-play on Modal (sandbox + trainer poller + config)'. Pushed to Gitea origin/feature/aware-2.0.",
+  "r2_revisions": [
+    {
+      "date": "2026-06-12",
+      "commit": "PENDING (R2 follow-up commit on feature/aware-2.0)",
+      "summary": "modal-client.js rewritten to use real JS SDK surface (modal@0.8.0); the R1 mock with the Python-shaped API was a real bug that would have crashed the first submit() against the real SDK.",
+      "changes": [
+        "src/trainer/modal-client.js: replaced modal.Function.from_training_script() with new ModalClient() + client.functions.fromName(app, fn) + fn.spawn() + call.get({timeoutMs})",
+        "test/unit/trainer/modal-client.test.js: mocks now use REAL JS SDK method shapes (ModalClient class with .volumes.fromName + .functions.fromName)",
+        "package.json: added modal: ^0.8.0 dependency",
+        "scripts/bring-up-coordinator.sh: added 8e smoke that uses the REAL modal@0.8.0 SDK and asserts the surface the poller depends on (catches R1 regression)",
+        "test/unit/config/index.test.js: clearV2Env() now also clears MODAL_TOKEN_ID and MODAL_TOKEN_SECRET (hermetic against host env leakage)"
+      ],
+      "operator_action": "Run `modal deploy training/run.py` ONCE before the first training job. No GPU credit, no spin-up. Just registers the App. Use `MODAL_PROFILE=goodciso modal deploy training/run.py` (or `modal deploy --profile goodciso training/run.py`) so Modal uses the `goodciso` CLI profile that already holds the token in ~/.modal.toml. The profile name is purely operator-side CLI shorthand for the (token_id, token_secret) pair; the poller reads the values from process.env, not the profile name, so the profile name does NOT need to be in the code or any committed file.",
+      "verification": "13/13 modal-client tests + 221/221 v2 tests + bring-up 8d + 8e smokes all green. Real modal@0.8.0 SDK installed and surface verified."
+    }
+  ]
 }
