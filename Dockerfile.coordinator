@@ -27,8 +27,9 @@ COPY package*.json ./
 # Install production deps for the AWARE repo
 RUN npm install --omit=dev
 
-# Copy the AWARE source (coordinator service only — not the v1 backend)
+# Copy the AWARE source (coordinator service + the shared config module)
 COPY src/coordinator ./src/coordinator
+COPY src/config/index.cjs ./src/config/index.cjs
 
 # Copy heavy-think from the build context named "heavy-think"
 # (the multi-context argument passed to `docker build`)

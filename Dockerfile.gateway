@@ -37,9 +37,13 @@ WORKDIR /app
 # Copy the built node_modules from the builder stage.
 COPY --from=builder --chown=aware:aware /build/node_modules ./node_modules
 
-# Copy only the gateway source. We do not copy the rest of the repo
-# so the gateway image has the minimum attack surface.
+# Copy the gateway source plus the shared config module it imports.
+# We do not copy the rest of the repo so the gateway image has the
+# minimum attack surface. The config is .cjs so the ESM coordinator
+# can import it as a CJS module (the host package.json is "type":"module"
+# in the coordinator image).
 COPY --chown=aware:aware src/gateway ./src/gateway
+COPY --chown=aware:aware src/config/index.cjs ./src/config/index.cjs
 COPY --chown=aware:aware package.gateway.json ./package.json
 
 # T0-T4 enforcement defaults. The gateway does not enforce T0-T4 itself

@@ -20,19 +20,18 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { coordinate, buildDefaultRouter, COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from './index.js';
+import config from '../config/index.cjs';
 
-const DEFAULT_PORT = Number(process.env.COORDINATOR_PORT) || 8080;
-const DEFAULT_HOST = process.env.COORDINATOR_HOST || '127.0.0.1';
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
 
-// T0-T4 limits — env-driven so they can be tuned per deployment.
-// The kill-switch is checked on every request (re-read env) so toggling
-// AWARE_KILL_SWITCH does not require a server restart.
-const REQUEST_TIMEOUT_MS = Number(process.env.AWARE_REQUEST_TIMEOUT_MS) || 120_000;
-const REQUEST_COST_CAP_USD = Number(process.env.AWARE_REQUEST_COST_CAP_USD) || 1.0;
+// T0-T4 limits live in the centralized config module (src/config/index.js).
+// Lazy getters re-read env on each access so toggling AWARE_KILL_SWITCH
+// or AWARE_REQUEST_TIMEOUT_MS at runtime does not require a restart.
+// Validate at boot so bad env values fail fast, not on first request.
+config.validate();
 
 function isKilled() {
-  return process.env.AWARE_KILL_SWITCH === '1';
+  return config.coordinator.killSwitch;
 }
 
 /**
@@ -89,10 +88,10 @@ function sendText(res, status, text) {
  * @returns {Promise<{server: http.Server, port: number, host: string, close: () => Promise<void>}>}
  */
 export async function startServer(opts = {}) {
-  const host = opts.host ?? DEFAULT_HOST;
+  const host = opts.host ?? config.coordinator.host;
   // `opts.port === 0` is a valid request (OS picks a free port) — use ??
   // not || so the fallback doesn't kick in for the zero value.
-  const port = opts.port ?? DEFAULT_PORT;
+  const port = opts.port ?? config.coordinator.port;
   const router = opts.router || (await buildDefaultRouter(opts.routerOpts || {}));
   const coordinateFn = opts.coordinateFn || coordinate;
 
@@ -243,8 +242,8 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
   }
 
   // Per-request T0/T2 limits (defaults from env)
-  const timeoutMs = clampMs(body.timeout_ms, REQUEST_TIMEOUT_MS, 100, 600_000);
-  const costCapUsd = clampNumber(body.cost_cap_usd, REQUEST_COST_CAP_USD, 0, 1000);
+  const timeoutMs = clampMs(body.timeout_ms, config.coordinator.requestTimeoutMs, 100, 600_000);
+  const costCapUsd = clampNumber(body.cost_cap_usd, config.coordinator.requestCostCapUsd, 0, 1000);
 
   // T0: race the work against a wall-clock deadline
   let result;
