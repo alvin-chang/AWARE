@@ -515,6 +515,73 @@ test('Phase 2.3: /budget/status reflects tier=soft when spend is in soft band', 
   });
 });
 
+// --- Phase 2.3: interaction with per-request cost cap -------------------
+//
+// The watchdog (rolling-window spend) and the per-request cost_cap_usd
+// are two independent layers. The watchdog runs first; if it returns
+// tier=hard, the request is rejected with 402 budget_exhausted BEFORE the
+// coordinate() call (and therefore before the per-request cost cap is
+// evaluated). These tests prove the ordering is correct and the error
+// envelopes are distinguishable.
+
+test('Phase 2.3 + T2: both layers ok → 200 with x-budget-tier: ok', async () => {
+  _setBudgetPoolForTest(budgetPool(0));
+  const coordinateFn = async () => ({ ok: true, cost_usd: 0.1, refined: 'cheap' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'cheap', cost_cap_usd: 1.0 }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-budget-tier'), 'ok');
+    const body = await res.json();
+    assert.equal(body.kind, undefined, 'no error envelope on success');
+  });
+});
+
+test('Phase 2.3 + T2: watchdog hard beats per-request cost cap (rejected as budget_exhausted)', async () => {
+  // Window spend is over hard limit, but the per-request cost cap is generous.
+  // The watchdog must reject this as budget_exhausted (not as cost_cap).
+  _setBudgetPoolForTest(budgetPool(10000));
+  const coordinateFn = async () => ({ ok: true, cost_usd: 0.1, refined: 'never reached' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'over hard', cost_cap_usd: 1.0 }),
+    });
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    assert.equal(body.kind, 'budget_exhausted', 'watchdog fires before cost-cap; kind is budget_exhausted, not cost_cap');
+    assert.equal(body.spend_usd, 10000);
+    assert.equal(res.headers.get('x-budget-tier'), 'hard');
+  });
+});
+
+test('Phase 2.3 + T2: per-request cost cap fires when watchdog is soft', async () => {
+  // Window spend is in the soft band (request proceeds), but the
+  // coordinate() result has cost_usd exceeding the per-request cap.
+  // The cost-cap layer must still fire — soft tier is not a free pass.
+  _setBudgetPoolForTest(budgetPool(85));
+  const coordinateFn = async () => ({ ok: true, cost_usd: 5.5, refined: 'expensive' });
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn }, async (h) => {
+    const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ problem: 'expensive', cost_cap_usd: 1.0 }),
+    });
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    assert.equal(body.kind, 'cost_cap', 'cost-cap layer fires inside coordinate(); distinct from budget_exhausted');
+    assert.equal(body.cost_usd, 5.5);
+    assert.equal(body.cost_cap_usd, 1.0);
+    // Note: x-budget-tier header is set on the response from the pre-check
+    // (soft), and the cost-cap rejection happens after. We don't assert
+    // the header here because the cost-cap path doesn't re-set it.
+  });
+});
+
 test('every response carries an x-request-id header that matches body.request_id', async () => {
   await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
     const customId = 'test-req-' + Date.now();
