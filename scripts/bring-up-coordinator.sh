@@ -219,6 +219,36 @@ else
 fi
 unset POSTGRES_PASSWORD_VALUE
 
+log "smoke test: budget watchdog — GET /budget/status"
+budget_body=$(curl -sS -m 5 http://127.0.0.1:18081/budget/status || true)
+echo "  → $budget_body"
+# enabled=true, windowDays=30, tier in {ok,soft,hard}, spendUsd is a number
+echo "$budget_body" | grep -q '"enabled":true' \
+  || fail "budget_status: enabled is not true"
+echo "$budget_body" | grep -q '"windowDays":30' \
+  || fail "budget_status: windowDays is not 30"
+echo "$budget_body" | grep -qE '"tier":"(ok|soft|hard)"' \
+  || fail "budget_status: tier is not in {ok,soft,hard}"
+echo "$budget_body" | grep -qE '"spendUsd":[0-9]' \
+  || fail "budget_status: spendUsd is not a number"
+echo "$budget_body" | grep -qE '"softLimitUsd":[0-9]' \
+  || fail "budget_status: softLimitUsd is not a number"
+echo "$budget_body" | grep -qE '"hardLimitUsd":[0-9]' \
+  || fail "budget_status: hardLimitUsd is not a number"
+echo "$budget_body" | grep -q '"resetsAt"' \
+  || fail "budget_status: resetsAt is missing"
+
+log "smoke test: budget watchdog — x-budget-tier header on /coordinate"
+# Short timeout_ms so the coordinator returns 504 within a few seconds;
+# the budget-tier header is set BEFORE the coordinate work, so even a 504
+# response carries the header. Without timeout_ms, heavy-think takes
+# minutes and curl -m 10 cuts the capture empty.
+coord_headers=$(curl -sS -m 6 -i -X POST http://127.0.0.1:18081/coordinate \
+  -H 'Content-Type: application/json' \
+  -d '{"problem":"budget-tier-test","timeout_ms":2000}' 2>/dev/null || true)
+echo "$coord_headers" | grep -qiE '^x-budget-tier: *(ok|soft|hard)' \
+  || fail "budget_tier: /coordinate response missing x-budget-tier header (got: $(echo "$coord_headers" | head -3 | tr '\n' '|'))"
+
 # 8. Gateway smoke test (gated on the gateway being up; in the
 # default 4-service bring-up the gateway is behind `full` profile
 # and may not be running — skip if absent).
@@ -252,4 +282,4 @@ log "tearing down"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 
 log "BRING-UP-OK"
-log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 11 smoke tests (8 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache are both writing to postgres."
+log "Phase 1 bring-up verified end-to-end. 5 services, 5 healthchecks, 13 smoke tests (10 if gateway is behind the full profile), all green. Phase 2.1 conversation logger + Phase 2.2 PRM score cache + Phase 2.3 budget watchdog are all live and writing to/reading from postgres."
