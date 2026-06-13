@@ -202,10 +202,10 @@ preflight() {
 deploy_modal() {
   step "Step 1/4: deploying trainer image to Modal ($MODAL_PROFILE workspace)"
   cd "$REPO_ROOT"
-  if ! MODAL_PROFILE="$MODAL_PROFILE" modal deploy training/run.py 2>&1 | tail -30; then
+  if ! MODAL_PROFILE="$MODAL_PROFILE" modal deploy training/app.py 2>&1 | tail -30; then
     fail "modal deploy failed. See output above. Common causes: bad token, GPU quota exceeded, image build error."
   fi
-  ok "Modal app 'aware-trainer' deployed"
+  ok "Modal app 'aware-trainer' deployed (target: training/app.py)"
 }
 
 # ─── Step 2: Start trainer container ──────────────────────────────────
