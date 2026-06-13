@@ -32,6 +32,7 @@ COPY src/coordinator ./src/coordinator
 COPY src/config/index.cjs ./src/config/index.cjs
 COPY src/db ./src/db
 COPY src/budget ./src/budget
+COPY src/trainer ./src/trainer
 COPY db ./db
 
 # Copy heavy-think from the build context named "heavy-think"
