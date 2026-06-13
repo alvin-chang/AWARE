@@ -235,17 +235,34 @@ wait_for_run() {
   local deadline=$((SECONDS + TIMEOUT_MIN * 60))
   local last_status=""
 
+  # Bug #7 (smoke test 2026-06-13): this runbook used to poll
+  # the MOST-RECENT row in aware_training_runs. That broke for
+  # iterative smoke tests: any prior failed/cancelled run
+  # caused the runbook to bail on the first poll (within ~30s
+  # of trainer boot) because the most-recent row's status was
+  # already 'failed' from the previous attempt.
+  #
+  # Fix: filter by `started_at > $boot_epoch_ms` so we only
+  # consider rows the trainer submitted DURING this runbook
+  # invocation. We capture boot_epoch_ms just before
+  # `boot_trainer` returns the "trainer container started"
+  # banner so the window includes the trainer's first tick
+  # (which is what actually submits the new run).
+  local boot_epoch_ms
+  boot_epoch_ms=$(date +%s%3N)
+  log "  filtering aware_training_runs to started_at > ${boot_epoch_ms} (this runbook invocation)"
+
   # Use docker exec to query the postgres container (psql not on host PATH).
   while [ "$SECONDS" -lt "$deadline" ]; do
     last_status=$(docker exec -e PGPASSWORD="$PGPASSWORD_VALUE" aware-2-postgres \
       psql -U "$DB_USER" -d "$DB_NAME" -tAc \
-      "SELECT COALESCE(status, 'none') FROM aware_training_runs ORDER BY started_at DESC LIMIT 1" 2>/dev/null || echo "query-failed")
+      "SELECT COALESCE(status, 'none') FROM aware_training_runs WHERE EXTRACT(EPOCH FROM started_at) * 1000 > ${boot_epoch_ms} ORDER BY started_at DESC LIMIT 1" 2>/dev/null || echo "query-failed")
     case "$last_status" in
       completed|success|succeeded)
         ok "training run completed (status: $last_status)"
         docker exec -e PGPASSWORD="$PGPASSWORD_VALUE" aware-2-postgres \
           psql -U "$DB_USER" -d "$DB_NAME" \
-          -c "SELECT run_id, status, n_pairs, started_at, completed_at FROM aware_training_runs ORDER BY started_at DESC LIMIT 1"
+          -c "SELECT run_id, status, n_pairs, started_at, completed_at FROM aware_training_runs WHERE EXTRACT(EPOCH FROM started_at) * 1000 > ${boot_epoch_ms} ORDER BY started_at DESC LIMIT 1"
         return 0
         ;;
       failed|error)
