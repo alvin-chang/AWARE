@@ -34,6 +34,14 @@ COPY src/db ./src/db
 COPY src/budget ./src/budget
 COPY src/trainer ./src/trainer
 COPY db ./db
+# Bake the Modal training config into the image so the trainer's
+# default `config.trainer.configPath` (`config/modal-training.json`,
+# resolved to /app/config/modal-training.json) is always readable.
+# The compose file still mounts a bind override at
+# /opt/aware/config/modal-training.json for operator hot-swap; the
+# in-image copy is the fallback that makes the default case work.
+# See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md BLOCKER-1.
+COPY config/modal-training.json ./config/modal-training.json
 
 # Copy heavy-think from the build context named "heavy-think"
 # (the multi-context argument passed to `docker build`)
@@ -52,6 +60,22 @@ COPY --from=build --chown=aware:aware /build/node_modules ./node_modules
 COPY --from=build --chown=aware:aware /build/src ./src
 COPY --from=build --chown=aware:aware /build/heavy-think ./heavy-think
 COPY --from=build --chown=aware:aware /build/db ./db
+# Pre-create the trainer's weights dir and chown to `aware` so the
+# atomic-symlink-swap in src/trainer/index.js:_atomicSymlinkSwap can
+# write to it (the dir defaults to /opt/aware/weights/active; the
+# parent /opt/ is root-owned, so we have to create the leaf here at
+# build time and chown the leaf+parent-subtree). See
+# docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md MEDIUM-2.
+RUN mkdir -p /opt/aware/weights/active && chown -R aware:aware /opt/aware
+# Carry the Modal training config (baked in the build stage) into the
+# runtime image. The build stage's `COPY config/modal-training.json
+# ./config/modal-training.json` lands the file at
+# /build/config/modal-training.json; the runtime needs it at
+# /app/config/modal-training.json so the trainer's default
+# `config.trainer.configPath` (`config/modal-training.json`) resolves
+# to a readable file when WORKDIR=/app. See
+# docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md BLOCKER-1.
+COPY --from=build --chown=aware:aware /build/config/modal-training.json /app/config/modal-training.json
 # Symlink so the coordinator's static `../../../../src/heavy-think/` import
 # (which resolves to `/src/heavy-think/` from /app/) finds the source at
 # /app/heavy-think/. This matches the dev layout where `../../../../` from
