@@ -805,7 +805,13 @@ export class TrainerPoller {
   }
 
   async _atomicSymlinkSwap(checkpointPath) {
-    const activeLink = config.trainer.weightsDir;
+    // The symlink lives at ${weightsDir}/active (matches the design
+    // comment in src/config/index.cjs and the lora-reloader's
+    // resolveActiveTarget path). The parent (${weightsDir}) is
+    // pre-created + chown'd in the runtime stage of the trainer
+    // image and in docker-compose.coordinator.yml's named volume.
+    const weightsDir = config.trainer.weightsDir;
+    const activeLink = path.join(weightsDir, 'active');
     const activeLinkParent = path.dirname(activeLink);
     await fsp.mkdir(activeLinkParent, { recursive: true });
     const tmpLink = `${activeLink}.new.${process.pid}.${Date.now()}`;

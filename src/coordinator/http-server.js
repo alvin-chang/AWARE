@@ -190,52 +190,48 @@ export async function startServer(opts = {}) {
   // base model instead of serving a broken LoRA. Once #14 is
   // fixed, this wiring becomes the load-bearing piece that
   // actually delivers a trained LoRA to the gateway.
+  const loraReloaderEnabled = config.coordinator.loraReloaderEnabled;
   let loraReloader = null;
-  if (!opts.disableLoraReloader && config.coordinator.loraReloaderEnabled) {
-    // Resolve the Ollama URL from the model config (default
-    // 'http://127.0.0.1:11434'). If it ends up empty (e.g. a
-    // dev/test run without OLLAMA_URL set), skip wiring the
-    // reloader rather than throwing at boot — the coordinator
-    // can still serve /coordinate, /health, and /version
-    // without the LoRA hot-reload feature.
+  if (loraReloaderEnabled && !opts.disableLoraReloader) {
+    // The actual opt-out is AWARE_LORA_RELOADER_ENABLED=false.
+    // config.model.ollamaUrl always falls back to a default via
+    // str() so we don't need a defensive empty-URL guard here.
     const ollamaUrl = config.model?.ollamaUrl;
-    if (typeof ollamaUrl !== 'string' || ollamaUrl.length === 0) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[aware-coordinator] lora-reloader skipped: OLLAMA_URL is not set ' +
-        '(config.coordinator.loraReloaderEnabled=true but no Ollama target)'
-      );
-    } else {
-      loraReloader = makeLoraReloader({
-        weightsDir: config.trainer.weightsDir,
-        ollamaUrl,
-        modelName: config.coordinator.loraReloaderModelName,
-        baseModel: config.trainer.baseModel,
-        pollIntervalMs: config.coordinator.loraReloaderPollIntervalMs,
-        reloadTimeoutMs: config.coordinator.loraReloaderTimeoutMs,
-        logger: {
-          info: (...a) => console.log('[aware-coordinator:lora]', ...a),
-          warn: (...a) => console.warn('[aware-coordinator:lora]', ...a),
-          error: (...a) => console.error('[aware-coordinator:lora]', ...a),
-          debug: () => {},
-        },
-      });
-      loraReloader.start();
-    }
+    loraReloader = makeLoraReloader({
+      weightsDir: config.trainer.weightsDir,
+      ollamaUrl,
+      modelName: config.coordinator.loraReloaderModelName,
+      baseModel: config.trainer.baseModel,
+      pollIntervalMs: config.coordinator.loraReloaderPollIntervalMs,
+      reloadTimeoutMs: config.coordinator.loraReloaderTimeoutMs,
+      logger: {
+        info: (...a) => console.log('[aware-coordinator:lora]', ...a),
+        warn: (...a) => console.warn('[aware-coordinator:lora]', ...a),
+        error: (...a) => console.error('[aware-coordinator:lora]', ...a),
+        debug: () => {},
+      },
+    });
+    loraReloader.start();
   }
 
   const actualPort = server.address().port;
 
-  const close = () =>
-    new Promise((resolve) => {
-      if (loraReloader) {
-        // Stop the reloader first so it doesn't try to POST to
-        // Ollama while the process is tearing down.
-        loraReloader.stop().catch(() => { /* swallow on shutdown */ });
-        loraReloader = null;
+  const close = async () => {
+    // F-003: stop the reloader BEFORE closing the server. The
+    // previous version ran loraReloader.stop() fire-and-forget and
+    // server.close() synchronously, which could leave a half-
+    // completed Ollama POST in flight when the process tears down.
+    if (loraReloader) {
+      try {
+        await loraReloader.stop();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[aware-coordinator] lora-reloader.stop() failed during close: ${e?.message || e}`);
       }
-      server.close(() => resolve());
-    });
+      loraReloader = null;
+    }
+    return await new Promise((resolve) => server.close(() => resolve()));
+  };
 
   return { server, port: actualPort, host, close, loraReloader };
 }

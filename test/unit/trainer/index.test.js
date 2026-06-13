@@ -431,12 +431,15 @@ test('trainer: in-flight run completes — atomic symlink swap, DB updated', asy
   assert.equal(handlers.completedUpdates[0][3], '/ckpt/run-x');  // checkpointPath
   assert.equal(handlers.completedUpdates[0][4], 1234);  // sizeMb
 
-  // The active symlink was created and points at /ckpt/run-x
-  const linkTarget = await fsp.readlink(process.env.AWARE_TRAINER_WEIGHTS_DIR);
+  // The active symlink was created and points at /ckpt/run-x.
+  // F-001 fix: the symlink lives at ${weightsDir}/active (not at
+  // ${weightsDir} as before). See src/trainer/index.js:_atomicSymlinkSwap.
+  const activeLink = path.join(process.env.AWARE_TRAINER_WEIGHTS_DIR, 'active');
+  const linkTarget = await fsp.readlink(activeLink);
   assert.equal(linkTarget, '/ckpt/run-x');
 
   // Cleanup
-  await fsp.unlink(process.env.AWARE_TRAINER_WEIGHTS_DIR).catch(() => {});
+  await fsp.unlink(activeLink).catch(() => {});
 
   await poller.stop();
 });
@@ -512,10 +515,43 @@ test('trainer: atomic symlink swap — uses rename(2), not two-step', async (t) 
   await poller._atomicSymlinkSwap('/first/checkpoint');
   await poller._atomicSymlinkSwap('/second/checkpoint');
 
-  const target = await fsp.readlink(weightsDir);
-  assert.equal(target, '/second/checkpoint', 'symlink should now point to second checkpoint');
+  // The symlink lives at ${weightsDir}/active (matches the
+  // lora-reloader's resolveActiveTarget path). See F-001 in
+  // <internal-doc> — the prior implementation created the symlink AT
+  // ${weightsDir} which the reloader could never see.
+  const activeLink = path.join(weightsDir, 'active');
+  const target = await fsp.readlink(activeLink);
+  assert.equal(target, '/second/checkpoint', 'symlink at ${weightsDir}/active should now point to second checkpoint');
 
-  await fsp.unlink(weightsDir).catch(() => {});
+  await fsp.unlink(activeLink).catch(() => {});
+  await fsp.rm(weightsDir, { recursive: true, force: true }).catch(() => {});
+  await poller.stop();
+});
+
+test('trainer: atomic symlink swap — symlink at ${weightsDir}/active resolves to the right target', async (t) => {
+  t.after(() => clearV2Env());
+  setV2Env();
+  const weightsDir = path.join(os.tmpdir(), `aware-trainer-resolve-${Date.now()}`);
+  process.env.AWARE_TRAINER_WEIGHTS_DIR = weightsDir;
+
+  const logger = makeTestLogger();
+  const poller = new TrainerPoller({
+    logger, pool: null, modalClient: makeModalStub(), dataDir: await makeTempDataDir(),
+  });
+  await poller.start();
+  await poller._atomicSymlinkSwap('/ckpts/run-42/merged');
+
+  // F-001: prove the symlink lives at the path the lora-reloader
+  // watches. resolveActiveTarget(weightsDir) reads
+  // path.join(weightsDir, 'active'), so we exercise the exact path
+  // the coordinator's reloader would read.
+  const { resolveActiveTarget } = await import('../../../src/coordinator/lora-reloader.js');
+  const resolved = await resolveActiveTarget(weightsDir);
+  assert.equal(resolved, '/ckpts/run-42/merged',
+    'lora-reloader must resolve to the same target the trainer wrote');
+
+  await fsp.unlink(path.join(weightsDir, 'active')).catch(() => {});
+  await fsp.rm(weightsDir, { recursive: true, force: true }).catch(() => {});
   await poller.stop();
 });
 
