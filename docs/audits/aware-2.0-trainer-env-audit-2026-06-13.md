@@ -393,3 +393,32 @@ MEDIUM-2 are fixed, we can run the 5h GPU job and see what
 surfaces.
 
 — Alfie (Hermes), 2026-06-13
+
+
+---
+
+## Resolution (2026-06-13, same day)
+
+**BLOCKER-1: RESOLVED in `927d68a`** ("fix(trainer): bake modal-training.json into image + pre-create weights dir")
+
+- `Dockerfile.coordinator`: COPY `config/modal-training.json` in the build stage AND `COPY --from=build` it to `/app/config/modal-training.json` in the runtime stage. Verified the file is in the rebuilt image (4364 bytes, valid JSON).
+- `docker-compose.coordinator.yml`: removed the bind mount `./config/modal-training.json:/opt/aware/config/modal-training.json:ro` that was conflicting with the named-volume mount point. Changed `AWARE_TRAINER_CONFIG` env var default to `/app/config/modal-training.json`.
+- End-to-end verified: trainer container boots, poller logs `aware-trainer started: pollIntervalSec=300, minPairsPerRun=100, baseModel=..., gpu=A100-80GB`. No EISDIR. No FATAL.
+
+**MEDIUM-2: RESOLVED in `927d68a`** (same commit)
+
+- `Dockerfile.coordinator` runtime stage: `RUN mkdir -p /opt/aware/weights/active && chown -R aware:aware /opt/aware` so the leaf dir is owned by the non-root `aware` user.
+- `src/config/index.cjs`: changed `weightsDir` default from `/root/aware-weights` to `/opt/aware/weights/active` (matches compose override + is now writable).
+- Verified: `su -s /bin/sh -c "touch /opt/aware/weights/active/.write-test ..."` succeeds.
+
+**MEDIUM-3: N/A** (verified OK, no fix)
+
+**MEDIUM-4: N/A** (documented graceful-degradation in `training/app.py:49-51`)
+
+**LOW-5: still out of D5 scope** (AZR cross-container handoff)
+
+**LOW-7: still pending operator action** — three credential leaks this session; standing rule says operator rotates, agent reports. Recommend rotating the entire `~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env`.
+
+**INFO-8/9: unchanged** (aarch64 image; 307/307 tests + 81.61% branches)
+
+**Phase 4 D5 status:** trainer container boots end-to-end with kill switch on. **Still no GPU spend.** Next step: re-run the runbook (`./scripts/run-phase4-d5.sh --no-deploy`) to see whether the runbook path works now that the trainer container can start. Audit notes that the audit was scoped to trainer boot, not to: (1) the Modal training job itself, (2) DPO dataset packaging correctness (do we have ≥100 unconsumed pairs?), (3) the atomic symlink swap (what does Ollama see?), (4) post-run /version reporting.
