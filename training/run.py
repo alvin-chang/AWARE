@@ -707,8 +707,6 @@ def save_checkpoint(
     The merged model is what the coordinator would load to serve
     inference. The adapter is for incremental retraining.
     """
-    from unsloth import FastLanguageModel
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
     sizes_mb: dict[str, float] = {}
@@ -721,19 +719,39 @@ def save_checkpoint(
         log("adapter_saved", path=str(adapter_dir), size_mb=sizes_mb["adapter_mb"])
 
     if save_merged:
-        # Merge LoRA into base, save as 16-bit model.
-        # training-optimizer 2025.4.x exposes merge-and-save as an INSTANCE method on
-        # the model (attached via patch_saving_functions in unsloth/save.py),
-        # not a class method on FastLanguageModel. The earlier
-        # `FastLanguageModel.save_merged_pretrained(...)` form was the
-        # pre-2025 API and has been removed; using it raises
-        # `AttributeError: type object 'FastLanguageModel' has no attribute
-        # 'save_merged_pretrained'` at the very end of a successful
-        # training run. The fix is the call below.
+        # Merge LoRA into the base model, then save as 16-bit.
+        #
+        # Two API surfaces were considered:
+        #   (a) `model.save_pretrained_merged(...)` (training-optimizer 2025.4.x
+        #       patches this onto the model returned by
+        #       `FastLanguageModel.from_pretrained`).
+        #   (b) `peft.PeftModel.merge_and_unload()` + `save_pretrained`
+        #       (standard tuning-lib path; works on any model).
+        #
+        # The training script in this repo uses `AutoModelForCausalLM
+        # .from_pretrained` + `peft.get_peft_model` (run.py:587-612),
+        # NOT `FastLanguageModel.from_pretrained`. As a result the
+        # training-optimizer `save_pretrained_merged` patch is never applied to
+        # `model`, and calling it raises
+        # `AttributeError: 'Qwen3ForCausalLM' object has no attribute
+        # 'save_pretrained_merged'` (verified by smoke test, Modal
+        # traceback 2026-06-13 08:55:56). The standard tuning-lib merge path
+        # works on any base model class and produces an equivalent
+        # 16-bit merged checkpoint (no training-optimizer-specific 4-bit→16-bit
+        # conversion needed; the model is already 16-bit after
+        # `prepare_model_for_kbit_training` + `get_peft_model`).
         merged_dir = output_dir / "merged"
-        model.save_pretrained_merged(
-            str(merged_dir), tokenizer, save_method="merged_16bit",
+        merged_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            merged_model = model.merge_and_unload()
+        except AttributeError:
+            # Defensive: if `model` is already the base (not tuning-lib-wrapped),
+            # fall through and save it as-is.
+            merged_model = model
+        merged_model.save_pretrained(
+            str(merged_dir), safe_serialization=True,
         )
+        tokenizer.save_pretrained(str(merged_dir))
         sizes_mb["merged_mb"] = round(_dir_size_mb(merged_dir), 1)
         log("merged_saved", path=str(merged_dir), size_mb=sizes_mb["merged_mb"])
 
