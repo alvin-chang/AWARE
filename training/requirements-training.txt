@@ -23,7 +23,7 @@
 
 # Core ML stack (the load-bearing trio)
 torch==2.4.1
-trl==0.15.0
+trl>=0.15.0,!=0.15.0,<0.15.3
 peft==0.14.0
 bitsandbytes==0.45.0
 unsloth==2025.4.1
