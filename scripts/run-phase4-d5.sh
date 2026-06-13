@@ -17,10 +17,24 @@
 #     once if not).
 #   - Tear down the trainer container or the Modal app. Operator decides.
 #
-# PGPASSWORD convention: this script reads AWARE_POSTGRES_PASSWORD from
-# the operator's env (the same var the coordinator reads), assigns it to
-# a local var, unsets it at the end, and never echoes it. Matches the
-# pattern in scripts/bring-up-coordinator.sh.
+# PGPASSWORD convention: this script reads AWARE_DB_PWD from the
+# operator's env (the SAME var the v2 compose file uses, per
+# docker-compose.coordinator.yml lines 114/208/282), with the compose
+# file's hardcoded dev fallback of 'dev-only-pwd'. Assigns to a local
+# var, unsets it at the end, and never echoes it. Matches the pattern
+# in scripts/bring-up-coordinator.sh:183.
+#
+# Env-var naming chain in the v2 compose (do not confuse these):
+#   AWARE_DB_PWD              ← host-side env var (this script reads it)
+#     ↓ docker-compose interpolation
+#   POSTGRES_PASSWORD         ← postgres service env (db init)
+#   AWARE_POSTGRES_PASSWORD   ← coordinator + trainer service env
+#                                (only set INSIDE those containers;
+#                                 never on the host)
+#
+# If you have nothing set, this script will use the compose file's
+# dev-only default, which is what the bring-up script has been using
+# all session. Override with: AWARE_DB_PWD=... ./scripts/run-phase4-d5.sh
 #
 # Usage:
 #   ./scripts/run-phase4-d5.sh                  # full preflight → deploy → run → verify
@@ -85,13 +99,19 @@ warn()  { printf '%s!%s %s\n' "$C_YEL" "$C_RST" "$*"; }
 fail()  { printf '%s✗%s %s\n' "$C_RED" "$C_RST" "$*" >&2; exit 1; }
 step()  { printf '\n%s==>%s %s\n' "$C_BLU" "$C_RST" "$*"; }
 
-# Read the postgres password from the same source the coordinator uses.
-# This pattern matches scripts/bring-up-coordinator.sh: assign to a
-# clearly-named local var, unset at the end, never echo.
-if [ -z "${AWARE_POSTGRES_PASSWORD:-}" ]; then
-  fail "AWARE_POSTGRES_PASSWORD is not set. Source your env (e.g. 'set -a; source ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env; set +a') or export it before running this script."
+# Read the postgres password from the same source the compose file uses.
+# Compose reads $AWARE_DB_PWD with a 'dev-only-pwd' fallback — we mirror
+# that here so the script works out-of-the-box in dev (which is what
+# the bring-up has been using all session). Pattern matches
+# scripts/bring-up-coordinator.sh:183: assign to a clearly-named local
+# var, unset at the end, never echo. The host-side env var is
+# AWARE_DB_PWD; AWARE_POSTGRES_PASSWORD is the in-container view of
+# the same value and is NEVER set on the host.
+if [ -z "${AWARE_DB_PWD:-}" ]; then
+  warn "AWARE_DB_PWD is not set; using compose file's dev-only default. Override with: export AWARE_DB_PWD=... before running."
+  AWARE_DB_PWD="dev-only-pwd"
 fi
-PGPASSWORD_VALUE="$AWARE_POSTGRES_PASSWORD"
+PGPASSWORD_VALUE="$AWARE_DB_PWD"
 export PGPASSWORD="$PGPASSWORD_VALUE"
 trap 'unset PGPASSWORD PGPASSWORD_VALUE' EXIT
 
