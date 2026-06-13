@@ -43,7 +43,11 @@ function throwingHealthRouter() {
 }
 
 async function withServer(opts, fn) {
-  const handle = await startServer(opts);
+  // The lora-reloader polls every 5s by default, which keeps the
+  // test event loop alive after assertions complete. Disable it
+  // for tests; the lora-reloader is covered by its own test file
+  // (test/unit/coordinator/lora-reloader.test.js).
+  const handle = await startServer({ ...opts, disableLoraReloader: true });
   try {
     await fn(handle);
   } finally {
@@ -618,5 +622,90 @@ test('GET /version surfaces kill_switch state', async () => {
   } finally {
     if (prev === undefined) delete process.env.AWARE_KILL_SWITCH;
     else process.env.AWARE_KILL_SWITCH = prev;
+  }
+});
+
+// Bug #15: lora-reloader should be wired into the coordinator
+// process at startup. Verify it gets constructed and exposed
+// on the startServer() return value, and that the OLLAMA_URL
+// fallback gracefully skips wiring when the env var is missing
+// (so dev/test runs without Ollama don't crash at boot).
+test('bug #15: startServer returns loraReloader when OLLAMA_URL is set + reloader enabled', async () => {
+  // Ensure loraReloader is enabled (default) and OLLAMA_URL is set
+  // so the wiring kicks in. Use a high poll interval so the
+  // test process can exit cleanly.
+  const prevUrl = process.env.OLLAMA_URL;
+  const prevEnabled = process.env.AWARE_LORA_RELOADER_ENABLED;
+  const prevPoll = process.env.AWARE_LORA_RELOADER_POLL_INTERVAL_MS;
+  process.env.OLLAMA_URL = prevUrl || 'http://127.0.0.1:11434';
+  process.env.AWARE_LORA_RELOADER_ENABLED = 'true';
+  process.env.AWARE_LORA_RELOADER_POLL_INTERVAL_MS = '60000';  // 60s, won't fire during test
+  try {
+    const handle = await startServer({
+      port: 0,
+      router: stubRouter([{ name: 'minimax', healthy: true }]),
+      // Note: NOT passing disableLoraReloader — that's the whole point
+    });
+    try {
+      assert.ok(handle.loraReloader, 'startServer should expose loraReloader when wiring succeeds');
+      assert.equal(typeof handle.loraReloader.start, 'function');
+      assert.equal(typeof handle.loraReloader.stop, 'function');
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    if (prevUrl === undefined) delete process.env.OLLAMA_URL;
+    else process.env.OLLAMA_URL = prevUrl;
+    if (prevEnabled === undefined) delete process.env.AWARE_LORA_RELOADER_ENABLED;
+    else process.env.AWARE_LORA_RELOADER_ENABLED = prevEnabled;
+    if (prevPoll === undefined) delete process.env.AWARE_LORA_RELOADER_POLL_INTERVAL_MS;
+    else process.env.AWARE_LORA_RELOADER_POLL_INTERVAL_MS = prevPoll;
+  }
+});
+
+test('bug #15: startServer skips loraReloader when AWARE_LORA_RELOADER_ENABLED=false', async () => {
+  // The supported way to opt out of the lora-reloader. The
+  // OLLAMA_URL-missing path is unreachable through env vars
+  // (the config getter falls back to the default for empty
+  // strings), so we exercise the explicit opt-out instead.
+  const prevEnabled = process.env.AWARE_LORA_RELOADER_ENABLED;
+  process.env.AWARE_LORA_RELOADER_ENABLED = 'false';
+  try {
+    const handle = await startServer({
+      port: 0,
+      router: stubRouter([{ name: 'minimax', healthy: true }]),
+    });
+    try {
+      assert.equal(handle.loraReloader, null, 'loraReloader should be null when AWARE_LORA_RELOADER_ENABLED=false');
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    if (prevEnabled === undefined) delete process.env.AWARE_LORA_RELOADER_ENABLED;
+    else process.env.AWARE_LORA_RELOADER_ENABLED = prevEnabled;
+  }
+});
+
+test('bug #15: startServer respects disableLoraReloader=true opt-out', async () => {
+  // Even with OLLAMA_URL set and the reloader enabled, the
+  // explicit opt-out should skip wiring. This is the test helper
+  // pattern (withServer) — and the reason the lora-reloader's
+  // 5s poll interval doesn't keep the test process alive.
+  const prevUrl = process.env.OLLAMA_URL;
+  process.env.OLLAMA_URL = 'http://127.0.0.1:11434';
+  try {
+    const handle = await startServer({
+      port: 0,
+      router: stubRouter([{ name: 'minimax', healthy: true }]),
+      disableLoraReloader: true,
+    });
+    try {
+      assert.equal(handle.loraReloader, null, 'loraReloader should be null when disableLoraReloader=true');
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    if (prevUrl === undefined) delete process.env.OLLAMA_URL;
+    else process.env.OLLAMA_URL = prevUrl;
   }
 });
