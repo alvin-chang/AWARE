@@ -191,7 +191,14 @@ const config = {
     get pollIntervalSec() { return num('AWARE_TRAINER_POLL_INTERVAL_SEC', 300, { min: 10, max: 86400 }); },
     get minPairsPerRun() { return num('AWARE_TRAINER_MIN_PAIRS_PER_RUN', 100, { min: 1, max: 1000000 }); },
     get configPath() { return str('AWARE_TRAINER_CONFIG', 'config/modal-training.json'); },
-    get weightsDir() { return str('AWARE_TRAINER_WEIGHTS_DIR', '/root/aware-weights'); },
+    // The default weights dir matches the compose file's override
+    // (AWARE_TRAINER_WEIGHTS_DIR=/opt/aware/weights/active), and the
+    // dir is pre-created + chown'd in Dockerfile.coordinator's
+    // runtime stage so the trainer can atomic-symlink-swap without
+    // hitting the non-root user's write-permission wall on /opt/.
+    // See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+    // MEDIUM-2.
+    get weightsDir() { return str('AWARE_TRAINER_WEIGHTS_DIR', '/opt/aware/weights/active'); },
     get baseModel() { return str('AWARE_TRAINER_BASE_MODEL', 'Qwen/trained-model'); },
     get gpuType() { return str('AWARE_TRAINER_GPU_TYPE', 'A100-80GB'); },
     get jobTimeoutSec() { return num('AWARE_TRAINER_JOB_TIMEOUT_SEC', 18000, { min: 60, max: 86400 }); },

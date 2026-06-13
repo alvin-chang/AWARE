@@ -269,7 +269,14 @@ services:
       - AWARE_TRAINER_ENABLED=${AWARE_TRAINER_ENABLED:-0}
       - AWARE_TRAINER_POLL_INTERVAL_SEC=${AWARE_TRAINER_POLL_INTERVAL_SEC:-300}
       - AWARE_TRAINER_MIN_PAIRS_PER_RUN=${AWARE_TRAINER_MIN_PAIRS_PER_RUN:-100}
-      - AWARE_TRAINER_CONFIG=${AWARE_TRAINER_CONFIG:-/opt/aware/config/modal-training.json}
+      # AWARE_TRAINER_CONFIG default points at the in-image baked
+      # config (see Dockerfile.coordinator COPY of
+      # config/modal-training.json to /app/config/modal-training.json).
+      # Operators can override with a custom path; the bind-mount
+      # override at /opt/aware/config/... was removed (see
+      # docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+      # BLOCKER-1).
+      - AWARE_TRAINER_CONFIG=${AWARE_TRAINER_CONFIG:-/app/config/modal-training.json}
       - AWARE_TRAINER_WEIGHTS_DIR=${AWARE_TRAINER_WEIGHTS_DIR:-/opt/aware/weights/active}
       - AWARE_TRAINER_BASE_MODEL=${AWARE_TRAINER_BASE_MODEL:-unsloth/Qwen2.5-7B-Instruct-bnb-4bit}
       - AWARE_TRAINER_GPU_TYPE=${AWARE_TRAINER_GPU_TYPE:-A100-80GB}
@@ -288,9 +295,17 @@ services:
       # before they're uploaded to a Modal Volume. A named volume
       # survives across container restarts.
       - aware-2-trainer-data:/opt/aware/data
-      # The modal-training.json config is baked into the image, but
-      # mounting it lets the operator override without rebuilding.
-      - ./config/modal-training.json:/opt/aware/config/modal-training.json:ro
+      # NOTE: config/modal-training.json is baked into the image at
+      # /app/config/modal-training.json (see Dockerfile.coordinator).
+      # An earlier revision of this compose file mounted the host
+      # file to /opt/aware/config/modal-training.json via bind mount;
+      # that bind conflicted with the named-volume mount point at
+      # /opt/aware/, causing Docker to auto-create /opt/aware/config/
+      # as a directory (which then returned EISDIR on readFile). The
+      # in-image copy is the canonical source; operators who need to
+      # hot-swap can override via AWARE_TRAINER_CONFIG env var.
+      # See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+      # BLOCKER-1.
     depends_on:
       postgres:
         condition: service_healthy
