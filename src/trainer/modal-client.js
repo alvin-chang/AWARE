@@ -214,55 +214,62 @@ export function makeModalClient(opts = {}) {
     // Stage the dataset in the volume mount path the training script
     // expects. The script reads from this path; in the production
     // deployment the volume is mounted inside the Modal container.
-    // For the pre-deployed model, the dataset is uploaded as a
-    // function argument (the script's `dataset_path` kwarg).
     //
-    // R2 design note: we pass `datasetPath` (a local file path) as
-    // the spawn kwarg. The training script reads that file. The
-    // Modal container's filesystem is fresh per-job, so the file
-    // content needs to be passed either as bytes or as a Volume
-    // mount. We do the latter: the script expects the dataset at
-    // /root/aware-data/datasets/<runId>.jsonl on a mounted volume.
-    // The poller writes to that path locally (the modal volume
-    // mount), and the training script reads it.
+    // R3 contract: the JS Modal SDK (modal@0.8.x) does NOT expose a
+    // Volume.writeFile / Volume.putFiles API (see node_modules/modal
+    // /dist/index.d.ts — `declare class Volume` has no write method).
+    // We pass the dataset BYTES as a function arg. The Python
+    // `train()` in training/app.py writes the bytes to
+    // <volume_mount>/datasets/<runId>.jsonl. This is the simplest
+    // way to get the dataset into the Modal container's Volume
+    // without an SDK upload method. The dataset is small (KB-MB for
+    // D5; for real D5 with 100K+ pairs we'd want a proper
+    // multipart upload via the Modal REST API, which is a follow-up).
+    //
+    // The poller writes to datasetPath locally; the Python `train()`
+    // synthesizes argv with --dataset <remoteDatasetPath> and reads
+    // that file inside the Modal container's Volume mount.
     const volumeName = trainingConfig.modal_volume?.name;
     const volumeMount = trainingConfig.modal_volume?.mount_path || '/root/aware-data';
     const remoteDatasetPath = path.posix.join(
       volumeMount, 'datasets', `${runId}.jsonl`
     );
 
-    // The training script expects the dataset to be at
-    // <volume_mount>/datasets/<runId>.jsonl. Ensure the parent dir
-    // exists locally (the poller runs on the host; the volume mount
-    // is the host's local path). The training container inherits
-    // the same volume and sees the file.
+    // Ensure the parent dir exists locally (the poller runs on the
+    // host; this is just a safety net for the bytes-read).
     await fsp.mkdir(path.dirname(datasetPath), { recursive: true });
-    // The actual write of DPO pair content is part of Phase 4 (the
-    // outcome filter). For now the trainer writes an empty
-    // placeholder, which the training script's --smoke path can
-    // handle (1-pair dry run).
     if (!fs.existsSync(datasetPath)) {
+      // Phase 4 deliverable 1: outcome filter writes the actual DPO
+      // dataset content here. The trainer packaging flow
+      // (src/trainer/index.js:_packageDataset) populates this file
+      // BEFORE calling submit(). If the file is still empty, the
+      // script's --smoke path can handle 1-pair dry runs but a real
+      // job will fail with dataset_not_found.
       await fsp.writeFile(datasetPath, '');
     }
+    const datasetBytes = await fsp.readFile(datasetPath);
 
     if (volumeName) {
       logger.info(
         `submitting runId=${runId}; app=${appName} fn=${functionName} ` +
         `volume=${volumeName} mount=${volumeMount} ` +
-        `remote_dataset=${remoteDatasetPath} local_dataset=${datasetPath}`
+        `remote_dataset=${remoteDatasetPath} local_dataset=${datasetPath} ` +
+        `bytes=${datasetBytes.length}`
       );
     } else {
       logger.info(
         `submitting runId=${runId}; app=${appName} fn=${functionName} ` +
-        `remote_dataset=${remoteDatasetPath}`
+        `remote_dataset=${remoteDatasetPath} bytes=${datasetBytes.length}`
       );
     }
 
-    // Submit the function call. The training script signature is:
-    //   def train(run_id: str, dataset_path: str, config: dict) -> dict
-    // In JS, we pass positional args + kwargs to match.
+    // Submit the function call. Signature:
+    //   def train(run_id: str, dataset_path: str, config: dict, dataset_bytes: bytes) -> int
+    // We pass the dataset bytes as a 4th arg; the Python `train()`
+    // writes them to <volume_mount>/datasets/<runId>.jsonl before
+    // calling main().
     const call = await fn.spawn(
-      [runId, remoteDatasetPath, trainingConfig],
+      [runId, remoteDatasetPath, trainingConfig, datasetBytes],
       {}
     );
 

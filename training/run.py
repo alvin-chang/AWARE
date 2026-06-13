@@ -114,7 +114,7 @@ def log(event: str, **fields: Any) -> None:
 # -- CLI -------------------------------------------------------------------
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> tuple[argparse.Namespace, list[str]]:
     """Parse the job's CLI args. The trainer service builds the command
     line from the modal-training.json config + the env vars; the script
     is invoked once per job.
@@ -122,6 +122,16 @@ def parse_args() -> argparse.Namespace:
     Defaults match config/modal-training.json so the script works
     standalone (e.g. for manual debugging inside the container) as
     well as under Modal orchestration.
+
+    Uses parse_known_args() so that any args Modal injects via its
+    container entrypoint (e.g. `python -u -R --check-hash-based-pycs
+    never -m modal._container_entrypoint`) are silently ignored
+    rather than triggering an `unrecognized arguments` exit. The
+    Modal-app form (training/app.py) synthesizes a clean argv and
+    calls main() directly, so this only matters for the docker
+    ENTRYPOINT path (`python3 -m training.run --help` etc.).
+    See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+    follow-up: Modal entrypoint contract.
     """
     p = argparse.ArgumentParser(
         prog="training.run",
@@ -167,7 +177,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run a 1-pair smoke test (load model, run 1 DPO step, save). Verifies the image works end-to-end without burning GPU hours.",
     )
-    return p.parse_args()
+    return p.parse_known_args()
 
 
 # -- Config ---------------------------------------------------------------
@@ -711,11 +721,18 @@ def save_checkpoint(
         log("adapter_saved", path=str(adapter_dir), size_mb=sizes_mb["adapter_mb"])
 
     if save_merged:
-        # Merge LoRA into base, save as 16-bit model
+        # Merge LoRA into base, save as 16-bit model.
+        # training-optimizer 2025.4.x exposes merge-and-save as an INSTANCE method on
+        # the model (attached via patch_saving_functions in unsloth/save.py),
+        # not a class method on FastLanguageModel. The earlier
+        # `FastLanguageModel.save_merged_pretrained(...)` form was the
+        # pre-2025 API and has been removed; using it raises
+        # `AttributeError: type object 'FastLanguageModel' has no attribute
+        # 'save_merged_pretrained'` at the very end of a successful
+        # training run. The fix is the call below.
         merged_dir = output_dir / "merged"
-        # training-optimizer's merge_and_save handles 4-bit → 16-bit conversion
-        FastLanguageModel.save_merged_pretrained(
-            model, tokenizer, str(merged_dir), save_method="merged_16bit",
+        model.save_pretrained_merged(
+            str(merged_dir), tokenizer, save_method="merged_16bit",
         )
         sizes_mb["merged_mb"] = round(_dir_size_mb(merged_dir), 1)
         log("merged_saved", path=str(merged_dir), size_mb=sizes_mb["merged_mb"])
@@ -749,7 +766,7 @@ def _dir_size_mb(p: Path) -> float:
 
 
 def main() -> int:
-    args = parse_args()
+    args, _unknown = parse_args()  # parse_known_args: ignore Modal's container-entrypoint args
     run_id = args.run_id or uuid.uuid4().hex[:12]
     started = time.time()
 
