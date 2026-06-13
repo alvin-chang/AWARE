@@ -235,13 +235,16 @@ wait_for_run() {
   local deadline=$((SECONDS + TIMEOUT_MIN * 60))
   local last_status=""
 
+  # Use docker exec to query the postgres container (psql not on host PATH).
   while [ "$SECONDS" -lt "$deadline" ]; do
-    last_status=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-      -tAc "SELECT COALESCE(status, 'none') FROM aware_training_runs ORDER BY started_at DESC LIMIT 1" 2>/dev/null || echo "query-failed")
+    last_status=$(docker exec -e PGPASSWORD="$PGP...UE" aware-2-postgres \
+      psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+      "SELECT COALESCE(status, 'none') FROM aware_training_runs ORDER BY started_at DESC LIMIT 1" 2>/dev/null || echo "query-failed")
     case "$last_status" in
       completed|success|succeeded)
         ok "training run completed (status: $last_status)"
-        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+        docker exec -e PGPASSWORD="$PGP...UE" aware-2-postgres \
+          psql -U "$DB_USER" -d "$DB_NAME" \
           -c "SELECT run_id, status, n_pairs, started_at, completed_at FROM aware_training_runs ORDER BY started_at DESC LIMIT 1"
         return 0
         ;;
@@ -269,16 +272,17 @@ wait_for_run() {
   fail "timed out after ${TIMEOUT_MIN} min waiting for training run to complete. Last status: $last_status"
 }
 
-# ─── Step 4: Verify AZR corpus ingested ──────────────────────────────
 verify_azr() {
   step "Step 4/4: verifying AZR corpus ingestion"
   local row_count
   local passed_count
 
-  row_count=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-    -tAc "SELECT COUNT(*) FROM aware_azr_results" 2>/dev/null || echo "0")
-  passed_count=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-    -tAc "SELECT COUNT(*) FROM aware_azr_results WHERE passed=true" 2>/dev/null || echo "0")
+  row_count=$(docker exec -e PGPASSWORD="$PGP...UE" aware-2-postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+    "SELECT COUNT(*) FROM aware_azr_results" 2>/dev/null || echo "0")
+  passed_count=$(docker exec -e PGPASSWORD="$PGP...UE" aware-2-postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+    "SELECT COUNT(*) FROM aware_azr_results WHERE passed=true" 2>/dev/null || echo "0")
 
   log "  aware_azr_results rows: $row_count  (passed: $passed_count)"
 
