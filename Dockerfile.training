@@ -99,13 +99,22 @@ ENV PYTHONPATH="/opt/aware:${PYTHONPATH}"
 # /opt/aware so the imports resolve cleanly.
 WORKDIR /opt/aware
 
-# Default entrypoint. The trainer service overrides this per-job
-# with `python3 -m training.run --dataset <path> --output <path>`.
-# Keeping a default makes `docker run` on this image useful for
-# manual debugging (e.g. `docker run --gpus all -it aware-training:latest
-# /bin/bash`).
-ENTRYPOINT ["python3", "-m", "training.run"]
-CMD ["--help"]
+# Modal's container entrypoint. This is the process that imports the
+# registered App and dispatches function calls to them. The previous
+# revision had ENTRYPOINT=["python3", "-m", "training.run"] + CMD=["--help"],
+# which caused Modal to invoke `python3 -m training.run` as the main
+# process (because Modal doesn't override the image's ENTRYPOINT). The
+# `app.py:train()` decorated function was never reached, and the script
+# either printed help or rejected Modal's injected args with argparse.
+#
+# With this ENTRYPOINT, Modal's container_entrypoint is the main process
+# and dispatches the registered function (app.py:train) to the call.
+# For manual debug (`docker run -it aware-training:latest /bin/bash`),
+# the operator overrides the entrypoint explicitly.
+# See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+# follow-up: Modal entrypoint contract.
+ENTRYPOINT ["python3", "-m", "modal._container_entrypoint"]
+CMD []
 
 # HEALTHCHECK is intentionally absent. This image is not a long-running
 # service — it's a job runner. The trainer service (Node) is what polls

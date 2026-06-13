@@ -107,15 +107,22 @@ _timeout = _modal_config.get("timeout_seconds", 18000)
     cpu=_resources_cfg.get("cpu_cores", 8),
     memory=_resources_cfg.get("memory_mb", 32768),
 )
-def train(run_id: str, dataset_path: str, config: dict) -> int:
+def train(run_id: str, dataset_path: str, config: dict, dataset_bytes: bytes = b"") -> int:
     """Modal entrypoint - synthesizes argv from spawn() args and calls main().
 
     Contract (matched by src/trainer/modal-client.js):
-        fn.spawn([runId, datasetPath, config], {})
+        fn.spawn([runId, datasetPath, config, datasetBytes], {})
 
-    We write config to <volume>/config.json so the existing main() in
-    training/run.py can read it via load_config() - keeps the CLI and
-    Modal paths unified (one config loader, not two).
+    We write config to <volume>/config.json and the dataset bytes to
+    <volume>/datasets/<runId>.jsonl so the existing main() in
+    training/run.py can read both via its CLI flags. This keeps the
+    CLI and Modal paths unified (one config loader, not two).
+
+    `dataset_bytes` is the raw content of the DPO dataset JSONL
+    produced by the trainer's _packageDataset() flow. Passing bytes
+    is the simplest way to get the data into the Modal container's
+    Volume without a JS-side Volume upload API (modal@0.8.x JS SDK
+    does not expose Volume.writeFile).
     """
     # Mount the volume into the container's filesystem (Modal requires an
     # explicit reload after writes).
@@ -123,6 +130,19 @@ def train(run_id: str, dataset_path: str, config: dict) -> int:
     config_path = os.path.join(_volume_mount, "config.json")
     with open(config_path, "w") as _f:
         json.dump(config or {}, _f)
+
+    # Write the dataset bytes to the volume. The Modal container's
+    # filesystem is fresh per-job; the volume is the only thing that
+    # persists across the call's lifetime. We honor dataset_path
+    # (the JS side computes it from trainingConfig.modal_volume
+    # .mount_path) so the script's --dataset argv points at the
+    # correct location.
+    dataset_dir = os.path.dirname(dataset_path)
+    if dataset_dir:
+        os.makedirs(dataset_dir, exist_ok=True)
+    if dataset_bytes:
+        with open(dataset_path, "wb") as _f:
+            _f.write(dataset_bytes)
     _volume.reload()
 
     # Import the CLI form and call its main() with a synthesized argv.
