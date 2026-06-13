@@ -118,10 +118,19 @@ done
 # ─── Build the compose invocation ───────────────────────────────────────
 compose_cmd() {
     local cmd="docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT"
-    for p in "${PROFILES[@]:-}"; do
-        cmd="$cmd --profile $p"
-    done
-    cmd="$cmd $1"
+    # NB: only iterate PROFILES if it has elements. '${PROFILES[@]:-}'
+    # evaluates to a single empty string when the array is empty,
+    # which causes the loop to fire once with p="" and produce
+    # "--profile " followed by the subcommand (which docker compose
+    # then mis-parses as a profile name). Length-check guards against
+    # that. The trailing ${arr[@]+"${arr[@]}"} pattern would also work
+    # but is harder to read.
+    if [ "${#PROFILES[@]}" -gt 0 ]; then
+        for p in "${PROFILES[@]}"; do
+            cmd="$cmd --profile $p"
+        done
+    fi
+    cmd="$cmd $*"
     printf "%s" "$cmd"
 }
 
@@ -207,6 +216,43 @@ fi
 info "$(compose_cmd up -d)$profile_summary"
 bash -c "$(compose_cmd up -d)"
 ok "compose up exited 0"
+
+# ─── Apply v2 DB migrations ──────────────────────────────────────────
+# The v2 migrations (004_training_runs.sql, 005_azr_results.sql) are
+# additive (CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS) and
+# idempotent. They are NOT auto-applied by the v1 backend, so we apply
+# them here, in numeric order, after compose up succeeds and before
+# the coordinator's first request. Without this step, the v2 tables
+# would never exist and the trainer's smoke tests would fail with
+# "relation does not exist". To skip: pass --no-migrate.
+SKIP_MIGRATE=0
+for arg in "$@"; do
+    case "$arg" in --no-migrate) SKIP_MIGRATE=1 ;; esac
+done
+if [ "$SKIP_MIGRATE" = "1" ]; then
+    warn "--no-migrate: skipping v2 migrations (operator's responsibility)"
+else
+    section "Applying v2 DB migrations (004, 005)"
+    # Use compose's interpolation to get the same password the postgres
+    # service was initialized with. ${AWARE_DB_PWD:-dev-only-pwd} matches
+    # the compose file's fallback.
+    PG_PWD_VALUE="${AWARE_DB_PWD:-dev-only-pwd}"
+    for mig in 004_training_runs 005_azr_results; do
+        mig_file="$REPO_ROOT/db/migrations/${mig}.sql"
+        if [ ! -f "$mig_file" ]; then
+            warn "  $mig.sql not found at $mig_file — skipping (will need to be applied manually)"
+            continue
+        fi
+        info "  applying $mig.sql"
+        if ! docker exec -i -e PGPASSWORD="$PG_PWD_VALUE" aware-2-postgres \
+             psql -U aware -d aware2 -v ON_ERROR_STOP=1 \
+             < "$mig_file" 2>&1 | tail -3; then
+            die "$mig.sql failed to apply — check postgres logs and fix manually"
+        fi
+        ok "  $mig.sql applied"
+    done
+    unset PG_PWD_VALUE
+fi
 
 # ─── Wait for health ────────────────────────────────────────────────────
 section "Waiting for health endpoints"
