@@ -129,9 +129,16 @@ preflight() {
   if ! modal profile list >/dev/null 2>&1; then
     fail "modal profile list failed. Run: modal token set  (or modal token new)"
   fi
-  if ! modal profile list 2>/dev/null | grep -q "$MODAL_PROFILE"; then
+  # NB: don't use `! ... | grep -q` under `set -o pipefail` — bash's pipefail
+  # short-circuits on the upstream command's exit code, and `modal profile
+  # list` writes informational output that confuses the pipeline. Use a
+  # captured variable instead, which is portable across bash 3.2/4.x/5.x.
+  modal profile list 2>/dev/null > /tmp/modal-profiles.$$.txt
+  if ! grep -q "$MODAL_PROFILE" /tmp/modal-profiles.$$.txt; then
+    rm -f /tmp/modal-profiles.$$.txt
     fail "modal profile '$MODAL_PROFILE' not configured. Run: modal token set (default workspace: $MODAL_PROFILE)"
   fi
+  rm -f /tmp/modal-profiles.$$.txt
   ok "modal profile '$MODAL_PROFILE' configured"
 
   # 3. Modal app empty (per the standing goal: 'it''s all empty')
@@ -153,19 +160,25 @@ preflight() {
   ok "docker + compose present: $(docker --version | head -1)"
 
   # 5. Postgres reachable
-  if ! command -v psql >/dev/null 2>&1; then
-    fail "psql not found. Install: brew install postgresql@16  (or use Docker for the DB)."
+  # Use docker exec against the aware-2-postgres container (matches the
+  # pattern in scripts/bring-up-coordinator.sh). This avoids requiring
+  # psql on the host PATH — the v2 stack always talks to postgres
+  # through the container.
+  if ! docker inspect --format '{{.State.Running}}' aware-2-postgres 2>/dev/null | grep -q true; then
+    fail "Container 'aware-2-postgres' is not running. Bring up the v2 stack first: scripts/aware-up"
   fi
-  if ! psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-       -c "SELECT 1" >/dev/null 2>&1; then
-    fail "Cannot reach postgres at $DB_HOST:$DB_PORT/$DB_NAME as $DB_USER. Bring up the v2 stack first: scripts/aware-up"
+  if ! docker exec -e PGPASSWORD="$PGPASSWORD_VALUE" aware-2-postgres \
+       pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+    fail "Postgres inside aware-2-postgres is not ready. Check: docker logs aware-2-postgres"
   fi
-  ok "postgres reachable: $DB_HOST:$DB_PORT/$DB_NAME"
+  ok "postgres reachable via docker exec: aware-2-postgres ($DB_USER@$DB_NAME)"
 
   # 6. Required tables present
   for table in aware_training_runs aware_azr_results; do
-    if ! psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-         -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='$table'" 2>/dev/null | grep -q 1; then
+    if ! docker exec -e PGPASSWORD="$PGPASSWORD_VALUE" aware-2-postgres \
+         psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+         "SELECT 1 FROM information_schema.tables WHERE table_name='$table'" 2>/dev/null \
+         | grep -q 1; then
       fail "Required table '$table' missing. Run migrations: docker compose -p aware-2 up -d postgres && npm run migrate"
     fi
   done
