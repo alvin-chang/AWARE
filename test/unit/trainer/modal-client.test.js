@@ -580,3 +580,125 @@ test('resolveInflight (on makeModalClient): poll() translates FunctionTimeoutErr
     delete process.env.<redacted-credential-name>;
   }
 });
+
+// Bug #13: getCheckpoint should read run_summary.json (what the
+// training script actually writes) and extract sizes_mb.merged_mb,
+// not look for a <runId>.size sentinel file that the python side
+// never produces.
+test('getCheckpoint reads run_summary.json sizes_mb.merged_mb (bug #13)', async () => {
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: { fromId: async (jobId) => ({ functionCallId: jobId, get: async () => ({ ok: true }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  // Create a fake run_summary.json at the volume mount path the
+  // getCheckpoint() function will look at. We use a temp dir as
+  // the volumeMount by passing it via resolveInflight's opts.
+  const volumeMount = path.join(tmpDir, 'vol-mount');
+  const ckptDir = path.join(volumeMount, 'checkpoints', 'run-test-13');
+  fs.mkdirSync(ckptDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(ckptDir, 'run_summary.json'),
+    JSON.stringify({
+      saved_at: '2026-06-13T12:00:00Z',
+      sizes_mb: { merged_mb: 8182.1, adapter_mb: 12.3 },
+      save_merged: true,
+      save_adapter: true,
+    })
+  );
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-13', {
+      runId: 'run-test-13',
+      volumeMount,
+    });
+    assert.ok(handle, 'resolveInflight returned a handle');
+    const ckpt = await handle.getCheckpoint();
+    // The merged_mb in our fake summary is 8182.1; getCheckpoint
+    // should round it to 8182.
+    assert.equal(ckpt.sizeMb, 8182, 'sizeMb should be Math.round(merged_mb)');
+    assert.match(ckpt.checkpointPath, /\/checkpoints\/run-test-13$/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});
+
+test('getCheckpoint falls back to adapter_mb when merged_mb is missing (bug #13)', async () => {
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: { fromId: async (jobId) => ({ functionCallId: jobId, get: async () => ({ ok: true }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  const volumeMount = path.join(tmpDir, 'vol-mount');
+  const ckptDir = path.join(volumeMount, 'checkpoints', 'run-adapter-only');
+  fs.mkdirSync(ckptDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(ckptDir, 'run_summary.json'),
+    JSON.stringify({ sizes_mb: { adapter_mb: 47.6 } })
+  );
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-13b', {
+      runId: 'run-adapter-only',
+      volumeMount,
+    });
+    const ckpt = await handle.getCheckpoint();
+    assert.equal(ckpt.sizeMb, 48, 'sizeMb should be Math.round(adapter_mb) when merged_mb missing');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});
+
+test('getCheckpoint returns sizeMb=0 when run_summary.json does not exist (bug #13 + #14)', async () => {
+  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
+  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: { fromId: async (jobId) => ({ functionCallId: jobId, get: async () => ({ ok: true }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  // Point volumeMount at a directory with NO checkpoint dir
+  // (simulates the v2 stack where the trainer host can't see the
+  // Modal volume at all — bug #14).
+  const volumeMount = path.join(tmpDir, 'empty-vol-mount');
+  fs.mkdirSync(volumeMount, { recursive: true });
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-13c', {
+      runId: 'run-not-on-host',
+      volumeMount,
+    });
+    const ckpt = await handle.getCheckpoint();
+    assert.equal(ckpt.sizeMb, 0, 'sizeMb should be 0 when no run_summary.json is readable from the trainer host');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});
