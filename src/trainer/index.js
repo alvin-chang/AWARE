@@ -770,11 +770,38 @@ export class TrainerPoller {
 
   /**
    * Resolve a live Modal job handle from a run_id + modal_job_id.
-   * Default implementation returns null (no live handles in tests).
-   * Override via deps.resolveInflight for production.
+   * Delegates to the modal client (modal-client.js) which uses
+   * the JS SDK's `client.functionCalls.fromId(jobId)` to re-attach
+   * to in-flight runs after a trainer restart.
+   *
+   * Returns null if:
+   *   - the modal client has no resolveInflight (test stub default)
+   *   - the SDK call throws (NotFoundError, auth error, etc.)
+   *   - the SDK is older than 0.8.0 and lacks functionCalls.fromId
+   *
+   * In all those cases the trainer logs the warn and continues —
+   * the next tick will try again. Operator can also mark a stuck
+   * 'running' row as failed/completed manually in psql.
+   *
+   * The trainer's `_trainingConfig` is the same config the run was
+   * submitted with, so we pass volumeMount and timeoutSeconds
+   * through so the handle's getCheckpoint() can find the size
+   * sentinel.
    */
-  async _resolveInflight(_runId, _jobId) {
-    return null;
+  async _resolveInflight(_runId, jobId) {
+    if (!jobId) return null;
+    const modalClient = this.deps?.modalClient;
+    if (!modalClient || typeof modalClient.resolveInflight !== 'function') {
+      // Default stub (test seam) or older client — can't re-attach.
+      return null;
+    }
+    const tc = this._trainingConfig || {};
+    return await modalClient.resolveInflight(jobId, {
+      appName: tc.app_name,
+      runId: _runId,
+      volumeMount: tc.modal_volume?.mount_path,
+      timeoutSeconds: tc.timeout_seconds,
+    });
   }
 
   async _atomicSymlinkSwap(checkpointPath) {

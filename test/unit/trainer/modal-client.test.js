@@ -411,13 +411,172 @@ test('submit: poll translates modal failure (thrown) → failed/exitCode=1/excep
 });
 
 // -- resolveInflight -----------------------------------------------
+//
+// R3: the JS SDK's `client.functionCalls.fromId(jobId)` IS
+// available in modal@>=0.8.0, so resolveInflight is now a real
+// implementation, not a stub. The trainer (src/trainer/index.js)
+// delegates to `this.deps.modalClient.resolveInflight(jobId, opts)`
+// and the modal-client exports the function on the
+// `makeModalClient()` return value (not as a top-level export).
+//
+// We test the resolveInflight on the makeModalClient handle here.
+// The preflight check ensures tokens are present before we can
+// actually instantiate a ModalClient.
 
-test('resolveInflight: returns null (R2 — no from_id in JS SDK)', async () => {
+test('resolveInflight (on makeModalClient): returns handle wrapping a fromId call', async () => {
   process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
   process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
-  const { resolveInflight } = await import(MODAL_CLIENT_PATH);
-  const r = await resolveInflight('r1', 'fc-x');
-  assert.equal(r, null);
-  delete process.env.MODAL_TOKEN_ID;
-  delete process.env.MODAL_TOKEN_SECRET;
+  // Use a fake SDK that exposes client.functionCalls.fromId with
+  // the same shape as the real SDK. The fromId call should
+  // return a FunctionCall-shaped object with .get({timeoutMs}).
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: {
+        fromId: async (jobId) => ({
+          functionCallId: jobId,
+          get: async () => ({ ok: true }),
+        }),
+      },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-job', { runId: 'r1' });
+    assert.ok(handle, 'resolveInflight should return a handle');
+    assert.equal(handle.jobId, 'fc-test-job');
+    assert.equal(typeof handle.poll, 'function');
+    assert.equal(typeof handle.getCheckpoint, 'function');
+    // poll() against the fake SDK resolves to {ok:true} (any truthy
+    // result is treated as success). The wrapper translates that
+    // to {status:'completed', exitCode:0, result}.
+    const r = await handle.poll();
+    assert.equal(r.status, 'completed');
+    assert.equal(r.exitCode, 0);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
+  }
+});
+
+test('resolveInflight (on makeModalClient): returns null if SDK has no functionCalls.fromId', async () => {
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
+  // Old SDK shape — no functionCalls service. The wrapper should
+  // log a warning and return null (the trainer will warn "no live
+  // job handle; will retry next tick").
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      // No functionCalls property — pre-0.8.0 SDK.
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const r = await c.resolveInflight('fc-test-job', { runId: 'r1' });
+    assert.equal(r, null);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
+  }
+});
+
+test('resolveInflight (on makeModalClient): returns null if fromId throws (NotFoundError etc.)', async () => {
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: {
+        fromId: async () => { throw new Error('NotFoundError: function call not found'); },
+      },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const r = await c.resolveInflight('fc-bad-id', { runId: 'r1' });
+    assert.equal(r, null);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
+  }
+});
+
+test('resolveInflight (on makeModalClient): returns null if jobId is missing', async () => {
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const r = await c.resolveInflight(null);
+    assert.equal(r, null);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
+  }
+});
+
+test('resolveInflight (on makeModalClient): poll() translates FunctionTimeoutError → running', async () => {
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
+  // SDK whose fromId returns a call that throws FunctionTimeoutError
+  // on get({timeoutMs}) — the call is still running.
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: {
+        fromId: async (jobId) => ({
+          functionCallId: jobId,
+          get: async () => {
+            const e = new Error('FunctionTimeoutError: still running');
+            e.name = 'FunctionTimeoutError';
+            throw e;
+          },
+        }),
+      },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-still-running', { runId: 'r1' });
+    const r = await handle.poll();
+    assert.equal(r.status, 'running');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
+  }
 });

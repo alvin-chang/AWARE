@@ -174,6 +174,11 @@ export function makeModalClient(opts = {}) {
     warn: (...a) => console.warn('[aware-trainer:modal]', ...a),
     error: (...a) => console.error('[aware-trainer:modal]', ...a),
   };
+  // Inherit the SDK import path so resolveInflight (which doesn't
+  // take a sdkImport option in its public signature) uses the same
+  // mock SDK that submit() does. Tests inject this via
+  // makeModalClient({ sdkImport: ... }).
+  const optsSdkImport = opts.sdkImport;
 
   /**
    * @param {{runId: string, datasetPath: string, config: object}} args
@@ -281,42 +286,167 @@ export function makeModalClient(opts = {}) {
     }
 
     // Wrap the call's terminal-state result into the trainer's
-    // expected {status, exitCode, errorMessage} shape.
-    async function poll() {
-      // get({timeoutMs: N}) blocks until the call reaches a
-      // terminal state OR N ms elapses. We use a 5-minute window
-      // so the poller's tick loop can interleave other DB work.
-      const timeoutMs = Math.min(300_000, (trainingConfig?.timeout_seconds || 300) * 1000);
-      try {
-        const result = await call.get({ timeoutMs });
-        // Modal returns a generic object on success — there isn't
-        // a typed "status" field. We use try/catch semantics:
-        // resolved promise = completed, thrown = failed.
-        return { status: 'completed', exitCode: 0, result };
-      } catch (e) {
-        // Modal throws a RemoteError on function failure. We
-        // translate to our {status: 'failed', exitCode: 1,
-        // errorMessage}.
-        const msg = e?.message || String(e);
-        if (/timeout/i.test(msg) || /deadline/i.test(msg)) {
-          // Not yet terminal — caller will retry on next tick.
-          return { status: 'running' };
-        }
-        return { status: 'failed', exitCode: 1, errorMessage: msg };
-      }
-    }
+    // expected {status, exitCode, errorMessage} shape. Shared with
+    // resolveInflight() below so both call sites have identical
+    // success/failure/timeout semantics.
+    const handle = _wrapCallHandle(call, {
+      jobId,
+      appName,
+      runId,
+      volumeMount,
+      pollTimeoutMs: Math.min(300_000, (trainingConfig?.timeout_seconds || 300) * 1000),
+      logger,
+    });
 
-    async function getCheckpoint() {
-      // The training script writes its checkpoint to the Modal
-      // Volume. The path is governed by config.checkpoint and
-      // the run-id. The script is responsible for placing a
-      // sentinel file the poller can read.
-      const ckptDir = path.posix.join(volumeMount, 'checkpoints', runId);
-      // sizeMb is informational; the trainer records it but
-      // doesn't gate on it. Best-effort stat via the volume
-      // (the poller's host sees the same volume as the script
-      // if the volume mount is on the host filesystem).
-      let sizeMb = 0;
+    return handle;
+  }
+
+  /**
+   * Re-attach to an in-flight Modal function call by its job id.
+   * Returns the same handle shape as submit() so the trainer's
+   * _pollInflightRun() can use it interchangeably.
+   *
+   * Implementation: the JS SDK exposes
+   * `client.functionCalls.fromId(jobId) → FunctionCall`, where
+   * FunctionCall has `.get({timeoutMs})` and `.cancel()`. There is
+   * no `.poll()` directly, so we wrap get() to convert its
+   * resolved-value / thrown-error / FunctionTimeoutError outcomes
+   * into the trainer's {status, exitCode, errorMessage} shape.
+   *
+   * @param {string} jobId
+   * @param {Object} [opts]
+   * @param {string} [opts.appName] — for the handle's metadata
+   * @param {string} [opts.runId]   — for getCheckpoint() path
+   * @param {string} [opts.volumeMount] — for getCheckpoint() path
+   * @param {number} [opts.pollTimeoutMs] — per-tick wait window
+   * @returns {Promise<{jobId, appName, poll, getCheckpoint} | null>}
+   *   null if the SDK can't resolve the call (e.g. unknown id).
+   */
+  async function resolveInflight(jobId, opts = {}) {
+    if (!jobId) {
+      logger.warn('resolveInflight: missing jobId; returning null');
+      return null;
+    }
+    // Lazily load the SDK via preflightModal so the same
+    // sdkImport + surface-check contract applies as submit(). If
+    // preflight fails (no tokens, no SDK, no surface), we return
+    // null and let the trainer log+continue. The sdkImport is
+    // inherited from makeModalClient's opts (passed in by the
+    // trainer / tests) and can be overridden per-call.
+    const pre = await preflightModal({ sdkImport: opts.sdkImport || optsSdkImport });
+    if (!pre.ok) {
+      logger.warn(
+        `resolveInflight: preflight failed (${pre.reason}: ${pre.detail}); ` +
+        `cannot re-attach to ${jobId}`
+      );
+      return null;
+    }
+    const _sdk = pre.sdk;
+    let call;
+    try {
+      const client = new _sdk.ModalClient();
+      if (!client.functionCalls || typeof client.functionCalls.fromId !== 'function') {
+        logger.warn(
+          'resolveInflight: SDK has no client.functionCalls.fromId; ' +
+          'returning null. Bump the modal JS SDK to >=0.8.0 if this ' +
+          'persists.'
+        );
+        return null;
+      }
+      call = await client.functionCalls.fromId(jobId);
+    } catch (e) {
+      // NotFoundError or auth error — call is gone or unreachable.
+      logger.warn(
+        `resolveInflight: functionCalls.fromId(${jobId}) threw: ` +
+        `${e?.message || e}`
+      );
+      return null;
+    }
+    if (!call || typeof call.get !== 'function') {
+      logger.warn(`resolveInflight: fromId returned a non-call object for ${jobId}`);
+      return null;
+    }
+    return _wrapCallHandle(call, {
+      jobId,
+      appName: opts.appName,
+      runId: opts.runId,
+      // For getCheckpoint(): volume mount + runId both come from the
+      // caller's trainingConfig (the trainer's `_trainingConfig`).
+      // If the caller doesn't supply them, getCheckpoint returns
+      // {checkpointPath: null, sizeMb: 0} and the trainer still
+      // records the run as completed — just without the size
+      // sentinel.
+      volumeMount: opts.volumeMount,
+      pollTimeoutMs: opts.pollTimeoutMs
+        || Math.min(300_000, (opts.timeoutSeconds || 300) * 1000),
+      logger,
+    });
+  }
+
+  return { submit, resolveInflight };
+}
+
+/**
+ * Wrap a Modal FunctionCall object into the trainer's expected
+ * `{jobId, appName, poll, getCheckpoint}` handle shape. Shared by
+ * `submit` (which holds the live call from fn.spawn) and
+ * `resolveInflight` (which re-fetches the call by id from
+ * client.functionCalls.fromId). Idempotent on success/failure
+ * outcomes — both call sites need identical semantics so the
+ * trainer's _pollInflightRun() can treat them interchangeably.
+ *
+ * @param {object} call — Modal FunctionCall with .get({timeoutMs})
+ * @param {object} opts
+ * @param {string} opts.jobId
+ * @param {string} opts.appName
+ * @param {string} [opts.runId] — needed by getCheckpoint()
+ * @param {string} [opts.volumeMount] — needed by getCheckpoint()
+ * @param {number} opts.pollTimeoutMs
+ * @param {object} opts.logger
+ * @returns {{jobId, appName, poll, getCheckpoint}}
+ */
+function _wrapCallHandle(call, opts) {
+  const { jobId, appName, runId, volumeMount, pollTimeoutMs, logger } = opts;
+  const _logger = logger || { info() {}, warn() {}, error() {} };
+
+  async function poll() {
+    // get({timeoutMs: N}) blocks until the call reaches a
+    // terminal state OR N ms elapses. We use the supplied
+    // pollTimeoutMs (caller decides based on the trainer's tick
+    // interval) so the poller's tick loop can interleave other
+    // DB work.
+    try {
+      const result = await call.get({ timeoutMs: pollTimeoutMs });
+      // Modal returns a generic object on success — there isn't
+      // a typed "status" field. We use try/catch semantics:
+      // resolved promise = completed, thrown = failed.
+      return { status: 'completed', exitCode: 0, result };
+    } catch (e) {
+      // Modal throws RemoteError on function failure, and
+      // FunctionTimeoutError if the call is still running.
+      const msg = e?.message || String(e);
+      if (/timeout/i.test(msg) || /deadline/i.test(msg) || e?.name === 'FunctionTimeoutError') {
+        // Not yet terminal — caller will retry on next tick.
+        return { status: 'running' };
+      }
+      return { status: 'failed', exitCode: 1, errorMessage: msg };
+    }
+  }
+
+  async function getCheckpoint() {
+    // The training script writes its checkpoint to the Modal
+    // Volume. The path is governed by config.checkpoint and
+    // the run-id. The script is responsible for placing a
+    // sentinel file the poller can read.
+    const ckptDir = volumeMount
+      ? path.posix.join(volumeMount, 'checkpoints', runId || jobId)
+      : null;
+    // sizeMb is informational; the trainer records it but
+    // doesn't gate on it. Best-effort stat via the volume
+    // (the poller's host sees the same volume as the script
+    // if the volume mount is on the host filesystem).
+    let sizeMb = 0;
+    if (ckptDir) {
       try {
         // The checkpoint is written inside the Modal container
         // and persisted to the volume on commit. The poller
@@ -325,50 +455,23 @@ export function makeModalClient(opts = {}) {
         // the checkpoint existing on the shared volume mount
         // path. The sizeMb is best-effort; the training script
         // should write a `<runId>.size` sentinel that we read.
-        const sizeFile = path.join(ckptDir, `${runId}.size`);
+        const sizeFile = path.join(ckptDir, `${runId || jobId}.size`);
         if (fs.existsSync(sizeFile)) {
           const bytes = parseInt(await fsp.readFile(sizeFile, 'utf8'), 10);
           if (!isNaN(bytes)) sizeMb = Math.round(bytes / (1024 * 1024));
         }
       } catch (e) {
-        logger.warn(`getCheckpoint: could not stat ${ckptDir}: ${e?.message || e}`);
+        _logger.warn(`getCheckpoint: could not stat ${ckptDir}: ${e?.message || e}`);
       }
-      return { checkpointPath: ckptDir, sizeMb };
     }
-
-    return {
-      jobId,
-      appName,
-      poll,
-      getCheckpoint,
-    };
+    return { checkpointPath: ckptDir, sizeMb };
   }
 
-  return { submit };
+  return {
+    jobId,
+    appName,
+    poll,
+    getCheckpoint,
+  };
 }
 
-/**
- * Resolve a live Modal job handle from a runId + modalJobId. Used
- * by src/trainer/index.js to re-attach to in-flight runs after a
- * trainer restart. Returns null if the call can't be found.
- *
- * R2: there is no public `modal.FunctionCall.from_id` factory in
- * the JS SDK. Instead, the client exposes a low-level lookup via
- * the gRPC client. We DO NOT implement the re-attach here — the
- * trainer restart path is a known follow-up (see <internal-doc> "Known
- * scoped-out items"). This function is a stub that always returns
- * null, matching the Node trainer's `_resolveInflight` default.
- *
- * @param {string} runId
- * @param {string} modalJobId
- * @param {Object} [opts]
- * @returns {Promise<object | null>}
- */
-export async function resolveInflight(_runId, _modalJobId, _opts = {}) {
-  // See the comment above. The trainer logs "no live job handle
-  // for run X; will retry next tick" and continues. After several
-  // retries, the run stays in 'pending'/'running' state in
-  // Postgres and the operator can investigate via the Modal
-  // dashboard.
-  return null;
-}
