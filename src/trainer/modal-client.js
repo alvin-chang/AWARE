@@ -434,34 +434,67 @@ function _wrapCallHandle(call, opts) {
   }
 
   async function getCheckpoint() {
-    // The training script writes its checkpoint to the Modal
-    // Volume. The path is governed by config.checkpoint and
-    // the run-id. The script is responsible for placing a
-    // sentinel file the poller can read.
+    // The training script writes its checkpoint to the Modal Volume
+    // at <volume_mount>/checkpoints/<runId>/. The directory contains:
+    //   - merged/        (16-bit merged HF model, ~8GB for trained-model)
+    //   - adapter/       (LoRA adapter, smaller)
+    //   - run_summary.json  (training metrics incl. sizes_mb.merged_mb)
+    //
+    // Bug #13 (2026-06-13): the original implementation looked for a
+    // `<runId>.size` sentinel file that the training script never
+    // writes. The python side writes `run_summary.json` (training/
+    // run.py:758-766) with `sizes_mb.merged_mb` already populated;
+    // we read that here.
+    //
+    // IMPORTANT: ckptDir is a path INSIDE the Modal volume. The
+    // trainer container does not mount the Modal volume directly.
+    // `fs.existsSync(sizeFile)` will always return false in the
+    // v2 stack, so sizeMb is informational-only on the trainer
+    // host. The real sizeMb would be readable only by something
+    // mounted to the same Modal volume (i.e. a follow-up Modal
+    // container, not the trainer). This is bug #14 — see <internal-doc>
+    // for the architecture gap and the operator's options.
     const ckptDir = volumeMount
       ? path.posix.join(volumeMount, 'checkpoints', runId || jobId)
       : null;
-    // sizeMb is informational; the trainer records it but
-    // doesn't gate on it. Best-effort stat via the volume
-    // (the poller's host sees the same volume as the script
-    // if the volume mount is on the host filesystem).
     let sizeMb = 0;
     if (ckptDir) {
-      try {
-        // The checkpoint is written inside the Modal container
-        // and persisted to the volume on commit. The poller
-        // doesn't have direct access to the Modal volume's
-        // content from outside the container — it relies on
-        // the checkpoint existing on the shared volume mount
-        // path. The sizeMb is best-effort; the training script
-        // should write a `<runId>.size` sentinel that we read.
+      // Try run_summary.json first (what the training script actually
+      // writes — sizes_mb.merged_mb is the merged-model size in MB).
+      const summaryFile = path.join(ckptDir, 'run_summary.json');
+      if (fs.existsSync(summaryFile)) {
+        try {
+          const text = await fsp.readFile(summaryFile, 'utf8');
+          const summary = JSON.parse(text);
+          const mergedMb = Number(summary?.sizes_mb?.merged_mb);
+          if (Number.isFinite(mergedMb) && mergedMb > 0) {
+            sizeMb = Math.round(mergedMb);
+          } else {
+            // Fallback: try adapter_mb if merged_mb is missing
+            const adapterMb = Number(summary?.sizes_mb?.adapter_mb);
+            if (Number.isFinite(adapterMb) && adapterMb > 0) {
+              sizeMb = Math.round(adapterMb);
+            }
+          }
+        } catch (e) {
+          _logger.warn(
+            `getCheckpoint: could not parse ${summaryFile}: ${e?.message || e}`
+          );
+        }
+      }
+      // Legacy fallback: <runId>.size sentinel. Kept for backward
+      // compat with any prior run that wrote one. New runs go
+      // through run_summary.json.
+      if (sizeMb === 0) {
         const sizeFile = path.join(ckptDir, `${runId || jobId}.size`);
         if (fs.existsSync(sizeFile)) {
-          const bytes = parseInt(await fsp.readFile(sizeFile, 'utf8'), 10);
-          if (!isNaN(bytes)) sizeMb = Math.round(bytes / (1024 * 1024));
+          try {
+            const bytes = parseInt(await fsp.readFile(sizeFile, 'utf8'), 10);
+            if (!isNaN(bytes) && bytes > 0) sizeMb = Math.round(bytes / (1024 * 1024));
+          } catch (e) {
+            _logger.warn(`getCheckpoint: could not read ${sizeFile}: ${e?.message || e}`);
+          }
         }
-      } catch (e) {
-        _logger.warn(`getCheckpoint: could not stat ${ckptDir}: ${e?.message || e}`);
       }
     }
     return { checkpointPath: ckptDir, sizeMb };
