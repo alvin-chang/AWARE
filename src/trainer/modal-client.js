@@ -461,25 +461,47 @@ function _wrapCallHandle(call, opts) {
     if (ckptDir) {
       // Try run_summary.json first (what the training script actually
       // writes — sizes_mb.merged_mb is the merged-model size in MB).
+      // F-007: read without a prior existsSync() — the writer is the
+      // python training script on Modal and the reader is the node
+      // trainer host; two runtimes sharing a Modal volume mount, so
+      // the TOCTOU window between existsSync and readFile was real.
       const summaryFile = path.join(ckptDir, 'run_summary.json');
-      if (fs.existsSync(summaryFile)) {
+      let summaryText = null;
+      try {
+        summaryText = await fsp.readFile(summaryFile, 'utf8');
+      } catch (e) {
+        // ENOENT (file not written yet) or any read failure — fall
+        // through to the legacy <runId>.size sentinel.
+        if (e?.code !== 'ENOENT') {
+          _logger.warn(
+            `getCheckpoint: could not read ${summaryFile}: ${e?.message || e}`
+          );
+        }
+      }
+      if (summaryText !== null) {
+        let summary;
         try {
-          const text = await fsp.readFile(summaryFile, 'utf8');
-          const summary = JSON.parse(text);
-          const mergedMb = Number(summary?.sizes_mb?.merged_mb);
-          if (Number.isFinite(mergedMb) && mergedMb > 0) {
-            sizeMb = Math.round(mergedMb);
-          } else {
-            // Fallback: try adapter_mb if merged_mb is missing
-            const adapterMb = Number(summary?.sizes_mb?.adapter_mb);
-            if (Number.isFinite(adapterMb) && adapterMb > 0) {
-              sizeMb = Math.round(adapterMb);
-            }
-          }
+          summary = JSON.parse(summaryText);
         } catch (e) {
           _logger.warn(
             `getCheckpoint: could not parse ${summaryFile}: ${e?.message || e}`
           );
+        }
+        if (summary) {
+          // F-002: use >= 0 (nullish-fallthrough semantics matching
+          // the commit message), not > 0. A legitimate 0-MB merged
+          // checkpoint (e.g. peft config that disables merge) is
+          // real data, not a missing value.
+          const mergedMb = Number(summary?.sizes_mb?.merged_mb);
+          if (Number.isFinite(mergedMb) && mergedMb >= 0) {
+            sizeMb = Math.round(mergedMb);
+          } else {
+            // Fallback: try adapter_mb if merged_mb is missing
+            const adapterMb = Number(summary?.sizes_mb?.adapter_mb);
+            if (Number.isFinite(adapterMb) && adapterMb >= 0) {
+              sizeMb = Math.round(adapterMb);
+            }
+          }
         }
       }
       // Legacy fallback: <runId>.size sentinel. Kept for backward
@@ -487,13 +509,17 @@ function _wrapCallHandle(call, opts) {
       // through run_summary.json.
       if (sizeMb === 0) {
         const sizeFile = path.join(ckptDir, `${runId || jobId}.size`);
-        if (fs.existsSync(sizeFile)) {
-          try {
-            const bytes = parseInt(await fsp.readFile(sizeFile, 'utf8'), 10);
-            if (!isNaN(bytes) && bytes > 0) sizeMb = Math.round(bytes / (1024 * 1024));
-          } catch (e) {
+        let sizeText = null;
+        try {
+          sizeText = await fsp.readFile(sizeFile, 'utf8');
+        } catch (e) {
+          if (e?.code !== 'ENOENT') {
             _logger.warn(`getCheckpoint: could not read ${sizeFile}: ${e?.message || e}`);
           }
+        }
+        if (sizeText !== null) {
+          const bytes = parseInt(sizeText, 10);
+          if (!isNaN(bytes) && bytes > 0) sizeMb = Math.round(bytes / (1024 * 1024));
         }
       }
     }

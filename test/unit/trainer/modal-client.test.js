@@ -702,3 +702,92 @@ test('getCheckpoint returns sizeMb=0 when run_summary.json does not exist (bug #
     delete process.env.<redacted-credential-name>;
   }
 });
+
+// F-002: getCheckpoint should return sizeMb=0 (not fall through to
+// adapter_mb) when merged_mb is literally 0. The prior `> 0` check
+// treated 0 as missing data, which masks a legitimate empty-merged
+// checkpoint (e.g. peft config that disables merge).
+test('getCheckpoint returns sizeMb=0 (not adapter_mb fallback) when merged_mb is literally 0 (F-002)', async () => {
+  process.env.<redacted-credential-name> = 'test-tok';
+  process.env.<redacted-credential-name> = 'test-tok';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: { fromId: async (jobId) => ({ functionCallId: jobId, get: async () => ({ ok: true }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  const volumeMount = path.join(tmpDir, 'vol-mount');
+  const ckptDir = path.join(volumeMount, 'checkpoints', 'run-zero-merged');
+  fs.mkdirSync(ckptDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(ckptDir, 'run_summary.json'),
+    JSON.stringify({
+      sizes_mb: { merged_mb: 0, adapter_mb: 47.6 },
+    })
+  );
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-f002', {
+      runId: 'run-zero-merged',
+      volumeMount,
+    });
+    const ckpt = await handle.getCheckpoint();
+    // F-002: a legitimate 0-MB merged checkpoint is real data, not
+    // missing. With `>= 0`, sizeMb is rounded 0 = 0. With the old
+    // `> 0`, the code would fall through to adapter_mb = 48.
+    assert.equal(ckpt.sizeMb, 0,
+      'F-002: merged_mb=0 must yield sizeMb=0, not fall through to adapter_mb');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});
+
+// F-007: getCheckpoint no longer uses fs.existsSync before readFile.
+// The TOCTOU window between the sync existsSync and the async readFile
+// was real (writer is python on Modal, reader is node host, two
+// runtimes sharing a Modal volume mount). New behavior: try the
+// readFile and handle ENOENT cleanly without the prior check.
+test('getCheckpoint handles ENOENT cleanly without existsSync pre-check (F-007)', async () => {
+  process.env.<redacted-credential-name> = 'test-tok';
+  process.env.<redacted-credential-name> = 'test-tok';
+  const fakeImpl = `
+    function ModalClient() { return client; }
+    const client = {
+      volumes: { fromName: async () => ({ name: 'v', _id: 'vol-mock' }) },
+      functions: { fromName: async () => ({ spawn: async () => ({ functionCallId: 'fc-mock', get: async () => ({ ok: true }) }) }) },
+      functionCalls: { fromId: async (jobId) => ({ functionCallId: jobId, get: async () => ({ ok: true }) }) },
+    };
+    export { ModalClient };
+  `;
+  const { fakePath, tmpDir } = writeFakeSdkFile(fakeImpl);
+  // ckptDir intentionally does NOT exist — simulates the case where
+  // run_summary.json was never written (e.g. training crashed before
+  // the python summary write). Old code: existsSync returns false, so
+  // the readFile is never attempted. New code: readFile throws
+  // ENOENT, which is caught and falls through to sizeMb=0.
+  const volumeMount = path.join(tmpDir, 'vol-mount');
+  const ckptDir = path.join(volumeMount, 'checkpoints', 'run-no-summary');
+  // (no mkdirSync — directory does not exist)
+  try {
+    const { makeModalClient } = await import(MODAL_CLIENT_PATH);
+    const c = makeModalClient({ sdkImport: fakePath });
+    const handle = await c.resolveInflight('fc-test-f007', {
+      runId: 'run-no-summary',
+      volumeMount,
+    });
+    const ckpt = await handle.getCheckpoint();
+    assert.equal(ckpt.sizeMb, 0,
+      'F-007: missing ckptDir should yield sizeMb=0 via ENOENT handling, not crash');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.<redacted-credential-name>;
+    delete process.env.<redacted-credential-name>;
+  }
+});

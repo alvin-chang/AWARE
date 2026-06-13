@@ -282,13 +282,18 @@ export function makeLoraReloader(opts) {
     try {
       if (current === null) {
         // Symlink disappeared (operator wiped weightsDir). Don't
-        // reload; just clear the index. The router's next request
-        // will fail with "model not found" which is the right
-        // operator-visible signal.
+        // reload; just clear the index. Ollama keeps the previously-
+        // loaded adapter in memory — it has no 'unload' call and
+        // we don't try to synthesize one here. The gateway will keep
+        // serving with the stale adapter until a new symlink swap
+        // triggers a successful reload. This is a known doc-vs-
+        // behavior gap (F-006) — the comment used to claim "next
+        // /coordinate call will fail" but Ollama silently serves the
+        // last-known-good adapter.
         logger.warn(
           `lora-reloader: active symlink missing (was=${previous}); ` +
-          `clearing lastTarget without reload. Next /coordinate call will ` +
-          `fail until the trainer swaps in a new adapter.`
+          `clearing lastTarget without reload. Ollama will keep ` +
+          `serving the prior adapter until a new symlink swap succeeds.`
         );
         return;
       }
