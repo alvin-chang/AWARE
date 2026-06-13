@@ -179,7 +179,7 @@ preflight() {
          psql -U "$DB_USER" -d "$DB_NAME" -tAc \
          "SELECT 1 FROM information_schema.tables WHERE table_name='$table'" 2>/dev/null \
          | grep -q 1; then
-      fail "Required table '$table' missing. Run migrations: docker compose -p aware-2 up -d postgres && npm run migrate"
+      fail "Required table '$table' missing. Run migrations: docker compose -f docker-compose.coordinator.yml -p aware-2 up -d postgres && npm run migrate"
     fi
   done
   ok "migrations present: aware_training_runs, aware_azr_results"
@@ -223,7 +223,7 @@ boot_trainer() {
   log "  AWARE_TRAINER_AZR_CORPUS_PATH=$AWARE_TRAINER_AZR_CORPUS_PATH"
   log "  AWARE_TRAINER_MIN_PAIRS_PER_RUN=$AWARE_TRAINER_MIN_PAIRS_PER_RUN"
 
-  if ! docker compose -p aware-2 --profile training up -d trainer 2>&1 | tail -10; then
+  if ! docker compose -f docker-compose.coordinator.yml -p aware-2 --profile training up -d trainer 2>&1 | tail -10; then
     fail "docker compose up trainer failed. Check: docker compose -p aware-2 logs trainer"
   fi
   ok "trainer container started"
@@ -249,7 +249,7 @@ wait_for_run() {
         return 0
         ;;
       failed|error)
-        fail "training run FAILED (status: $last_status). Check trainer logs: docker compose -p aware-2 logs trainer"
+        fail "training run FAILED (status: $last_status). Check trainer logs: docker compose -f docker-compose.coordinator.yml -p aware-2 logs trainer"
         ;;
       running|pending|started)
         log "  $(date +%H:%M:%S) status=$last_status, polling again in ${POLL_SEC}s"
@@ -291,7 +291,7 @@ verify_azr() {
   fi
   if [ "${passed_count:-0}" -lt 1 ]; then
     warn "No passing rows in aware_azr_results. The trainer ran but produced only failing AZR results."
-    warn "This is unexpected for trained-model. Investigate: docker compose -p aware-2 logs trainer"
+    warn "This is unexpected for trained-model. Investigate: docker compose -f docker-compose.coordinator.yml -p aware-2 logs trainer"
   fi
   ok "AZR corpus verified: $row_count rows, $passed_count passed"
 
