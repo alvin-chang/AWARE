@@ -24,6 +24,7 @@ import config from '../config/index.cjs';
 import { logConversationFireAndForget } from '../db/logger.js';
 import { runMigrations } from '../db/index.js';
 import { checkBudget, getBudgetStatus, isEnabled as isBudgetEnabled } from '../budget/watchdog.js';
+import { makeLoraReloader } from './lora-reloader.js';
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
 
@@ -103,7 +104,10 @@ function sendText(res, status, text) {
  * @param {string} [opts.host='127.0.0.1']
  * @param {Object} [opts.router] — pre-built router (defaults to buildDefaultRouter())
  * @param {Function} [opts.coordinateFn] — override the coordinate function (used in tests)
- * @returns {Promise<{server: http.Server, port: number, host: string, close: () => Promise<void>}>}
+ * @param {boolean} [opts.disableLoraReloader=false] — skip wiring the
+ *   lora-reloader on startup. Used by tests so the reloader's poll
+ *   interval doesn't keep the test process alive.
+ * @returns {Promise<{server: http.Server, port: number, host: string, close: () => Promise<void>, loraReloader: object|null}>}
  */
 export async function startServer(opts = {}) {
   const host = opts.host ?? config.coordinator.host;
@@ -159,14 +163,81 @@ export async function startServer(opts = {}) {
     });
   });
 
+  // Bug #15 (2026-06-13): the lora-reloader module was previously
+  // exported from coordinator/index.js but never invoked from the
+  // server's startup path. The reloader is the thing that watches
+  // the trainer's active-weights symlink and tells Ollama to
+  // /api/create with the new adapter. Without it, a successful
+  // training run never produces an inference-usable LoRA on the
+  // gateway.
+  //
+  // Wire it up here, gated on config.coordinator.loraReloaderEnabled
+  // (default true). The reloader's start() begins polling on a
+  // timer; the close() returned below stops it on shutdown.
+  //
+  // Tests can opt out via `opts.disableLoraReloader` (the
+  // reloader would otherwise keep the test process alive on its
+  // 5-second poll interval). The OLLAMA_URL-missing case below
+  // is the dev-env fallback for when the reloader is wanted but
+  // the env var isn't set.
+  //
+  // Note: this fix only wires the reloader into the coordinator
+  // process. Bug #14 (the trainer's symlink swap targets a Modal
+  // Volume path the host can't see) is a separate, architectural
+  // issue and is documented in <internal-doc>. With bug #14 still open,
+  // the reloader will poll forever and never see a target change —
+  // which is the correct, safe behavior: the gateway stays on the
+  // base model instead of serving a broken LoRA. Once #14 is
+  // fixed, this wiring becomes the load-bearing piece that
+  // actually delivers a trained LoRA to the gateway.
+  let loraReloader = null;
+  if (!opts.disableLoraReloader && config.coordinator.loraReloaderEnabled) {
+    // Resolve the Ollama URL from the model config (default
+    // 'http://127.0.0.1:11434'). If it ends up empty (e.g. a
+    // dev/test run without OLLAMA_URL set), skip wiring the
+    // reloader rather than throwing at boot — the coordinator
+    // can still serve /coordinate, /health, and /version
+    // without the LoRA hot-reload feature.
+    const ollamaUrl = config.model?.ollamaUrl;
+    if (typeof ollamaUrl !== 'string' || ollamaUrl.length === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[aware-coordinator] lora-reloader skipped: OLLAMA_URL is not set ' +
+        '(config.coordinator.loraReloaderEnabled=true but no Ollama target)'
+      );
+    } else {
+      loraReloader = makeLoraReloader({
+        weightsDir: config.trainer.weightsDir,
+        ollamaUrl,
+        modelName: config.coordinator.loraReloaderModelName,
+        baseModel: config.trainer.baseModel,
+        pollIntervalMs: config.coordinator.loraReloaderPollIntervalMs,
+        reloadTimeoutMs: config.coordinator.loraReloaderTimeoutMs,
+        logger: {
+          info: (...a) => console.log('[aware-coordinator:lora]', ...a),
+          warn: (...a) => console.warn('[aware-coordinator:lora]', ...a),
+          error: (...a) => console.error('[aware-coordinator:lora]', ...a),
+          debug: () => {},
+        },
+      });
+      loraReloader.start();
+    }
+  }
+
   const actualPort = server.address().port;
 
   const close = () =>
     new Promise((resolve) => {
+      if (loraReloader) {
+        // Stop the reloader first so it doesn't try to POST to
+        // Ollama while the process is tearing down.
+        loraReloader.stop().catch(() => { /* swallow on shutdown */ });
+        loraReloader = null;
+      }
       server.close(() => resolve());
     });
 
-  return { server, port: actualPort, host, close };
+  return { server, port: actualPort, host, close, loraReloader };
 }
 
 /**
