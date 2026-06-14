@@ -12,9 +12,9 @@
     "_comment": "Modal Volume for persistent storage: DPO datasets uploaded by the AWARE trainer, weight checkpoints produced by training/run.py, and training logs. Survives across job runs."
   },
   "modal_volumes_extra": {
-    "qwen35-9b-base-cache": {
+    "qwen35-9b-cache": {
       "mount_path": "/root/.cache/huggingface",
-      "_comment": "Modal Volume for the base-model model weights. First run downloads from HuggingFace CDN via hf-transfer (~$0.30, ~5 min). Subsequent runs cache-hit (instant, $0). Created by the v13 smoke test (commit 410af62)."
+      "_comment": "Modal Volume for the base-model (Instruct) model weights. First run downloads from HuggingFace CDN via hf-transfer (~$0.30, ~5 min). Subsequent runs cache-hit (instant, $0). Created by the v14 smoke test (Instruct pivot)."
     },
     "qwen35-dpo-checkpoints": {
       "mount_path": "/checkpoints",
@@ -35,11 +35,11 @@
   },
 
   "timeout_seconds": 18000,
-  "_comment_timeout": "5 hours hard cap. A full 10K-pair DPO run on base-model (4-bit QLoRA via training-framework 4.3.0, batch 1, grad-accum 2, ctx 512) takes ~3-4 hours on A100-80GB (extrapolated from v13 smoke at 5.5-5.91s/it × 5000 steps = 7-8 hours; ctx=512 + 10K pairs = ~5000 effective steps). 5h gives 25% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
+  "_comment_timeout": "5 hours hard cap. A full 10K-pair DPO run on base-model (Instruct; 4-bit QLoRA via training-framework 4.3.0, batch 1, grad-accum 2, ctx 512) takes ~3-4 hours on A100-80GB (extrapolated from v13 smoke at 5.5-5.91s/it × 5000 steps = 7-8 hours; ctx=512 + 10K pairs = ~5000 effective steps). 5h gives 25% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
 
   "dpo_defaults": {
     "base_model": "Qwen/base-model",
-    "_comment_base_model": "base-model (June 2025, multimodal `Qwen3_5ForConditionalGeneration` architecture, 9.65B params, hybrid linear/full attention). Locked in by the v13 smoke test (commit 410af62, 13 attempts, v13 passed in 229.32 sec). The previous trained-model path (R1) is retained as a fallback option (override per-run via trainer service env AWARE_BASE_MODEL).",
+    "_comment_base_model": "base-model (Instruct; June 2025, multimodal `Qwen3_5ForConditionalGeneration` architecture, 9.65B params, hybrid linear/full attention). Pivoted from base-model after the v14 DPO smoke test PASSED on the Instruct variant. Instruct is the official Qwen3.5 chat model (no -Instruct suffix per Qwen3.5 naming convention), DPO works better on a chat-aligned base, and Instruct avoids the need for a --chat-template workaround at serving time. The v13 Base LoRA is now STALE (different base model); the v14 LoRA is the new trained model for OJ. Override per-run via trainer service env AWARE_BASE_MODEL.",
     "max_seq_length": 512,
     "lora_r": 16,
     "lora_alpha": 32,
@@ -55,7 +55,7 @@
     "optim": "adamw_8bit",
     "seed": 42,
     "rpo_alpha": 0.1,
-    "_comment": "Hyperparameters tuned for base-model 4-bit QLoRA on a single A100-80GB via training-framework 4.3.0. The smaller max_seq_length (512 vs 4096) and batch (1 vs 4) are conservative — the v13 smoke ran at 5.5-5.91s/it which gives plenty of headroom for a 10K-pair run on A100-80GB. Bump max_seq_length back to 4096 once the real dataset is flowing (expect ~30s/it at that size). Override per-run via trainer service env (AWARE_DPO_BETA, AWARE_DPO_LR, etc.)."
+    "_comment": "Hyperparameters tuned for base-model (Instruct) 4-bit QLoRA on a single A100-80GB via training-framework 4.3.0. The smaller max_seq_length (512 vs 4096) and batch (1 vs 4) are conservative — the v13 smoke (Base variant) ran at 5.5-5.91s/it which gives plenty of headroom for a 10K-pair run on A100-80GB. Bump max_seq_length back to 4096 once the real dataset is flowing (expect ~30s/it at that size). Override per-run via trainer service env (AWARE_DPO_BETA, AWARE_DPO_LR, etc.)."
   },
 
   "checkpoint": {
