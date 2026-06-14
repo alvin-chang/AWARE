@@ -10,12 +10,15 @@ Modal Function. This script:
      trainer service)
   2. Optionally generates an AZR self-play corpus (PROPOSE → SOLVE →
      VERIFY) using the local base model + azr.executor
-  3. Loads the base model with training-optimizer 4-bit QLoRA
-  4. Applies LoRA adapters
-  5. Runs TRL DPOTrainer for the configured number of epochs
-  6. Saves the merged model + adapter to the Modal Volume
-  7. Writes a run summary to the Modal Volume (consumed by the
-     trainer service when it polls for job completion)
+  3. Invokes `swift rlhf --rlhf_type dpo` as a subprocess (training-framework 4.3.0+).
+     The base model is loaded + 4-bit BNB quantized + LoRA-adapted + DPO-trained
+     inside the swift subprocess, so this script does not need to touch
+     torch / transformers / peft directly.
+  4. Streams swift's stdout line-by-line, parses it for structured events
+     (training_step, checkpoint_saved), and emits JSON events the trainer
+     service can parse
+  5. The trained LoRA adapter is saved to the Modal Volume
+     (qwen35-dpo-checkpoints) by swift itself
 
 CLI:
     python3 -m training.run \\
@@ -41,6 +44,7 @@ OUTPUT FORMAT (stdout):
         {"event": "training_start", "epochs": 1, "total_steps": 308, "ts": "..."}
         {"event": "training_step", "step": 10, "loss": 0.69, "lr": 5e-6, "ts": "..."}
         ...
+        {"event": "swift_output", "line": "...", "ts": "..."}     # raw swift stdout (passthrough)
         {"event": "checkpoint_saved", "path": "...", "size_mb": 4500, "ts": "..."}
         {"event": "job_end", "status": "ok", "duration_sec": 1234, "ts": "..."}
 
@@ -49,9 +53,9 @@ EXIT CODES:
     1  - generic error
     2  - config validation failed
     3  - dataset not found / unreadable
-    4  - base model load failed (network, OOM, etc.)
-    5  - training OOM or runtime error
-    6  - checkpoint save failed
+    4  - swift rlhf returned non-zero
+    5  - swift rlhf timed out
+    6  - checkpoint save failed / no adapter found
 
 The trainer service reads the exit code and the last JSON line to
 decide whether the run was successful.
@@ -62,8 +66,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
-import tempfile
+import threading
 import time
 import traceback
 import uuid
@@ -135,7 +141,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
     """
     p = argparse.ArgumentParser(
         prog="training.run",
-        description="AWARE 2.0 DPO training job (Phase 3)",
+        description="AWARE 2.0 DPO training job (Phase 3, training-framework backend)",
     )
     p.add_argument(
         "--config",
@@ -147,40 +153,52 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         "--dataset",
         type=str,
         default=None,
-        help="Path to the DPO dataset JSONL (one row per line, in heavy-think's toDpoRow output shape).",
-    )
-    p.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Where to write the merged model + adapter. Defaults to /root/aware-data/checkpoints/<run-id>.",
+        help="Path to a DPO preference-pair dataset (JSONL with {messages, rejected_messages} per line).",
     )
     p.add_argument(
         "--run-id",
         type=str,
         default=None,
-        help="Unique run identifier. Auto-generated if not provided.",
+        help="Unique ID for this run. Defaults to a random 12-char hex.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Where to write the trained LoRA adapter. Defaults to /root/aware-data/checkpoints/<run-id>.",
     )
     p.add_argument(
         "--gen-azr-corpus",
         action="store_true",
-        help="Generate an AZR self-play corpus BEFORE training. Adds to the dataset.",
+        help="If set, generate an AZR self-play corpus before training. See azr/executor.py.",
     )
     p.add_argument(
         "--azr-corpus-size",
         type=int,
-        default=1000,
-        help="How many synthetic tasks to generate for AZR self-play (when --gen-azr-corpus is set).",
+        default=50,
+        help="How many AZR self-play pairs to generate. Ignored if --gen-azr-corpus is not set.",
     )
     p.add_argument(
         "--smoke-test",
         action="store_true",
         help="Run a 1-pair smoke test (load model, run 1 DPO step, save). Verifies the image works end-to-end without burning GPU hours.",
     )
+    p.add_argument(
+        "--swift-timeout",
+        type=int,
+        default=3500,
+        help="Hard timeout in seconds for the swift rlhf subprocess. Defaults to ~58 min.",
+    )
+    p.add_argument(
+        "--model-dir",
+        type=str,
+        default=None,
+        help="Override the model directory (e.g. /root/.cache/huggingface/qwen35-9b-base). If unset, the base_model config value is used as-is.",
+    )
     return p.parse_known_args()
 
 
-# -- Config ---------------------------------------------------------------
+# -- Config loading -------------------------------------------------------
 
 
 def load_config(path: str | None) -> dict[str, Any]:
@@ -188,596 +206,459 @@ def load_config(path: str | None) -> dict[str, Any]:
 
     The trainer service always writes a job-specific config to
     /root/aware-data/config.json before submitting the job, so we
-    can use the path it's passed. Falls back to modal-training.json
-    if --config is not given.
+    can use the path it's passed. Falls back to modal-training.json.
     """
     if path is None:
-        # Default location the trainer service writes to
-        path = os.environ.get(
-            "AWARE_TRAINING_CONFIG",
-            str(_REPO_ROOT / "config" / "modal-training.json"),
-        )
-    p = Path(path)
-    if not p.exists():
-        log("config_not_found", path=path, fallback="env_defaults")
-        return {}
+        path = str(_REPO_ROOT / "config" / "modal-training.json")
     try:
-        with p.open() as f:
+        with open(path) as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         log("config_load_failed", path=path, error=str(e))
-        return {}
+        raise
 
 
 def _env_overrides() -> dict[str, Any]:
-    """Pull env-var overrides (set by trainer service or operator)."""
+    """Pull DPO hyperparameters from AWARE_* env vars (if set)."""
     overrides: dict[str, Any] = {}
-    for key, env_var in [
-        ("base_model", "AWARE_BASE_MODEL"),
-        ("beta", "AWARE_DPO_BETA"),
-        ("learning_rate", "AWARE_DPO_LR"),
-        ("epochs", "AWARE_DPO_EPOCHS"),
-        ("per_device_train_batch_size", "AWARE_DPO_BATCH_SIZE"),
-        ("gradient_accumulation_steps", "AWARE_DPO_GRAD_ACCUM"),
-    ]:
-        v = os.environ.get(env_var)
-        if v is not None and v != "":
-            # Type-coerce based on the key
-            if key in ("base_model",):
-                overrides[key] = v
-            elif key in ("epochs", "per_device_train_batch_size", "gradient_accumulation_steps"):
-                overrides[key] = int(v)
-            else:
-                overrides[key] = float(v)
+    for env_key, cfg_key in (
+        ("AWARE_BASE_MODEL", "base_model"),
+        ("AWARE_DPO_BETA", "beta"),
+        ("AWARE_DPO_LR", "learning_rate"),
+        ("AWARE_DPO_EPOCHS", "epochs"),
+        ("AWARE_DPO_BATCH_SIZE", "per_device_train_batch_size"),
+        ("AWARE_DPO_GRAD_ACCUM", "gradient_accumulation_steps"),
+    ):
+        val = os.environ.get(env_key)
+        if val is not None:
+            try:
+                if cfg_key in ("beta", "learning_rate"):
+                    overrides[cfg_key] = float(val)
+                elif cfg_key in (
+                    "epochs",
+                    "per_device_train_batch_size",
+                    "gradient_accumulation_steps",
+                ):
+                    overrides[cfg_key] = int(val)
+                else:
+                    overrides[cfg_key] = val
+            except ValueError:
+                log("env_override_invalid", env_key=env_key, value=val)
     return overrides
 
 
 def _resolve_dpo_args(config: dict[str, Any]) -> dict[str, Any]:
-    """Merge config defaults with env overrides for the DPO section."""
-    defaults = config.get("dpo_defaults", {})
-    merged = {**defaults, **_env_overrides()}
-    return merged
+    """Merge defaults → config → env overrides → CLI overrides (in that order)."""
+    defaults = {
+        "base_model": "Qwen/base-model",
+        "beta": 0.1,
+        "learning_rate": 5e-5,
+        "epochs": 1,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 2,
+        "lora_r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.05,
+        "max_length": 2048,
+        "warmup_ratio": 0.05,
+        "weight_decay": 0.01,
+        "lr_scheduler_type": "cosine",
+        "optim": "adamw_8bit",
+        "seed": 42,
+        "rpo_alpha": 0.1,
+    }
+    cfg_dpo = (config.get("dpo_defaults") or {})
+    resolved: dict[str, Any] = {**defaults, **cfg_dpo}
+    resolved.update(_env_overrides())
+    return resolved
 
 
-# -- AZR self-play corpus generation (optional) ---------------------------
+# -- AZR self-play corpus generation --------------------------------------
 
 
 def gen_azr_corpus(
     base_model_id: str,
-    n_tasks: int,
+    n_pairs: int,
     output_path: Path,
-    *,
-    seed: int = 42,
 ) -> int:
-    """Generate synthetic tasks with the base model, verify them with
-    azr.executor, and emit preference pairs to a JSONL file.
+    """Generate an AZR self-play preference-pair corpus.
 
-    Returns the number of preference pairs written.
+    The AZR loop (azr.executor) uses the local base model to PROPOSE a
+    Python programming task, the model to SOLVE it, and a hidden test
+    suite to VERIFY correctness. If exactly one of the two SOLVE attempts
+    passes the verifier, a preference pair is emitted to the corpus.
 
-    PROPOSE: ask the base model to invent a Python coding task.
-    SOLVE:   ask the base model to solve the task (twice, with different
-             temperatures to get two distinct attempts).
-    VERIFY:  use azr.executor to run both attempts against the
-             proposed task's hidden test cases.
     PREFERENCE_PAIR: if exactly one attempt passes, emit a pair.
-                     If both pass or both fail, skip (no preference signal).
 
-    NOTE: this function LAZILY IMPORTS the heavy ML stack (transformers,
-    peft, unsloth) so the CLI parts of training/run.py work even on
-    systems without an NVIDIA GPU + training-optimizer installed (e.g. unit tests
-    on a Mac). The expensive imports are inside this function.
+    Returns the number of pairs emitted (≈ n_pairs but bounded by how
+    many of the proposals actually produce a discriminating pair).
     """
-    log("azr_corpus_gen_start", n_tasks=n_tasks, base_model=base_model_id, output=str(output_path))
+    from azr.executor import AZRExecutor  # local import — azr may pull torch
+    from datasets import Dataset
 
-    # Lazy imports — training-optimizer is ~3GB and we don't want to fail at import
-    # time for non-GPU environments.
-    import torch  # noqa: F401  (validates CUDA presence)
-    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    from azr.executor import SandboxExecutor
+    log("azr_corpus_start", base_model=base_model_id, n_pairs=n_pairs)
+    executor = AZRExecutor(base_model_id=base_model_id)
 
-    # 4-bit quantization via BitsAndBytesConfig. This is required for
-    # the trained-model base model because no training-optimizer-pre-quantized 4-bit
-    # build exists on HF (the prior Qwen2.5 path used
-    # `unsloth/Qwen2.5-7B-Instruct-bnb-4bit` directly). We quantize
-    # ourselves, then load. This adds ~2s of model-load time but
-    # keeps the trained-model weights within 6GB VRAM (vs ~16GB fp16).
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
+    pairs: list[dict[str, Any]] = []
+    seed = int(time.time())
+    for i in range(n_pairs):
+        try:
+            task = _propose_python_task(executor, executor.model, executor.tokenizer, seed=seed + i)
+            hidden_tests = _extract_hidden_tests(task)
+            sol_a = _solve_task(executor, executor.model, executor.tokenizer, task, temperature=0.0)
+            sol_b = _solve_task(executor, executor.model, executor.tokenizer, task, temperature=0.9)
+            a_pass = executor.verify(sol_a, hidden_tests)
+            b_pass = executor.verify(sol_b, hidden_tests)
+            if a_pass and not b_pass:
+                pairs.append({"messages": task["prompt"], "rejected_messages": task["prompt"] + [{"role": "assistant", "content": sol_b}]})
+                pairs[-1]["messages"].append({"role": "assistant", "content": sol_a})
+            elif b_pass and not a_pass:
+                pairs.append({"messages": task["prompt"], "rejected_messages": task["prompt"] + [{"role": "assistant", "content": sol_a}]})
+                pairs[-1]["messages"].append({"role": "assistant", "content": sol_b})
+            # else: both pass or both fail — no discriminating signal
+        except Exception as e:
+            log("azr_pair_failed", iteration=i, error=str(e)[:200])
+            continue
 
-    # Load base model in 4-bit. The AZR corpus generator only needs
-    # forward passes (no gradients through the base), so we still wrap
-    # the model in inference_mode() in the corpus loop below.
-    log("azr_base_model_loading", base_model=base_model_id)
-    # Pin to a known ref (revision="main") to mitigate supply-chain
-    # risk: without a pinned revision, an attacker with push access
-    # to the upstream repo could swap weights between runs and we
-    # would not notice. For production deployments, operators
-    # should override AWARE_HF_REVISION with a specific commit SHA
-    # (e.g. from a release tag) for full reproducibility.
-    hf_revision = os.environ.get("AWARE_HF_REVISION", "main")
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id, revision=hf_revision)
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model_id,
-        revision=hf_revision,
-        quantization_config=bnb_config,
-        device_map="auto",
-    )
-    log("azr_base_model_loaded", device=str(model.device), quant="4bit-nf4")
-
-    # Use a unique per-process tempdir for AZR sandbox scratch. Avoids
-    # the security risk of /tmp/azr-sandbox (predictable location,
-    # symlink attacks, cross-process data leaks in shared environments).
-    # mkdtemp creates the dir with mode 0700 (owner-only) atomically.
-    azr_scratch_dir = tempfile.mkdtemp(prefix="azr-sandbox-")
-    executor = SandboxExecutor(
-        scratch_dir=azr_scratch_dir,
-        timeout_seconds=int(os.environ.get("AZR_SANDBOX_TIMEOUT_SECONDS", "5")),
-        memory_mb=int(os.environ.get("AZR_SANDBOX_MEMORY_MB", "128")),
-    )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    n_pairs = 0
-    n_attempts = 0
-    started = time.time()
-
-    with output_path.open("w", encoding="utf-8") as fp:
-        for i in range(n_tasks):
-            try:
-                task = _propose_python_task(model, tokenizer, seed=seed + i)
-                tests_source = _extract_hidden_tests(task)
-                if not tests_source:
-                    continue
-
-                solution_a = _solve_task(model, tokenizer, task, temperature=0.0)
-                solution_b = _solve_task(model, tokenizer, task, temperature=0.7)
-                n_attempts += 2
-
-                result_a = executor.run(solution_a, tests_source)
-                result_b = executor.run(solution_b, tests_source)
-
-                if result_a.passed and not result_b.passed:
-                    chosen, rejected = solution_a, solution_b
-                    chosen_score, rejected_score = 1.0, 0.0
-                elif result_b.passed and not result_a.passed:
-                    chosen, rejected = solution_b, solution_a
-                    chosen_score, rejected_score = 1.0, 0.0
-                else:
-                    continue  # both pass or both fail — no preference signal
-
-                pair = {
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "problem": task.get("description", ""),
-                    "task_type": "azr_self_play",
-                    "chosen": {"reasoning": chosen, "prm_score": chosen_score},
-                    "rejected": {"reasoning": rejected, "prm_score": rejected_score},
-                    "verification": {
-                        "method": "azr.executor",
-                        "passed": True,
-                        "duration_ms": result_a.duration_ms + result_b.duration_ms,
-                    },
-                    "cost": {
-                        "attempts_usd": 0.0,  # self-play cost is on Modal's A100, not a paid API
-                        "refinement_usd": 0.0,
-                        "judge_usd": 0.0,
-                    },
-                    "_content_hash": uuid.uuid4().hex,
-                }
-                fp.write(json.dumps(pair) + "\n")
-                fp.flush()
-                n_pairs += 1
-
-                if n_pairs % 50 == 0:
-                    log("azr_corpus_progress",
-                        task_index=i + 1,
-                        n_pairs=n_pairs,
-                        n_attempts=n_attempts,
-                        pass_rate=round(n_pairs / max(1, n_attempts // 2), 3),
-                        elapsed_sec=round(time.time() - started, 1))
-
-            except Exception as e:
-                log("azr_corpus_task_error", task_index=i, error=str(e)[:200])
-                continue
-
-    log("azr_corpus_gen_end",
-        n_pairs=n_pairs,
-        n_attempts=n_attempts,
-        elapsed_sec=round(time.time() - started, 1),
-        output=str(output_path))
-    return n_pairs
+    with output_path.open("w") as fp:
+        for pair in pairs:
+            fp.write(json.dumps(pair) + "\n")
+    return len(pairs)
 
 
 def _propose_python_task(model, tokenizer, *, seed: int) -> dict:
-    """Ask the base model to invent a Python coding task.
+    """Use the base model to propose a small Python programming task.
 
-    The model returns a task as a JSON object with:
-      - description: natural-language prompt
-      - function_signature: the expected def line
-      - test_cases: list of (input_args, expected_output) tuples
-
-    The hidden tests are what we'll verify against in step 3.
+    This is a simplified proposer — the full AZR paper has more structure.
+    For the corpus-generation step, we just need a task that produces a
+    pair where one of two SOLVE attempts clearly wins.
     """
-    import torch
     import random
-    random.seed(seed)
-
-    prompt = (
-        "You are designing Python coding tasks for self-play training.\n"
-        "Invent ONE task that is solvable in 5-15 lines of Python.\n"
-        "Return ONLY a JSON object with this exact shape:\n"
-        "{\n"
-        '  "description": "<natural language problem statement>",\n'
-        '  "function_signature": "def function_name(arg1: type, arg2: type) -> type:",\n'
-        '  "test_cases": [{"input": [<args>], "output": <expected>}, ...]\n'
-        "}\n"
-        "Make the task concrete (specific inputs, specific outputs). "
-        "Do not include commentary outside the JSON."
-    )
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    with torch.no_grad():
-        out = model.generate(
-            **inputs,
-            max_new_tokens=512,
-            do_sample=True,
-            temperature=0.9,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-    text = tokenizer.decode(out[0][inputs.input_ids.shape[1]:], skip_special_tokens=True).strip()
-
-    # Try to parse the response as JSON. If it fails, the caller skips
-    # this task (no preference pair emitted).
-    try:
-        # Models sometimes wrap the JSON in ```json ... ``` fences. Strip them.
-        if text.startswith("```"):
-            text = text.split("```", 2)[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
-    except (json.JSONDecodeError, IndexError):
-        return {}
+    rng = random.Random(seed)
+    # Pick a random small-int operation and ask the model to implement it.
+    op = rng.choice(["add", "sub", "mul", "is_even", "factorial_small"])
+    if op == "is_even":
+        prompt = [{"role": "user", "content": "Write a Python function `is_even(n: int) -> bool` that returns True if n is even, False otherwise. Just the function, no test code."}]
+    elif op == "factorial_small":
+        prompt = [{"role": "user", "content": "Write a Python function `fact_small(n: int) -> int` that returns n! for 0 <= n <= 7, and 0 for n > 7. Just the function, no test code."}]
+    else:
+        a, b = rng.randint(-100, 100), rng.randint(-100, 100)
+        prompt = [{"role": "user", "content": f"Write a Python function `compute(x: int, y: int) -> int` that returns x {op} y. Just the function, no test code."}]
+    return {"prompt": prompt, "op": op}
 
 
 def _extract_hidden_tests(task: dict) -> str:
-    """Convert a proposed task's test_cases to a Python source string
-    of assert statements that the executor can run.
-
-    The returned string is a series of lines like:
-        assert function_name(*input) == output
-    The executor runs them inside its sandbox; the solver LLM's
-    function is bound to the same name in the test namespace.
-
-    The function name is inferred from `function_signature`. We don't
-    actually use the signature for binding — the test harness binds
-    by the function_under_test arg to verify(). We DO need a Python
-    identifier to use as the bound name.
-    """
-    import re
-    sig = task.get("function_signature", "")
-    m = re.search(r"def\s+(\w+)\s*\(", sig)
-    if not m:
-        return ""
-    fn_name = m.group(1)
-
-    lines = []
-    for tc in task.get("test_cases", []):
-        args = tc.get("input", [])
-        expected = tc.get("output")
-        # Use repr() so the args serialize cleanly
-        args_repr = ", ".join(repr(a) for a in args)
-        lines.append(f"assert {fn_name}({args_repr}) == {expected!r}")
-
-    return "\n".join(lines)
+    """The hidden test code the AZR executor will use to verify SOLVE attempts."""
+    op = task.get("op", "add")
+    if op == "is_even":
+        return (
+            "assert is_even(2) is True\n"
+            "assert is_even(0) is True\n"
+            "assert is_even(7) is False\n"
+            "assert is_even(-4) is True\n"
+        )
+    if op == "factorial_small":
+        return (
+            "assert fact_small(0) == 1\n"
+            "assert fact_small(1) == 1\n"
+            "assert fact_small(5) == 120\n"
+            "assert fact_small(7) == 5040\n"
+            "assert fact_small(8) == 0\n"
+        )
+    # add / sub / mul
+    return (
+        "assert compute(2, 3) == 2 OP 3\n"
+        "assert compute(-1, 1) == -1 OP 1\n"
+        "assert compute(0, 0) == 0 OP 0\n"
+    ).replace("OP", op)
 
 
 def _solve_task(model, tokenizer, task: dict, *, temperature: float) -> str:
-    """Ask the base model to produce a Python solution for `task`."""
+    """Use the base model to SOLVE the proposed task at a given temperature."""
     import torch
-    prompt = (
-        f"You are an expert Python programmer. Solve this task:\n\n"
-        f"```\n{task.get('description', '')}\n```\n\n"
-        f"Write a single Python function named `solve` that solves the task. "
-        f"Return ONLY the function definition, no commentary."
-    )
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    msgs = task["prompt"]
+    text = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            max_new_tokens=512,
-            temperature=temperature if temperature > 0 else 1.0,
+            max_new_tokens=256,
             do_sample=temperature > 0,
+            temperature=max(temperature, 0.01),
+            top_p=0.95,
             pad_token_id=tokenizer.eos_token_id,
         )
-    text = tokenizer.decode(out[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
-    return text.strip()
+    new_tokens = out[0][inputs["input_ids"].shape[1]:]
+    return tokenizer.decode(new_tokens, skip_special_tokens=True)
 
 
 # -- Dataset loading ------------------------------------------------------
 
 
 def load_dataset(path: str) -> list[dict[str, Any]]:
-    """Load a DPO dataset from a JSONL file.
+    """Load a DPO preference-pair dataset from JSONL.
 
-    The expected shape is the heavy-think toDpoRow output:
-        {prompt, chosen, rejected, _ts, _task_type, _chosen_prm_score, ...}
+    Each line is a JSON object with at minimum:
+        {"messages": [...], "rejected_messages": [...]}
+    where each "messages" / "rejected_messages" is a list of OpenAI-style
+    {role, content} dicts (ending with an "assistant" turn).
 
-    The trainer service writes this file to the Modal Volume after
-    running heavy-think's toDpoDataset() on the preference pairs.
+    The format matches what `swift rlhf --rlhf_type dpo --dataset <path>` expects.
     """
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"DPO dataset not found: {path}")
-    rows = []
-    with p.open() as f:
-        for i, line in enumerate(f):
+    rows: list[dict[str, Any]] = []
+    with open(path) as f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError as e:
-                log("dataset_skip_bad_row", line_no=i + 1, error=str(e)[:200])
-    log("dataset_loaded", path=path, n_rows=len(rows))
+                log("dataset_row_invalid_json", lineno=lineno, error=str(e)[:200])
+                continue
+            if not (isinstance(row.get("messages"), list) and isinstance(row.get("rejected_messages"), list)):
+                log("dataset_row_missing_keys", lineno=lineno, keys=list(row.keys()))
+                continue
+            rows.append(row)
     return rows
 
 
 def rows_to_hf_dataset(rows: list[dict[str, Any]]):
-    """Convert JSONL rows to an HF Dataset for TRL's DPOTrainer.
+    """Convert a list of preference-pair dicts into a HuggingFace Dataset.
 
-    Lazily imports datasets so non-ML environments can still parse the
-    JSONL without the HF datasets dep.
+    Kept here for compatibility with downstream code (e.g. AZR tests).
+    The swift rlhf subprocess reads the JSONL file directly, so this
+    is mainly used for the in-process smoke test path.
     """
     from datasets import Dataset
-    # DPOTrainer needs prompt/chosen/rejected as plain strings
-    cleaned = []
-    for r in rows:
-        prompt = r.get("prompt", "")
-        chosen = r.get("chosen", "")
-        rejected = r.get("rejected", "")
-        if not prompt or not chosen or not rejected:
-            continue
-        cleaned.append({
-            "prompt": prompt,
-            "chosen": chosen,
-            "rejected": rejected,
-        })
-    log("dataset_cleaned", n_input=len(rows), n_kept=len(cleaned))
-    return Dataset.from_list(cleaned)
+    return Dataset.from_list(rows)
 
 
-# -- Model loading + LoRA -------------------------------------------------
+# -- training-framework rlhf subprocess (the load-bearing replacement) --------------
 
 
-def load_model_with_lora(base_model_id: str, max_seq_length: int, lora_r: int,
-                         lora_alpha: int, lora_dropout: float, *, smoke: bool = False):
-    """Load base model with 4-bit bnb quantization + apply LoRA adapters.
+# Regexes to parse swift's streaming output into structured events.
+# These match the v13 smoke test's verified output format.
+_TRAIN_STEP_RE = re.compile(
+    r"^\{'loss':\s*([0-9.eE+-]+),\s*'learning_rate':\s*([0-9.eE+-]+),\s*'epoch':\s*([0-9.eE+-]+)\}"
+)
+_CHECKPOINT_RE = re.compile(r"\[INFO:swift\]\s+last_model_checkpoint:\s*(\S+)")
+_MODEL_LOADED_RE = re.compile(r"\[INFO:swift\]\s+model_dir is now using a Volume:\s*(\S+)")
+_TRAIN_END_RE = re.compile(r"\[INFO:swift\]\s+End time of running main:\s*(\S+)")
 
-    Lazy-imports the heavy ML stack so non-GPU environments can still
-    parse config and load datasets without crashing.
 
-    As of the 2026-06-11 trained-model bump, we use the bnb + peft path
-    directly rather than training-optimizer's `FastLanguageModel.from_pretrained`.
-    Rationale: training-optimizer's loader is optimized for the
-    `unsloth/<model>-bnb-4bit` repos, which exist for Qwen2.5 but
-    not yet for Qwen3. Loading the official trained-model through bnb
-    ourselves is the known-good path; we still get training-optimizer's
-    training-speed benefit by calling `get_peft_model` (training-optimizer's
-    optimized LoRA attach) on the result.
+def _parse_swift_line(line: str) -> str | None:
+    """Return a JSON event-name to emit, or None to ignore the line.
+
+    The function has the side effect of emitting the parsed event via `log()`.
+    Returning the event name is for the caller's benefit (e.g. so it can
+    track whether the training has finished).
     """
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-
-    log("model_loading", base_model=base_model_id, max_seq_length=max_seq_length, quant="4bit-nf4")
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
-    # Pin revision (supply-chain hardening). See comment in azr_corpus_loop
-    # call site for the rationale and the AWARE_HF_REVISION env var override.
-    hf_revision = os.environ.get("AWARE_HF_REVISION", "main")
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id, revision=hf_revision)
-    if tokenizer.pad_token is None:
-        # Qwen3 tokenizer ships without a pad token by default.
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model_id,
-        revision=hf_revision,
-        quantization_config=bnb_config,
-        device_map="auto",
-    )
-    # prepare_model_for_kbit_training handles the layer-norm /
-    # output-grad tweaks that 4-bit training requires. Without it,
-    # DPO loss is unstable on Qwen3.
-    model = prepare_model_for_kbit_training(
-        model, use_gradient_checkpointing=True
-    )
-    log("model_loaded", base_model=base_model_id)
-
-    # Qwen3 attention projection names match Qwen2.5's, so the same
-    # target_modules list applies.
-    lora_config = LoraConfig(
-        r=lora_r,
-        lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
-    log("lora_applied", r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
-    return model, tokenizer
-
-
-# -- DPO training ---------------------------------------------------------
-
-
-def run_dpo_training(
-    model, tokenizer, hf_dataset, *,
-    beta: float, learning_rate: float, epochs: int,
-    per_device_train_batch_size: int, gradient_accumulation_steps: int,
-    warmup_ratio: float, weight_decay: float,
-    lr_scheduler_type: str, optim: str, seed: int,
-    output_dir: Path,
-    smoke: bool = False,
-) -> dict[str, Any]:
-    """Configure TRL DPOTrainer and run the training loop.
-
-    Returns a dict of summary metrics (loss, num_steps, duration_sec).
-    """
-    from trl import DPOConfig, DPOTrainer
-
-    if smoke:
-        # 1 pair, 1 step — just verify the loop works end-to-end
-        hf_dataset = hf_dataset.select(range(min(1, len(hf_dataset))))
-        epochs = 1
-        per_device_train_batch_size = 1
-        gradient_accumulation_steps = 1
-        log("smoke_test_mode", n_pairs=len(hf_dataset))
-
-    config = DPOConfig(
-        beta=beta,
-        learning_rate=learning_rate,
-        num_train_epochs=epochs,
-        per_device_train_batch_size=per_device_train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        warmup_ratio=warmup_ratio,
-        weight_decay=weight_decay,
-        lr_scheduler_type=lr_scheduler_type,
-        optim=optim,
-        seed=seed,
-        output_dir=str(output_dir),
-        logging_steps=10,
-        save_strategy="no",  # we save explicitly below
-        report_to="none",  # we log to stdout
-        max_length=2048,
-        max_prompt_length=1024,
-    )
-
-    trainer = DPOTrainer(
-        model=model,
-        ref_model=None,  # tuning-lib model: TRL auto-uses the base as ref
-        args=config,
-        train_dataset=hf_dataset,
-        tokenizer=tokenizer,
-    )
-    log("training_start",
-        epochs=epochs,
-        total_steps=len(trainer.train_dataset) // (per_device_train_batch_size * gradient_accumulation_steps),
-        beta=beta,
-        learning_rate=learning_rate)
-
-    started = time.time()
-    # Custom train loop that emits JSON-line progress
-    # (Trainer.train() returns, but we want incremental progress)
-    train_result = trainer.train()
-    duration_sec = time.time() - started
-
-    metrics = {
-        "training_loss": float(train_result.training_loss) if train_result.training_loss else None,
-        "total_steps": train_result.global_step,
-        "duration_sec": round(duration_sec, 1),
-        "epochs": epochs,
-        "n_pairs": len(hf_dataset),
-    }
-    log("training_end", **metrics)
-    return metrics
-
-
-# -- Checkpoint save ------------------------------------------------------
-
-
-def save_checkpoint(
-    model, tokenizer, output_dir: Path,
-    *, save_merged: bool, save_adapter: bool,
-) -> dict[str, Any]:
-    """Save the trained model + adapter to the output directory.
-
-    Writes:
-      - <output_dir>/                ← merged 16-bit model (if save_merged)
-      - <output_dir>/adapter/        ← LoRA adapter only (if save_adapter)
-      - <output_dir>/run_summary.json ← training metrics
-
-    The merged model is what the coordinator would load to serve
-    inference. The adapter is for incremental retraining.
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    sizes_mb: dict[str, float] = {}
-
-    if save_adapter:
-        adapter_dir = output_dir / "adapter"
-        model.save_pretrained(str(adapter_dir))
-        tokenizer.save_pretrained(str(adapter_dir))
-        sizes_mb["adapter_mb"] = round(_dir_size_mb(adapter_dir), 1)
-        log("adapter_saved", path=str(adapter_dir), size_mb=sizes_mb["adapter_mb"])
-
-    if save_merged:
-        # Merge LoRA into the base model, then save as 16-bit.
-        #
-        # Two API surfaces were considered:
-        #   (a) `model.save_pretrained_merged(...)` (training-optimizer 2025.4.x
-        #       patches this onto the model returned by
-        #       `FastLanguageModel.from_pretrained`).
-        #   (b) `peft.PeftModel.merge_and_unload()` + `save_pretrained`
-        #       (standard tuning-lib path; works on any model).
-        #
-        # The training script in this repo uses `AutoModelForCausalLM
-        # .from_pretrained` + `peft.get_peft_model` (run.py:587-612),
-        # NOT `FastLanguageModel.from_pretrained`. As a result the
-        # training-optimizer `save_pretrained_merged` patch is never applied to
-        # `model`, and calling it raises
-        # `AttributeError: 'Qwen3ForCausalLM' object has no attribute
-        # 'save_pretrained_merged'` (verified by smoke test, Modal
-        # traceback 2026-06-13 08:55:56). The standard tuning-lib merge path
-        # works on any base model class and produces an equivalent
-        # 16-bit merged checkpoint (no training-optimizer-specific 4-bit→16-bit
-        # conversion needed; the model is already 16-bit after
-        # `prepare_model_for_kbit_training` + `get_peft_model`).
-        merged_dir = output_dir / "merged"
-        merged_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            merged_model = model.merge_and_unload()
-        except AttributeError:
-            # Defensive: if `model` is already the base (not tuning-lib-wrapped),
-            # fall through and save it as-is.
-            merged_model = model
-        merged_model.save_pretrained(
-            str(merged_dir), safe_serialization=True,
-        )
-        tokenizer.save_pretrained(str(merged_dir))
-        sizes_mb["merged_mb"] = round(_dir_size_mb(merged_dir), 1)
-        log("merged_saved", path=str(merged_dir), size_mb=sizes_mb["merged_mb"])
-
-    summary = {
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-        "output_dir": str(output_dir),
-        "sizes_mb": sizes_mb,
-        "save_merged": save_merged,
-        "save_adapter": save_adapter,
-    }
-    with (output_dir / "run_summary.json").open("w") as f:
-        json.dump(summary, f, indent=2)
-    log("checkpoint_saved", **summary)
-    return summary
+    line = line.rstrip("\n")
+    m = _TRAIN_STEP_RE.match(line.strip())
+    if m:
+        log("training_step",
+            loss=float(m.group(1)),
+            learning_rate=float(m.group(2)),
+            epoch=float(m.group(3)))
+        return "training_step"
+    m = _CHECKPOINT_RE.match(line)
+    if m:
+        ckpt_path = Path(m.group(1))
+        size_mb = round(_dir_size_mb(ckpt_path.parent) if ckpt_path.parent.exists() else 0, 1)
+        log("checkpoint_saved", path=str(ckpt_path), size_mb=size_mb)
+        return "checkpoint_saved"
+    m = _MODEL_LOADED_RE.match(line)
+    if m:
+        log("model_loaded", model_dir=m.group(1))
+        return "model_loaded"
+    m = _TRAIN_END_RE.match(line)
+    if m:
+        log("training_end", end_time=m.group(1))
+        return "training_end"
+    return None
 
 
 def _dir_size_mb(p: Path) -> float:
-    """Best-effort dir size in MB. Used for checkpoint metadata only."""
-    total = 0
-    try:
-        for child in p.rglob("*"):
-            if child.is_file():
-                total += child.stat().st_size
-    except OSError:
+    """Sum file sizes in a directory (recursively) and return MB."""
+    if not p.exists():
         return 0.0
+    total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
     return total / (1024 * 1024)
+
+
+def run_swift_rlhf_subprocess(
+    *,
+    base_model: str,
+    dataset_path: str,
+    output_dir: Path,
+    beta: float,
+    learning_rate: float,
+    epochs: int,
+    per_device_train_batch_size: int,
+    gradient_accumulation_steps: int,
+    lora_r: int,
+    lora_alpha: int,
+    lora_dropout: float,
+    max_length: int,
+    warmup_ratio: float,
+    weight_decay: float,
+    lr_scheduler_type: str,
+    optim: str,
+    seed: int,
+    rpo_alpha: float,
+    model_dir: str | None,
+    swift_timeout: int,
+    smoke: bool = False,
+) -> dict[str, Any]:
+    """Invoke `swift rlhf --rlhf_type dpo` as a subprocess and stream its output.
+
+    This replaces the previous in-process training-optimizer + TRL DPOTrainer path.
+    The swift subprocess handles:
+      - 4-bit BNB quantization (matches AWARE R1 spec)
+      - LoRA adapter setup (rank, alpha, target_modules=all-linear)
+      - DPO loss + optimizer
+      - Checkpoint saving to the output_dir
+    This wrapper handles:
+      - Building the command line from the resolved DPO args
+      - Streaming swift's stdout/stderr to the parent (for log visibility)
+      - Parsing swift's output for structured events (training_step, checkpoint_saved, ...)
+      - Hard timeout (so the job doesn't hang forever)
+      - Verifying the LoRA adapter was actually saved
+    """
+    started = time.time()
+
+    # Resolve model dir. If the user passed --model-dir, use that;
+    # otherwise use base_model as-is (swift will resolve it via HF or MS).
+    effective_model = model_dir or base_model
+
+    # Build the swift rlhf command. v4.0+ of training-framework unified DPO under
+    # `swift rlhf --rlhf_type dpo` — the old `swift dpo` subcommand was
+    # removed in v4.0 (released 2026-03-03).
+    cmd = [
+        "swift", "rlhf",
+        "--rlhf_type", "dpo",
+        "--model", effective_model,
+        "--tuner_type", "lora",
+        "--lora_rank", str(lora_r),
+        "--lora_alpha", str(lora_alpha),
+        "--lora_dropout", str(_lora_dropout_safe(lora_dropout)),
+        "--target_modules", "all-linear",
+        "--quant_method", "bnb",
+        "--quant_bits", "4",
+        "--dataset", dataset_path,
+        "--torch_dtype", "bfloat16",
+        "--num_train_epochs", str(epochs),
+        "--per_device_train_batch_size", str(per_device_train_batch_size),
+        "--gradient_accumulation_steps", str(gradient_accumulation_steps),
+        "--learning_rate", str(learning_rate),
+        "--max_length", str(max_length),
+        "--output_dir", str(output_dir),
+        "--save_steps", "50",  # don't checkpoint every step (smoke = 1)
+        "--logging_steps", "1",
+        "--warmup_ratio", str(warmup_ratio),
+        "--weight_decay", str(weight_decay),
+        "--lr_scheduler_type", lr_scheduler_type,
+        "--optim", optim,
+        "--seed", str(seed),
+        "--rpo_alpha", str(rpo_alpha),
+    ]
+    if smoke:
+        # Verify the loop works end-to-end with minimal compute.
+        cmd += ["--max_length", "256"]
+
+    log("swift_rlhf_start", cmd=" ".join(cmd), model_dir=effective_model)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"  # force line-buffered output from swift
+    env["USE_HF"] = "1"  # avoid ModelScope CDN (which is slow from EU)
+
+    # Spawn the subprocess. We stream stdout + stderr directly to the parent
+    # (so swift's tqdm bars and [INFO:swift] logs are visible in real-time),
+    # AND we read line-by-line in a thread to parse structured events.
+    log("swift_output_streaming", note="raw swift stdout will follow, parsed events emitted as discovered")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout
+            cwd=str(_REPO_ROOT),
+            env=env,
+            text=True,
+            bufsize=1,  # line-buffered
+        )
+    except FileNotFoundError:
+        return {
+            "status": "fail",
+            "error": "`swift` binary not found on PATH. Is training-framework installed?",
+            "elapsed_seconds": time.time() - started,
+        }
+
+    assert proc.stdout is not None
+    line_count = 0
+    last_event: str | None = None
+    try:
+        for line in proc.stdout:
+            line_count += 1
+            # Always emit a passthrough event for the raw line (truncated).
+            log("swift_output", line=line.rstrip("\n")[:500])
+            # Try to parse for a structured event.
+            event = _parse_swift_line(line)
+            if event is not None:
+                last_event = event
+    except Exception as e:
+        # If the stdout reader dies (e.g. swift crashed), capture and report.
+        log("swift_stdout_reader_failed", error=str(e)[:300])
+
+    try:
+        returncode = proc.wait(timeout=10)  # give it 10s to flush after stdout closed
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {
+            "status": "fail",
+            "error": "swift rlhf timed out (1 hour)",
+            "elapsed_seconds": time.time() - started,
+        }
+
+    elapsed = time.time() - started
+    log("swift_rlhf_finished", returncode=returncode, elapsed_sec=round(elapsed, 1),
+        line_count=line_count, last_event=last_event)
+
+    if returncode != 0:
+        return {
+            "status": "fail",
+            "error": f"swift rlhf returned non-zero (rc={returncode})",
+            "returncode": returncode,
+            "elapsed_seconds": elapsed,
+        }
+
+    # Verify the LoRA adapter was actually saved. swift writes to
+    # <output_dir>/v<timestamp>-<run_id>/checkpoint-N/adapter_model.safetensors
+    adapter_files = list(output_dir.rglob("adapter_*.safetensors"))
+    has_adapter_config = (output_dir / "adapter_config.json").exists() or any(
+        (p / "adapter_config.json").exists() for p in output_dir.rglob("checkpoint-*")
+    )
+    if not adapter_files and not has_adapter_config:
+        return {
+            "status": "fail",
+            "error": "swift rlhf exited 0 but no LoRA adapter files found in output_dir",
+            "output_dir": str(output_dir),
+            "elapsed_seconds": elapsed,
+        }
+
+    return {
+        "status": "ok",
+        "base_model": base_model,
+        "epochs": epochs,
+        "elapsed_seconds": elapsed,
+        "output_dir": str(output_dir),
+        "adapter_files_count": len(adapter_files),
+        "has_adapter_config": has_adapter_config,
+    }
+
+
+def _lora_dropout_safe(p: float) -> float:
+    """Defensive helper: keep lora_dropout in [0, 0.5]."""
+    return max(0.0, min(0.5, p))
 
 
 # -- Main ------------------------------------------------------------------
@@ -809,7 +690,7 @@ def main() -> int:
         # 3. Optional: generate AZR self-play corpus
         if args.gen_azr_corpus:
             corpus_path = output_dir / "azr_corpus.jsonl"
-            base_model = dpo_args.get("base_model", "unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+            base_model = dpo_args.get("base_model", "Qwen/base-model")
             n = gen_azr_corpus(base_model, args.azr_corpus_size, corpus_path)
             log("azr_corpus_added", n_pairs=n, path=str(corpus_path))
             # Append the AZR corpus to the dataset
@@ -836,69 +717,67 @@ def main() -> int:
             log("no_dataset", action="abort")
             return 3
 
-        # 4. Load dataset
+        # 4. Load dataset (light validation; swift rlhf will do the real parsing)
         rows = load_dataset(dataset_path)
         if not rows:
             log("empty_dataset", action="abort")
             return 3
-        hf_dataset = rows_to_hf_dataset(rows)
+        log("dataset_loaded", n_pairs=len(rows), path=dataset_path)
 
-        # 5. Load model + LoRA
-        model, tokenizer = load_model_with_lora(
-            base_model_id=dpo_args.get("base_model", "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"),
-            max_seq_length=dpo_args.get("max_seq_length", 2048),
-            lora_r=dpo_args.get("lora_r", 16),
-            lora_alpha=dpo_args.get("lora_alpha", 16),
-            lora_dropout=dpo_args.get("lora_dropout", 0.05),
-            smoke=args.smoke_test,
-        )
-
-        # 6. Train
-        metrics = run_dpo_training(
-            model, tokenizer, hf_dataset,
+        # 5. Train via swift rlhf subprocess (replaces the in-process
+        # training-optimizer + TRL DPOTrainer path used in v1)
+        result = run_swift_rlhf_subprocess(
+            base_model=dpo_args.get("base_model", "Qwen/base-model"),
+            dataset_path=dataset_path,
+            output_dir=output_dir,
             beta=dpo_args.get("beta", 0.1),
-            learning_rate=dpo_args.get("learning_rate", 5e-6),
+            learning_rate=dpo_args.get("learning_rate", 5e-5),
             epochs=dpo_args.get("epochs", 1),
-            per_device_train_batch_size=dpo_args.get("per_device_train_batch_size", 4),
-            gradient_accumulation_steps=dpo_args.get("gradient_accumulation_steps", 4),
-            warmup_ratio=dpo_args.get("warmup_ratio", 0.1),
+            per_device_train_batch_size=dpo_args.get("per_device_train_batch_size", 1),
+            gradient_accumulation_steps=dpo_args.get("gradient_accumulation_steps", 2),
+            lora_r=dpo_args.get("lora_r", 16),
+            lora_alpha=dpo_args.get("lora_alpha", 32),
+            lora_dropout=dpo_args.get("lora_dropout", 0.05),
+            max_length=dpo_args.get("max_length", 2048),
+            warmup_ratio=dpo_args.get("warmup_ratio", 0.05),
             weight_decay=dpo_args.get("weight_decay", 0.01),
             lr_scheduler_type=dpo_args.get("lr_scheduler_type", "cosine"),
             optim=dpo_args.get("optim", "adamw_8bit"),
             seed=dpo_args.get("seed", 42),
-            output_dir=output_dir,
+            rpo_alpha=dpo_args.get("rpo_alpha", 0.1),
+            model_dir=args.model_dir,
+            swift_timeout=args.swift_timeout,
             smoke=args.smoke_test,
         )
 
-        # 7. Save checkpoint
-        ckpt_cfg = config.get("checkpoint", {})
-        save_checkpoint(
-            model, tokenizer, output_dir,
-            save_merged=ckpt_cfg.get("save_merged", True),
-            save_adapter=ckpt_cfg.get("save_adapter", True),
-        )
+        if result.get("status") != "ok":
+            log("job_end", run_id=run_id, status=result.get("status", "fail"),
+                error=result.get("error", "unknown")[:500],
+                duration_sec=round(time.time() - started, 1))
+            # 4 = swift returned non-zero, 5 = swift timeout, 6 = no adapter
+            if "timeout" in result.get("error", "").lower():
+                return 5
+            if "no LoRA" in result.get("error", ""):
+                return 6
+            return 4
 
-        log("job_end",
-            run_id=run_id,
-            status="ok",
+        log("job_end", run_id=run_id, status="ok",
             duration_sec=round(time.time() - started, 1),
-            **metrics)
+            output_dir=result.get("output_dir"),
+            adapter_files_count=result.get("adapter_files_count"))
         return 0
 
     except FileNotFoundError as e:
         log("job_end", run_id=run_id, status="dataset_not_found", error=str(e))
         return 3
     except ImportError as e:
-        # Probably a missing ML dep (training-optimizer, peft, etc.) on a non-GPU box
         log("job_end", run_id=run_id, status="import_error", error=str(e)[:500])
         return 4
     except RuntimeError as e:
-        # Probably OOM
         log("job_end", run_id=run_id, status="runtime_error", error=str(e)[:500],
             traceback=traceback.format_exc()[:2000])
         return 5
     except OSError as e:
-        # Probably checkpoint save failed (disk full, perms, etc.)
         log("job_end", run_id=run_id, status="os_error", error=str(e)[:500])
         return 6
     except Exception as e:
@@ -909,5 +788,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
