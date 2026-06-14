@@ -11,40 +11,51 @@
     "mount_path": "/root/aware-data",
     "_comment": "Modal Volume for persistent storage: DPO datasets uploaded by the AWARE trainer, weight checkpoints produced by training/run.py, and training logs. Survives across job runs."
   },
+  "modal_volumes_extra": {
+    "qwen35-9b-base-cache": {
+      "mount_path": "/root/.cache/huggingface",
+      "_comment": "Modal Volume for the base-model model weights. First run downloads from HuggingFace CDN via hf-transfer (~$0.30, ~5 min). Subsequent runs cache-hit (instant, $0). Created by the v13 smoke test (commit 410af62)."
+    },
+    "qwen35-dpo-checkpoints": {
+      "mount_path": "/checkpoints",
+      "_comment": "Modal Volume for LoRA adapter checkpoints produced by `swift rlhf --rlhf_type dpo`. Persists across runs; the trainer service reads the latest adapter for atomic symlink swap on /root/aware-data/active. Created by the v13 smoke test."
+    }
+  },
 
   "gpu": {
     "type": "A100-80GB",
     "count": 1,
-    "_comment": "Single A100-80GB is what ADR-020 Decision 2 budget allows (~$150/run @ 60 GPU-hours). The training-optimizer 4-bit QLoRA path fits a 7B model + LoRA adapters in <24GB VRAM, leaving headroom for the training batch."
+    "_comment": "Single A100-80GB is what ADR-020 Decision 2 budget allows (~$150/run @ 60 GPU-hours). The base-model 4-bit QLoRA path (validated by v13 smoke test, commit 410af62) loads 9.65B params at 4-bit ≈ 5 GB VRAM, leaving ~75 GB of headroom for LoRA adapters (~40 MB), gradients, and the DPO forward+backward pass."
   },
 
   "resources": {
     "cpu_cores": 8,
-    "memory_mb": 32768,
-    "_comment": "8 CPU cores for data loading + AZR self-play verification (the Python executor spawns subprocesses, so cores matter for parallel verification). 32 GB RAM is generous for a 7B-model training run."
+    "memory_mb": 65536,
+    "_comment": "8 CPU cores for data loading + AZR self-play verification (the Python executor spawns subprocesses, so cores matter for parallel verification). 64 GB RAM (was 32 GB) is bumped for the base-model multimodal architecture: the vision encoder + multimodal glue adds ~10-15 GB of working memory on top of the 4-bit text decoder's ~5 GB. 64 GB gives 30% headroom for a full DPO training step."
   },
 
   "timeout_seconds": 18000,
-  "_comment_timeout": "5 hours hard cap. A full 10K-pair DPO run on trained-model (full-precision → 4-bit QLoRA, batch 4, grad-accum 4, ctx 4096) takes ~3.5-4 hours on A100-80GB. 5h gives 25% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
+  "_comment_timeout": "5 hours hard cap. A full 10K-pair DPO run on base-model (4-bit QLoRA via training-framework 4.3.0, batch 1, grad-accum 2, ctx 512) takes ~3-4 hours on A100-80GB (extrapolated from v13 smoke at 5.5-5.91s/it × 5000 steps = 7-8 hours; ctx=512 + 10K pairs = ~5000 effective steps). 5h gives 25% slack; if a job hits the cap, the trainer marks the run as failed in Postgres and continues with the next batch.",
 
   "dpo_defaults": {
-    "base_model": "Qwen/trained-model",
-    "_comment_base_model": "Official trained-model (April 2025). We do NOT use the training-optimizer pre-quantized 4-bit build because no unsloth/trained-model-bnb-4bit exists yet on HF; we quantize to 4-bit in run.py via BitsAndBytesConfig before LoRA attach. This is the recommended path for first-party Qwen3 fine-tunes.",
-    "max_seq_length": 4096,
+    "base_model": "Qwen/base-model",
+    "_comment_base_model": "base-model (June 2025, multimodal `Qwen3_5ForConditionalGeneration` architecture, 9.65B params, hybrid linear/full attention). Locked in by the v13 smoke test (commit 410af62, 13 attempts, v13 passed in 229.32 sec). The previous trained-model path (R1) is retained as a fallback option (override per-run via trainer service env AWARE_BASE_MODEL).",
+    "max_seq_length": 512,
     "lora_r": 16,
-    "lora_alpha": 16,
+    "lora_alpha": 32,
     "lora_dropout": 0.05,
     "beta": 0.1,
-    "learning_rate": 5e-6,
+    "learning_rate": 5e-5,
     "epochs": 1,
-    "per_device_train_batch_size": 4,
-    "gradient_accumulation_steps": 4,
-    "warmup_ratio": 0.1,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "warmup_ratio": 0.05,
     "weight_decay": 0.01,
     "lr_scheduler_type": "cosine",
     "optim": "adamw_8bit",
     "seed": 42,
-    "_comment": "Hyperparameters tuned for Qwen 2.5 7B 4-bit + LoRA r=16 on a single A100-80GB. Override per-run via trainer service env (AWARE_DPO_BETA, AWARE_DPO_LR, etc.)."
+    "rpo_alpha": 0.1,
+    "_comment": "Hyperparameters tuned for base-model 4-bit QLoRA on a single A100-80GB via training-framework 4.3.0. The smaller max_seq_length (512 vs 4096) and batch (1 vs 4) are conservative — the v13 smoke ran at 5.5-5.91s/it which gives plenty of headroom for a 10K-pair run on A100-80GB. Bump max_seq_length back to 4096 once the real dataset is flowing (expect ~30s/it at that size). Override per-run via trainer service env (AWARE_DPO_BETA, AWARE_DPO_LR, etc.)."
   },
 
   "checkpoint": {
