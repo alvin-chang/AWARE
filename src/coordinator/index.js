@@ -46,14 +46,16 @@ function resolveHeavyThinkPath(opts = {}) {
  * @param {Object} [options.client] — heavy_think-compatible client
  * @param {string} [options.sessionId]
  * @param {string} [options.agentId]
+ * @param {string} [options.pairsDir] — override AWARE_PAIRS_DIR for this call
  */
-export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId }) {
+export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir }) {
   return await awareHeavyThink({
     problem,
     task_type: task_type || 'standard',
     context: { ...context, sessionId, agentId },
     K,
     client,
+    pairsDir: pairsDir || config.coordinator.pairsDir,
   });
 }
 

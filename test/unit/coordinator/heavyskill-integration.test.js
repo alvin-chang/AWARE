@@ -76,6 +76,12 @@ test('awareHeavyThink writes preference pairs to a daily JSONL file', async () =
 
     const expectedPath = buildPairPath(tmp);
     assert.ok(existsSync(expectedPath), `pair file should exist at ${expectedPath}`);
+    // pair_path must be returned so the AWARE conversation logger can
+    // populate aware_conversations.pair_path. Phase 2.4 data flywheel
+    // unblock — without this, the trainer's _fetchUnconsumedPairPaths
+    // filters all rows out (pair_path IS NULL) and the trainer never
+    // sees any pair.
+    assert.equal(result.pair_path, expectedPath, 'pair_path should be the JSONL file path');
     const content = readFileSync(expectedPath, 'utf8');
     const lines = content.trim().split('\n');
     assert.equal(lines.length, 1);
@@ -84,6 +90,19 @@ test('awareHeavyThink writes preference pairs to a daily JSONL file', async () =
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test('awareHeavyThink returns pair_path: null when writePairs is false', async () => {
+  const result = await awareHeavyThink({
+    problem: 'p',
+    K: 1,
+    task_type: 'simple',
+    client: mockClient(),
+    writePairs: false,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.pair_written, false);
+  assert.equal(result.pair_path, null, 'pair_path should be null when writePairs=false');
 });
 
 test('buildPairPath produces a YYYY-MM-DD.jsonl path under the pairs dir', () => {

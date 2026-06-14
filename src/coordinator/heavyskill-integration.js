@@ -52,7 +52,12 @@ export async function awareHeavyThink(options) {
       preferencePairPath: pairPath,
       cache,
     });
-    return { ok: true, ...result };
+    // Forward the pair_path from heavy-think's result so the conversation
+    // logger can populate aware_conversations.pair_path. Without this,
+    // the trainer's _fetchUnconsumedPairPaths returns 0 rows because the
+    // WHERE clause pair_path IS NOT NULL filters them all out. Phase 2.4
+    // data flywheel unblock.
+    return { ok: true, ...result, pair_path: result.pair_path || pairPath || null };
   } catch (err) {
     return {
       ok: false,

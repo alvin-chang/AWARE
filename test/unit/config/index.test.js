@@ -225,8 +225,8 @@ test('config: snapshot() shape is stable', (t) => {
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
     'host', 'killSwitch', 'loraReloaderEnabled', 'loraReloaderModelName',
-    'loraReloaderPollIntervalMs', 'loraReloaderTimeoutMs', 'port',
-    'requestCostCapUsd', 'requestTimeoutMs',
+    'loraReloaderPollIntervalMs', 'loraReloaderTimeoutMs', 'pairsDir',
+    'port', 'requestCostCapUsd', 'requestTimeoutMs',
   ]);
   assert.deepEqual(Object.keys(snap.gateway).sort(), [
     'coordinatorUrl', 'host', 'killSwitch', 'port', 'proxyTimeoutMs',
