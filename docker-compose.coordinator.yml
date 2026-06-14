@@ -38,8 +38,23 @@ volumes:
     name: aware-2-redis-data
   aware-2-ollama-models:
     name: aware-2-ollama-models
-  aware-2-preference-pairs:
-    name: aware-2-preference-pairs
+  # aware-2-preference-pairs removed (Phase 2.4): the named volume was
+  # mounted at /root/.<runtime>/metaclaw/preference-pairs but the AWARE
+  # process (running as `aware`, $HOME=/home/aware) writes to
+  # /home/aware/.<runtime>/metaclaw/preference-pairs/. The coordinator
+  # service now uses a host bind mount to that path instead. The orphan
+  # Docker volume can be removed with:
+  #   docker volume rm aware-2-preference-pairs
+  # Note (2026-06-14): the host bind mount to /data/awareness-pairs
+  # also doesn't work in this Docker Desktop environment — bind mounts
+  # from /Users/alfie/ into containers silently fail to populate.
+  # The trainer (aware-2-trainer) reads via aware-2-pairs-data named
+  # volume, so the host doesn't need direct access. See
+  # /Users/alfie/src/AWARE/docs/sop/sop-phase-2-4-data-flywheel.md
+  # (added in this slice) for the full bind-mount investigation +
+  # named-volume fallback rationale.
+  aware-2-pairs-data:
+    name: aware-2-pairs-data
   aware-2-trainer-data:
     name: aware-2-trainer-data
 
@@ -107,6 +122,21 @@ services:
       - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
       - AWARE_DB_USER=${POSTGRES_USER:-aware}
       - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
+      # Phase 2.4 (ADR-020 618-627) preference-pair output directory.
+      # Must match the volume mount point in the volumes: block below
+      # (named volume aware-2-pairs-data → /data/awareness-pairs). The
+      # path is intentionally not under $HOME because the image bakes
+      # /home/aware/.<runtime>/metaclaw/preference-pairs at build time,
+      # which would shadow a host bind mount to that path. Phase 1 had
+      # the implicit default $HOME/.<runtime>/metaclaw/preference-pairs
+      # which is why the trainer's pair ingestion has never seen any
+      # live data — the live writes were landing in the image's
+      # ephemeral dir, not the bind-mounted host dir. Phase 2.4 swaps
+      # to a named volume (aware-2-pairs-data) that the trainer reads
+      # via the same mount; host bind mounts from /Users/alfie/ into
+      # containers silently fail to populate in this Docker Desktop
+      # environment, so the named volume is the only working path.
+      - AWARE_PAIRS_DIR=/data/awareness-pairs
       # The coordinator authenticates with the same password the postgres
       # service was initialized with (see POSTGRES_PASSWORD below). The
       # bring-up script sources this from AWARE_DB_PWD or falls back to
@@ -134,7 +164,20 @@ services:
       - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
         required: false
     volumes:
-      - aware-2-preference-pairs:/root/.<runtime>/metaclaw/preference-pairs
+      # Named volume for preference-pair output. Phase 1 used a bind
+      # mount from <host-config>/metaclaw/preference-pairs but bind mounts
+      # from /Users/alfie/ into containers silently fail to populate
+      # in this Docker Desktop environment. The named volume lives at
+      # /var/lib/docker/volumes/aware-2-pairs-data/_data; the trainer
+      # (aware-2-trainer) reads via the same named volume mount. The
+      # AWARE_PAIRS_DIR env var below tells the coordinator to write
+      # to /data/awareness-pairs, the path the named volume mounts at.
+      # The previous named volume (`aware-2-preference-pairs`) was
+      # mounted at /root/.<runtime>/metaclaw/preference-pairs but the
+      # AWARE process (running as `aware`, $HOME=/home/aware) wrote to
+      # /home/aware/.<runtime>/metaclaw/preference-pairs — so the volume
+      # was dead weight. Phase 2.4 data flywheel unblock.
+      - aware-2-pairs-data:/data/awareness-pairs
     depends_on:
       postgres:
         condition: service_healthy
@@ -295,6 +338,13 @@ services:
       # before they're uploaded to a Modal Volume. A named volume
       # survives across container restarts.
       - aware-2-trainer-data:/opt/aware/data
+      # Phase 2.4: the trainer reads preference pairs from the same
+      # named volume the coordinator writes them to (aware-2-pairs-data).
+      # Without this mount, _fetchUnconsumedPairPaths would scan an
+      # empty dir and the trainer would record a "cancelled" run with
+      # "no unconsumed pair_path values". Now the trainer sees the
+      # live pair files at /data/awareness-pairs/YYYY-MM-DD.jsonl.
+      - aware-2-pairs-data:/data/awareness-pairs:ro
       # NOTE: config/modal-training.json is baked into the image at
       # /app/config/modal-training.json (see Dockerfile.coordinator).
       # An earlier revision of this compose file mounted the host

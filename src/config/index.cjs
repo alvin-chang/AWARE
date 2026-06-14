@@ -28,6 +28,7 @@
 //   config.warnings()              // string[] of soft warnings
 
 const path = require('node:path');
+const os = require('node:os');
 
 // --- helpers ------------------------------------------------------------
 
@@ -119,6 +120,15 @@ const config = {
     get loraReloaderPollIntervalMs() { return num('AWARE_LORA_RELOADER_POLL_INTERVAL_MS', 5_000, { min: 100, max: 600_000 }); },
     get loraReloaderTimeoutMs() { return num('AWARE_LORA_RELOADER_TIMEOUT_MS', 30_000, { min: 1_000, max: 600_000 }); },
     get loraReloaderModelName() { return str('AWARE_LORA_RELOADER_MODEL_NAME', 'trained-model'); },
+    // Phase 2.4 (ADR-020 618-627) preference-pair output directory.
+    // Default = $HOME/.<runtime>/metaclaw/preference-pairs so the path is
+    // always writable (homedir is /home/aware inside the container, the
+    // test cwd in unit tests). Operator override AWARE_PAIRS_DIR=/data/awareness-pairs
+    // (the path the compose file bind-mounts the host preference-pairs
+    // dir to). The default home-relative path is intentionally NOT the
+    // path the compose file mounts the host dir to, so that a host bind
+    // mount to a non-image-baked path can be used without shadowing.
+    get pairsDir() { return str('AWARE_PAIRS_DIR', path.join(os.homedir(), '.<runtime>', 'metaclaw', 'preference-pairs')); },
   },
 
   // Gateway HTTP service
@@ -307,6 +317,7 @@ config.snapshot = function snapshot() {
       loraReloaderPollIntervalMs: c.coordinator.loraReloaderPollIntervalMs,
       loraReloaderTimeoutMs: c.coordinator.loraReloaderTimeoutMs,
       loraReloaderModelName: c.coordinator.loraReloaderModelName,
+      pairsDir: c.coordinator.pairsDir,
     },
     gateway: {
       port: c.gateway.port,
