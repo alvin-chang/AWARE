@@ -45,7 +45,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # progress (Modal forwards process stdout to the caller's logger).
 ENV PYTHONUNBUFFERED=1
 # Modal Volume mount point for model + dataset cache. The Modal
-# Volume `qwen35-9b-base-cache` is mounted here by training/app.py
+# Volume `qwen35-9b-cache` is mounted here by training/app.py
 # (configured per-job by the trainer service). First run downloads
 # the model to the volume; subsequent runs cache-hit.
 ENV HF_HOME=/root/.cache/huggingface
@@ -61,11 +61,12 @@ ENV AWARE_DATA_DIR=/root/aware-data
 # Checkpoint volume (LoRA adapters + per-step safetensors)
 ENV AWARE_CHECKPOINT_DIR=/checkpoints
 # Default base model — overridable per-job via env var.
-# The base-model multimodal variant (Qwen3_5ForConditionalGeneration
+# The base-model (Instruct) multimodal variant (Qwen3_5ForConditionalGeneration
 # architecture, 9.65B params, hybrid linear/full attention) is the
-# new base, locked in by the v13 smoke test. R1's trained-model path is
-# retained as a fallback in config/modal-training.json. Keep this env
-# var in sync with config/modal-training.json:dpo_defaults.base_model
+# new base, locked in by the v14 smoke test (pivoted from v13's
+# base-model after the Instruct variant's DPO smoke passed). R1's
+# trained-model path is retained as a fallback in config/modal-training.json.
+# Keep this env var in sync with config/modal-training.json:dpo_defaults.base_model
 # and training/run.py:_resolve_dpo_args().
 ENV AWARE_BASE_MODEL=Qwen/base-model
 # Default DPO hyperparameters (training-framework-aligned; cf. swift rlhf --help)
@@ -157,6 +158,6 @@ CMD []
 
 # Modal's recommended label pattern (consumed by their dashboard)
 LABEL org.opencontainers.image.title="aware-2-training"
-LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (training-framework 4.x + transformers 5.x on base-model)"
+LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (training-framework 4.x + transformers 5.x on base-model Instruct)"
 LABEL org.opencontainers.image.source="https://github.com/<runtime>/aware"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
