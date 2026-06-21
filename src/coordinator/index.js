@@ -10,10 +10,13 @@
 import { awareHeavyThink } from './heavyskill-integration.js';
 import { makeModelRouter, makeOllamaHealth } from './model-router.js';
 import { makeLoraReloader } from './lora-reloader.js';
+import { resolveKFromPluginConfig, validatePluginConfig, K_PLUGIN_CONFIG_VERSION } from './plugin-config.js';
 import config from '../config/index.cjs';
 
-export const COORDINATOR_VERSION = '0.2.0-phase-1-router';
-export const COORDINATOR_BUILD_PHASE = 'phase-1-partial';
+export const COORDINATOR_VERSION = '0.3.0-phase-1-pluginconfig';
+export const COORDINATOR_BUILD_PHASE = 'phase-1-passthrough';
+
+export { resolveKFromPluginConfig, validatePluginConfig, K_PLUGIN_CONFIG_VERSION } from './plugin-config.js';
 
 /**
  * Resolve the filesystem path to the heavy-think package.
@@ -38,6 +41,15 @@ function resolveHeavyThinkPath(opts = {}) {
  * Phase 1: defaults to a stub client. Callers wanting real model routing
  * should use `buildDefaultRouter()` and pass its `generate` as the client.
  *
+ * Phase 1 passthrough: `pluginConfig` is the per-call plugin-local
+ * config (parsed `plugins.entries.<id>.config` object, e.g. from the
+ * HeavySkill OC shim's `api.pluginConfig`). When present, the
+ * coordinator uses it to resolve K (priority: explicit `K` >
+ * `pluginConfig.agentDefaults.K` when enabled > `pluginConfig.defaultK`
+ * > `defaultKForTaskType(task_type)`). The validated pluginConfig is
+ * also passed through to `awareHeavyThink` for downstream use and is
+ * echoed in the result envelope for audit.
+ *
  * @param {Object} options
  * @param {string} options.problem
  * @param {string} [options.task_type='standard']
@@ -47,15 +59,39 @@ function resolveHeavyThinkPath(opts = {}) {
  * @param {string} [options.sessionId]
  * @param {string} [options.agentId]
  * @param {string} [options.pairsDir] — override AWARE_PAIRS_DIR for this call
+ * @param {Object} [options.pluginConfig] — per-plugin config (ADR-022
+ *   plugin-local config surface). Shape: `{ defaultK?: number,
+ *   autoEnable?: boolean, agentDefaults?: { enabled?: boolean, K?: number } }`.
+ *   Unknown keys are stripped (strict validation). A bad shape is
+ *   silently treated as "no pluginConfig" so a misbehaving caller
+ *   doesn't break the request path; the validation is logged on the
+ *   envelope for observability.
  */
-export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir }) {
+export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir, pluginConfig }) {
+  // Validate the pluginConfig shape (silent on failure — we don't want
+  // a misconfigured caller to break the coordinator's request path).
+  // The validator returns { ok, value, errors? }; `value` is the
+  // sanitized object (unknown keys stripped) or null on failure.
+  const pcValidation = validatePluginConfig(pluginConfig);
+
+  // Resolve K through the priority order. When pluginConfig is invalid
+  // we fall through to the per-task-type default (i.e., behave as if
+  // pluginConfig were absent).
+  const resolvedK = resolveKFromPluginConfig({
+    explicitK: K,
+    pluginConfig: pcValidation.value,
+    taskType: task_type || 'standard',
+  });
+
   return await awareHeavyThink({
     problem,
     task_type: task_type || 'standard',
     context: { ...context, sessionId, agentId },
-    K,
+    K: resolvedK.K,
     client,
     pairsDir: pairsDir || config.coordinator.pairsDir,
+    pluginConfig: pcValidation.value,
+    pluginConfigValidation: pcValidation,
   });
 }
 

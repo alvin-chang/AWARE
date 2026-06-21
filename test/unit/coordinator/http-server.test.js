@@ -760,3 +760,134 @@ test('bug #15: startServer respects disableLoraReloader=true opt-out', async () 
     else process.env.OLLAMA_URL = prevUrl;
   }
 });
+
+// === pluginConfig plumbing (ADR-022) ===
+//
+// The HTTP layer must:
+//   1. Accept `pluginConfig` in the request body and pass it to coordinate().
+//   2. Echo the validated pluginConfig + validation result in the response.
+//   3. Accept a bad-shape pluginConfig without breaking the request path.
+//   4. Not let `pluginConfig` keys leak into other request fields.
+
+test('POST /coordinate passes pluginConfig through to coordinate()', async () => {
+  let receivedArgs = null;
+  const coordinateFn = async (args) => {
+    receivedArgs = args;
+    return {
+      ok: true,
+      attempts: [],
+      selected: { reasoning: 'x' },
+      refined: 'x',
+      prm_score: 0.5,
+      jsonl_written: false,
+    };
+  };
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          problem: 'hi',
+          task_type: 'simple',
+          pluginConfig: {
+            defaultK: 4,
+            autoEnable: false,
+            agentDefaults: { enabled: true, K: 6 },
+          },
+        }),
+      });
+      assert.equal(res.status, 200);
+      assert.ok(receivedArgs, 'coordinateFn should have been called');
+      assert.deepEqual(receivedArgs.pluginConfig, {
+        defaultK: 4,
+        autoEnable: false,
+        agentDefaults: { enabled: true, K: 6 },
+      });
+    },
+  );
+});
+
+test('POST /coordinate omits pluginConfig when not in the body (back-compat)', async () => {
+  let receivedArgs = null;
+  const coordinateFn = async (args) => {
+    receivedArgs = args;
+    return {
+      ok: true,
+      attempts: [],
+      selected: { reasoning: 'x' },
+      refined: 'x',
+      prm_score: 0.5,
+      jsonl_written: false,
+    };
+  };
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ problem: 'hi' }),
+      });
+      assert.equal(res.status, 200);
+      assert.ok(receivedArgs, 'coordinateFn should have been called');
+      assert.equal(receivedArgs.pluginConfig, undefined, 'pluginConfig should be undefined when not in the body');
+    },
+  );
+});
+
+test('POST /coordinate with a bad-shape pluginConfig still processes the request (200)', async () => {
+  // The validator is silent on failure: a bad pluginConfig returns
+  // ok:false but the coordinator still processes the call. The HTTP
+  // layer must not 400 the call because of a bad pluginConfig.
+  const coordinateFn = async () => ({
+    ok: true,
+    attempts: [],
+    selected: { reasoning: 'x' },
+    refined: 'x',
+    prm_score: 0.5,
+    jsonl_written: false,
+  });
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn },
+    async (h) => {
+      // Send a pluginConfig that's an array (rejected by the validator).
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          problem: 'hi',
+          pluginConfig: ['not', 'a', 'config'],
+        }),
+      });
+      assert.equal(res.status, 200, 'bad pluginConfig must not break the request path');
+    },
+  );
+});
+
+test('POST /coordinate with an empty pluginConfig object works', async () => {
+  // Edge case: a caller might send an empty object as a "no config"
+  // signal. The validator accepts this and the coordinator falls
+  // through to per-task-type defaults.
+  const coordinateFn = async () => ({
+    ok: true,
+    attempts: [],
+    selected: { reasoning: 'x' },
+    refined: 'x',
+    prm_score: 0.5,
+    jsonl_written: false,
+  });
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ problem: 'hi', pluginConfig: {} }),
+      });
+      assert.equal(res.status, 200);
+    },
+  );
+});
+

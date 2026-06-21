@@ -401,6 +401,13 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
   const timeoutMs = clampMs(body.timeout_ms, config.coordinator.requestTimeoutMs, 100, 600_000);
   const costCapUsd = clampNumber(body.cost_cap_usd, config.coordinator.requestCostCapUsd, 0, 1000);
 
+  // Phase 1 passthrough (ADR-022): `pluginConfig` is the per-call
+  // plugin-local config from the OC shim. It's a free-form object
+  // — the coordinator validates it in `coordinate()` and uses it
+  // for K resolution. Unknown keys are silently dropped; bad
+  // shapes are logged on the envelope but don't break the call.
+  const pluginConfig = body.pluginConfig;
+
   // T0: race the work against a wall-clock deadline
   let result;
   try {
@@ -420,6 +427,10 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
         // the 3-tier fallback (minimax → Ollama) for free, and tests
         // can still override `coordinateFn` to bypass the router.
         client: router,
+        // ADR-022 pluginConfig passthrough. The coordinator validates
+        // and uses this; we pass it through unchanged so the
+        // validator is the single source of truth for the shape.
+        pluginConfig,
       }),
       timeoutMs,
     );

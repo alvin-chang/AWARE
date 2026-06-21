@@ -60,8 +60,11 @@ test('buildDefaultRouter errors loudly if heavy-think path cannot be resolved', 
 });
 
 test('COORDINATOR_VERSION and COORDINATOR_BUILD_PHASE are exposed and reflect Phase 1 progress', () => {
-  assert.equal(COORDINATOR_VERSION, '0.2.0-phase-1-router');
-  assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-partial');
+  // Phase 1 passthrough (ADR-022) closes the two open items from
+  // commit 301f672d: passthrough wrap (gateway proxy body-handling)
+  // and api.pluginConfig plumbing. The version reflects the bump.
+  assert.equal(COORDINATOR_VERSION, '0.3.0-phase-1-pluginconfig');
+  assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-passthrough');
 });
 
 test('coordinate() returns a result envelope (delegates to awareHeavyThink)', async () => {
