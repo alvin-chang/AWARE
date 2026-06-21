@@ -134,6 +134,9 @@ test('coordinate() is the public entry point and accepts session/agent context',
 });
 
 test('COORDINATOR_VERSION and COORDINATOR_BUILD_PHASE are surfaced', () => {
-  assert.equal(COORDINATOR_VERSION, '0.2.0-phase-1-router');
-  assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-partial');
+  // Phase 1 passthrough (ADR-022) closes the two open items from
+  // commit 301f672d: passthrough wrap (gateway proxy body-handling)
+  // and api.pluginConfig plumbing.
+  assert.equal(COORDINATOR_VERSION, '0.3.0-phase-1-pluginconfig');
+  assert.equal(COORDINATOR_BUILD_PHASE, 'phase-1-passthrough');
 });

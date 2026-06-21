@@ -5,7 +5,7 @@
 //
 // This shim does NOT reimplement HeavySkill logic — it just wraps it with
 // AWARE-specific defaults (preference pair path, task types, error envelope,
-// PRM score cache injection).
+// PRM score cache injection, pluginConfig passthrough for ADR-022 K+S).
 
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -13,7 +13,7 @@ import {
   heavy_think as heavyThink,
   defaultKForTaskType,
   K_CONFIGS,
-} from '../../../../src/heavy-think/src/index.js';
+} from '../../../heavy-think/src/index.js';
 import * as prmCache from '../db/prm-cache.js';
 
 const DEFAULT_PAIRS_DIR = join(homedir(), '.<runtime>', 'metaclaw', 'preference-pairs');
@@ -25,6 +25,11 @@ const DEFAULT_PAIRS_DIR = join(homedir(), '.<runtime>', 'metaclaw', 'preference-
  *   - daily file rotation (one JSONL per UTC day)
  *   - standard error envelope for AWARE API responses
  *   - PRM score cache injection (Phase 2.2)
+ *   - pluginConfig passthrough (ADR-022 — phase 1-passthrough): the
+ *     per-call pluginConfig from the OC shim is echoed in the result
+ *     envelope for audit, and its K-related fields have already been
+ *     applied upstream in `coordinate()` so heavy-think sees the
+ *     resolved K in `options.K`.
  *
  * @param {Object} options — same as heavy_think, plus:
  *   @param {string} [options.sessionId] — for traceability in the JSONL record
@@ -32,6 +37,10 @@ const DEFAULT_PAIRS_DIR = join(homedir(), '.<runtime>', 'metaclaw', 'preference-
  *   @param {boolean} [options.writePairs=true] — set false to skip JSONL writes
  *   @param {string} [options.pairsDir] — override the default pair directory
  *   @param {boolean} [options.disableCache=false] — set true to skip the PRM cache for this call
+ *   @param {Object} [options.pluginConfig] — validated plugin-local config
+ *     from the OC shim. Echoed in the result envelope for audit.
+ *   @param {Object} [options.pluginConfigValidation] — the { ok, errors? }
+ *     shape from `validatePluginConfig`, also echoed for observability.
  */
 export async function awareHeavyThink(options) {
   const writePairs = options.writePairs !== false;
@@ -57,7 +66,27 @@ export async function awareHeavyThink(options) {
     // the trainer's _fetchUnconsumedPairPaths returns 0 rows because the
     // WHERE clause pair_path IS NOT NULL filters them all out. Phase 2.4
     // data flywheel unblock.
-    return { ok: true, ...result, pair_path: result.pair_path || pairPath || null };
+    const envelope = {
+      ok: true,
+      ...result,
+      pair_path: result.pair_path || pairPath || null,
+    };
+    // Echo the validated pluginConfig + validation result in the
+    // envelope. The HTTP layer can read these for audit logging and
+    // the OC shim can confirm the K that was actually used. Never
+    // mutate heavy-think's result before this line — only extend.
+    if (options.pluginConfig !== undefined) {
+      envelope.plugin_config = options.pluginConfig;
+    }
+    if (options.pluginConfigValidation) {
+      envelope.plugin_config_validation = {
+        ok: options.pluginConfigValidation.ok,
+        ...(options.pluginConfigValidation.errors
+          ? { errors: options.pluginConfigValidation.errors }
+          : {}),
+      };
+    }
+    return envelope;
   } catch (err) {
     return {
       ok: false,
