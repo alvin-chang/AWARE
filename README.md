@@ -32,6 +32,22 @@ AWARE implements **T0–T4 constraint levels** — from fully human-controlled (
 
 ---
 
+## Compliance Frameworks
+
+AWARE ships with built-in mapping to five major AI and security compliance frameworks. The mapper (`src/compliance/framework-mapper.js`) is the source of truth — every AWARE control is registered against the relevant control IDs in each framework.
+
+| Framework | Version | Coverage |
+|---|---|---|
+| **CSA AI Control Matrix** | 2026 | AI Identity, AI Operations, AI Maintenance — full mapping via `AI.ID`, `AI.OT`, `AI.OPS`, `AI.MT` |
+| **NIST AI Risk Management Framework** | 1.0 | Govern, Map, Measure, Manage — full mapping via `GOVERN`, `MAP`, `MEASURE`, `MANAGE` |
+| **ISO/IEC 27001** | 2022 | Access Control (A.9), Operations Security (A.12), Incident Management (A.16) — control-level mapping |
+| **DORA** (Digital Operational Resilience Act) | 2022 | Internal Control Frameworks (Art. 12), ICT Incidents (Art. 26), Threat Intelligence (Art. 27) |
+| **OWASP Top 10 for LLM Applications** | v1.1 | All ten controls: LLM01 Prompt Injection through LLM10 Model Theft |
+
+Use `src/compliance/framework-mapper.js` as the source of truth for which AWARE controls map to which framework IDs. The companion compliance matrix at `docs/compliance-matrix.md` documents the full mapping in human-readable form.
+
+---
+
 ## AWARE 2.0 — what's new
 
 AWARE 1.0 was the bio-inspired routing + compliance layer (Phases 1–4 of the v1 plan, all shipped). AWARE 2.0 extends that with a **5-stage self-improving feedback loop**:
