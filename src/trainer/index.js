@@ -589,8 +589,12 @@ export class TrainerPoller {
       );
     }
 
-    // 4. Run heavy-think's toDpoDataset (handles minScoreGap + dedup)
-    const { toDpoDataset } = await import(config.heavyThink.path);
+    // 4. Run AWARE's own DPO dataset assembler (handles minScoreGap + dedup).
+    // Was: `await import(config.heavyThink.path)` for `toDpoDataset`,
+    // but heavy-think doesn't export it (ADR-028 §Finding 4). The
+    // AWARE-local module at ./dpo-dataset.js implements the same contract
+    // (see ADR-029 Repair 4).
+    const { toDpoDataset } = await import('./dpo-dataset.js');
     const { rows, skipped } = toDpoDataset(filterResult.kept, {
       format: 'messages',
       minScoreGap: 0.05,
