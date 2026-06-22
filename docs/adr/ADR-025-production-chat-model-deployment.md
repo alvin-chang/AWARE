@@ -5,7 +5,7 @@
 **Author:** Orchestrator (Alfie) on behalf of operator (Alvin) — for Archimedes (Architect) review.
 **Build phase:** A1 (continuing)
 **Supersedes:** Nothing. Proposes the path for ADR-024 §Open Questions #1.
-**Related:** ADR-020 §"Two-Pipeline Architecture," ADR-022 (HeavySkill v2 plugin), ADR-023 (HeavySkill not flywheel), ADR-024 (no continuous flywheel, preconditions + §Open Questions #1, #4).
+**Related:** ADR-020 §"Two-Pipeline Architecture," ADR-022 (HeavySkill v2 plugin), ADR-023 (HeavySkill not flywheel), ADR-024 (no continuous flywheel — partially reversed 2026-06-22 via ADR-027 Path 1, preconditions remain as quality gates), ADR-027 (OC traffic as data source, accepted Path 1).
 
 ---
 

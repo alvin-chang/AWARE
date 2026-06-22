@@ -1,12 +1,13 @@
-# ADR-027 — <runtime> Agent Traffic as AWARE 2.0 Data Source (Draft)
+# ADR-027 — <runtime> Agent Traffic as AWARE 2.0 Data Source
 
-**Status:** **DRAFT — pending operator decision.** Not approved, not committed.
-**Date:** 2026-06-22
+**Status:** **ACCEPTED — Path 1 selected by operator (Alvin) 2026-06-22.** Single-character confirmation "1" on the orchestrator's three-path question. Archimedes review still invited; commit canonicalizes the decision but does not lock in implementation steps that are out of scope for this ADR.
+**Date:** 2026-06-22 (drafted 2026-06-22 13:00 BST; accepted 2026-06-22 13:50 BST)
 **Author:** Orchestrator (Alfie) draft on behalf of operator (Alvin) — for Archimedes (Architect) review.
 **Build phase:** A1 (continuing)
+**Path selected:** **Path 1 — override ADR-024.** Continuous OC-traffic flywheel is restored. The three preconditions in ADR-024 §Decision become quality gates (not enablement gates): the trainer may fire continuously, but each candidate pair is filtered through `outcome-filter.js` and the existing 100-pair minimum still applies as a "warmth" check on the poller cadence.
 **Renamed from:** `ADR-025-oc-traffic-as-data-source.md` (2026-06-22) — the original filename collided with the ADR-024 §Open Questions #1 expectation that ADR-025 would be about "production chat model deployment strategy." The new ADR-025 covers that; this ADR-027 covers the OC-traffic-as-data-source question (which corresponds to ADR-024 §Open Questions #4).
-**Supersedes:** Nothing yet — this ADR proposes the path forward; supersedes any prior assumption only on operator confirmation.
-**Related:** ADR-023 (HeavySkill not flywheel), ADR-024 (no continuous flywheel), ADR-025 (production chat model deployment strategy), ADR-020 §"Two-Pipeline Architecture," ADR-022 (HeavySkill v2 plugin), and the operator's 2026-06-22 (B) selection "Full AWARE 2.0 stack — bring up the 5-service compose, add OC plugins for coordinator + PRM cache + DPO trainer + awareness-pairs, wire OC agent traffic as the data source."
+**Supersedes:** Effectively supersedes ADR-024 §Decision (the no-continuous-flywheel framing) for the AWARE 2.0 stack. ADR-023 still stands (HeavySkill is not the flywheel — but now AWARE 2.0 IS).
+**Related:** ADR-023 (HeavySkill not flywheel — still true, but AWARE 2.0 is now the flywheel), ADR-024 (no continuous flywheel — partially reversed; quality gates retained), ADR-025 (production chat model deployment strategy — fast-tracked, preconditions no longer gate enablement), ADR-020 §"Two-Pipeline Architecture," ADR-022 (HeavySkill v2 plugin), and the operator's 2026-06-22 (B) selection.
 
 ---
 
@@ -124,4 +125,4 @@ But the cost of Path 2 is real: the HeavySkill pair writer today emits garbage (
 
 ---
 
-*Drafted by orchestrator (Alfie) on behalf of operator reversal/continuation signal 2026-06-22. Status: Draft — pending operator decision on Path 1 / Path 2 / Path 3. Archimedes review invited. Once operator picks a path, ADR-025 status moves from "Draft" to "Accepted" or "Rejected," and the corresponding follow-on work proceeds under explicit collaboration.*
+*Drafted by orchestrator (Alfie) on behalf of operator reversal/continuation signal 2026-06-22. **Accepted 2026-06-22 13:50 BST via operator single-character confirmation "1" on the three-path question (Path 1 / Path 2 / Path 3). Path 1 = override ADR-024, restore continuous OC-traffic flywheel. Implementation steps remain subject to the AGENTS.md high-impact-collaboration rule (gateway restart, new plugin entries, all-agents config changes must be collaborated first). Archimedes review invited.*
