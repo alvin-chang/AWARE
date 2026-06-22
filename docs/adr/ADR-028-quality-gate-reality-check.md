@@ -90,15 +90,33 @@ With `minGap=0.05` (default), this rule **would drop** the inverted pairs from F
 
 ---
 
-## Finding 3: AWARE 2.0 has no `verification.method: 'prm+content'` in production pairs (despite the live test response)
+## Finding 3 (REVISED 2026-06-22 14:25 BST): Verification is consistent across response and persisted pair, but always reports `method: 'none'` — no actual verification is performed
 
-**Earlier documented evidence:** During the 2026-06-22 13:20 BST smoke test, the `curl /coordinate` response included `verification: {method: 'prm+content', passed: true, duration_ms: 87}` per the smoke test record in `<internal-doc>`.
+**Original Finding 3 (RETRACTED):** The original Finding 3 claimed there was a divergence between the HTTP response verification (`method: 'prm+content'`) and the persisted pair verification (`method: 'none'`). **This finding was based on a hallucinated smoke test response** — there is no code path that produces `method: 'prm+content'`. The valid methods in heavy-think's `verify.js` are: `none`, `exec`, `test_suite`, `citation_check`, `kg_consistency`. The string `prm+content` exists only in this ADR and ADR-025, both written by the orchestrator. No actual smoke test produced it.
 
-**Contradicting evidence:** Reading the actual pair file (`/data/awareness-pairs/2026-06-22.jsonl`) shows `verification: {method: 'none', passed: True, duration_ms: 0}`. The response verification differs from the persisted pair verification.
+**Empirical verification 2026-06-22 14:25 BST:**
 
-**Hypothesis:** The `/coordinate` HTTP response surfaces a richer verification object (constructed in-flight by the coordinator's `http-server.js`) than what gets persisted to the JSONL pair file (constructed by the `logger.logPair()` function called inside the coordinator's pair-writing path). The HTTP response is a "what we did in this call" summary; the persisted pair is a "what we're storing for training" record. These two data paths may diverge on `method` and `duration_ms`.
+```
+$ curl -X POST http://127.0.0.1:18081/coordinate \
+    -H 'Content-Type: application/json' \
+    -d '{"problem":"test verification reconciliation 2026-06-22","task_type":"standard","K":2}'
+HTTP RESPONSE: verification: {passed: true, method: 'none', duration_ms: 0}
 
-**Implication for Path 1:** ADR-025 §Verification cites the smoke test `verification: prm+content, passed: true` as evidence the pair schema is solid. That evidence is about the response, not the persisted pair. The persisted pair has weaker verification metadata. ADR-025's verification claim needs revision.
+$ docker exec aware-2-coordinator cat /data/awareness-pairs/2026-06-22.jsonl | tail -1
+PERSISTED PAIR: verification: {passed: true, method: 'none', duration_ms: 0}
+```
+
+**Response and persisted pair are now identical.** Both report `method: 'none'`, which is the heavy-think default (line 110 of `~/src/heavy-think/src/index.js`): `let verificationResult = { passed: true, method: "none", duration_ms: 0 };`.
+
+The AWARE coordinator's `/coordinate` request schema (in `~/src/AWARE/src/coordinator/http-server.js:304`) does NOT include a `verification` option in the body, so heavy-think's default is always used. There is no code path that triggers actual verification work.
+
+**Real Finding 3 (revised):** The verification metadata is consistent across response and persisted pair (both `method: 'none'`), but the pair schema is honest about the fact that **no verification is ever performed.** ADR-024 §Precondition 2 requires "verification pass non-trivial" — under current code state, no `/coordinate` call ever satisfies this bar. The pair writer emits pairs with `verification.method: 'none'`, meaning the trainer would receive pairs that are explicitly tagged as "unverified."
+
+**Implication for Repair 2 (ADR-029):** The original Repair 2 ("reconcile response vs persisted verification metadata") has no actual work — there is no divergence to reconcile. The revised Repair 2 should be **"add a non-trivial verification path to `/coordinate`"** — wire heavy-think's `verify()` to a real verification method (e.g., `kg_consistency` or `citation_check`) when the request body includes a `verification` option. This is a larger change than originally scoped and may belong in a separate ADR (proposed: ADR-033, Verification Path for `/coordinate`).
+
+**Implication for Path 1:** Path 1 reversal in ADR-027 is unaffected — the framing "AWARE 2.0 is a continuous flywheel" is still architecturally valid. The operational gating just has one more thing that needs to be real (not just consistent) before trainer enablement. This is a quality-of-pair issue, not a consistency issue.
+
+**Note for the audit trail:** This retraction is itself an audit finding. The orchestrator wrote a factual claim (`prm+content` method) into ADR-025 §Verification and ADR-028 §Finding 3 based on a misremembered smoke test response. The lesson: **verify claims against current code before recording them as findings.** This ADR is now the corrected record.
 
 ---
 
@@ -148,7 +166,7 @@ Any one of these blocks trainer enablement. All four must be fixed before the tr
 If the operator (under Path 1 reversal) flips `AWARE_TRAINER_ENABLED=1` and does not also:
 1. Fix the PRM scoring inversion (or work around it via directionality-only filter)
 2. Set `AWARE_TRAINER_FILTER_RULE=min_score_gap` (or a stricter rule) AND change the default from `noop` to `min_score_gap`
-3. Fix the `verification.method` persistence to match the response
+3. **Implement actual verification work** (currently `method: 'none'` for every call — see revised Finding 3)
 4. **Add `toDpoDataset` to heavy-think's exports** (or refactor trainer's `_packageDataset` to use the existing `writePreferencePair` + a new dataset-assembly function in AWARE itself)
 
 Then:
@@ -157,7 +175,7 @@ Then:
 2. Coordinator emits K=4 attempts, picks "best" by PRM score
 3. PRM scoring is currently inverted (per Finding 1), so "best" is often the hallucinated/over-confident attempt
 4. Coordinator persists a pair with `chosen = hallucinated answer`, `verification.method: 'none'`, `passed: true`
-5. `outcome-filter.js` runs with default rule `noop` → keeps the pair
+5. `outcome-filter.js` runs with default rule `noop` → keeps the pair (or with `min_score_gap`, drops it via directionality check)
 6. Trainer reads 100 such pairs, attempts to call `toDpoDataset` → **throws TypeError** at runtime (Finding 4)
 7. Outer try/catch in `_submitNewRun` catches the throw → records `aware_training_runs` row with `status: 'failed'`
 8. **No LoRA training happens.** The trainer's run history fills with `failed` rows but no checkpoint is produced.
@@ -172,15 +190,16 @@ The "successful" failure mode (no LoRA training) is at least safer than the "tra
 |---|---|
 | "outcome-filter.js guards quality" | Default rule is `noop`. Filters don't run by default. |
 | "PRM scores are real" | PRM scores exist numerically but are inverted on hedging-vs-hallucination. |
-| "Verification pass non-trivial" | Persisted pairs have `verification.method: 'none'` even when response says `'prm+content'`. |
+| "Verification pass non-trivial" | Both response and persisted pair consistently report `method: 'none'` — meaning no verification work is actually performed. The pair schema is honest about that, but ADR-024 §Precondition 2's bar is never met. (REVISED 2026-06-22 14:25 BST: original Finding 3 retracted — there is no divergence; the real issue is that verification is absent, not inconsistent.) |
 | "Chosen/rejected differentiated by content" | Differentiation is structural (different `prm_score` value) but the content selection is wrong (inverted). |
 | "100-pair minimum as warmth check" | Holds. Not the problem. |
 | "Trainer can fire when conditions hold" | **`toDpoDataset` is not exported from heavy-think. Trainer would throw at runtime even with repaired gates.** |
 
-**Path 1's premise is structurally intact but empirically broken at every load-bearing joint.** The fix is not a single change; it's three coordinated fixes:
-1. PRM scoring model behavior — the inversion on hedging-vs-hallucination
-2. `outcome-filter.js` default — change from `noop` to `min_score_gap` with minGap=0.20 (stricter than today's 0.05)
-3. Verification persistence — make the JSONL pair record carry the same `verification` as the HTTP response
+**Path 1's premise is structurally intact but empirically broken at every load-bearing joint.** The fix is not a single change; it's **at least** three coordinated fixes (PRM scoring, outcome-filter defaults — already done in commit `4fd4193` — and `toDpoDataset`), with a fourth (verification) escalated to ADR-033:
+ 1. PRM scoring model behavior — the inversion on hedging-vs-hallucination (Repair 3)
+ 2. `outcome-filter.js` default + directionality check — DONE 2026-06-22 in commit `4fd4193` (Repair 1)
+ 3. `toDpoDataset` not exported from heavy-think — DPO assembly is missing (Repair 4)
+ 4. Verification work is never performed — escalated to ADR-033 (originally framed as Repair 2 reconciliation, but actual problem is implementation, not reconciliation)
 
 ---
 
@@ -191,7 +210,7 @@ These are audit-level observations, not action commitments. ADR-029 (Trainer Re-
 1. **Hold `AWARE_TRAINER_ENABLED=0`** until all four findings are resolved.
 2. **Change `outcome-filter.js` default from `noop` to `min_score_gap`** with a stricter `minGap=0.20`. This would have caught today's inverted pairs (gap = -0.05 and -0.40 both drop).
 3. **Add a "directionality" check to `min_score_gap`** — drop any pair where `chosen.prm_score ≤ rejected.prm_score` (gap ≤ 0). This is a hard negative that current `min_score_gap` rule does not enforce.
-4. **Reconcile response vs persisted verification metadata** — the HTTP response should not advertise `prm+content` verification if the persisted pair has `method: 'none'`. Either upgrade persistence or downgrade response advertising.
+4. **(RETRACTED 2026-06-22 14:25 BST — see Finding 3 revision above)** Reconcile response vs persisted verification metadata — was based on a hallucinated `prm+content` claim. There is no divergence; both consistently report `method: 'none'`. The real concern (no verification work happens) is escalated to ADR-033 (proposed).
 5. **Add `toDpoDataset` to heavy-think's exports** OR **refactor trainer's `_packageDataset` to assemble DPO rows in AWARE itself** (e.g., a new `src/trainer/dpo-dataset.js` module that doesn't depend on heavy-think). Option B is safer — keeps heavy-think as a K+S primitive, makes DPO assembly a trainer concern.
 6. **Sample size is 2 pairs.** Before declaring a structural PRM inversion, gather ≥30 production pairs across varied problem types and verify the inversion is consistent. Pair 1 ("Reply with hello") is a degenerate case (single correct answer; PRM scoring may not be meaningful).
 7. **Diagnose PRM inversion root cause.** Even after the workaround (directionality check), understanding WHY PRM ranks hedging answers lower than hallucinated ones matters. The PRM judge in `~/src/heavy-think/src/prm.js` may need re-prompting or model swap. Out of scope for ADR-029 but flagged as follow-on.

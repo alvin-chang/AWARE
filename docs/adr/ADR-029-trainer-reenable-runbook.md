@@ -104,49 +104,39 @@ And (line 227):
 
 ---
 
-## Repair 2: Reconcile verification metadata (response vs persisted pair)
+## Repair 2 (REVISED 2026-06-22 14:25 BST): No reconciliation needed; verification is already consistent
 
-**Addresses:** Finding 3. The persisted pair's `verification.method` is `"none"` while the HTTP response advertises `"prm+content"`. This is dishonest advertising — the trainer cannot trust the response verification, only the persisted pair's.
+**RETRACTED FINDING:** The original Repair 2 was based on ADR-028 §Finding 3 (now retracted) which claimed the HTTP response verification (`method: 'prm+content'`) diverged from the persisted pair verification (`method: 'none'`). **Empirical verification 2026-06-22 14:25 BST shows both response and persisted pair report `method: 'none'` consistently.** There is no divergence to reconcile.
 
-### Why second
+**What stands (revised Repair 2):**
+- The original Repair 2's "Option A: upgrade persistence to match response" has no work — there's no richer response metadata to upgrade to.
+- The original Repair 2's "Option B: downgrade response to match persisted pair" has no work — they're already identical.
 
-This is a **small refactor** (one or two files), but it requires understanding two code paths in the coordinator (`http-server.js` and `logger.logPair()`). Verifying the fix requires end-to-end curl smoke test + persisted pair inspection. Lower risk than Repair 3 (model behavior) but higher than Repair 1.
+**What is the actual problem (escalated to ADR-033, proposed):**
+- The `/coordinate` endpoint never triggers actual verification work. Both response and persisted pair honestly report `method: 'none'`.
+- This means ADR-024 §Precondition 2's "verification pass non-trivial" clause is never satisfied by any production pair.
+- The pair writer emits pairs that are explicitly tagged as "unverified."
 
-### Changes
+**Decision (revised):** Original Repair 2 is **complete by virtue of no work being needed.** The "implement verification" question is escalated to a separate ADR (proposed: ADR-033 — Verification Path for `/coordinate`), which is a larger change than originally scoped and is not on the critical path for the Path 1 trainer-enable runbook. **Verification work is desirable but not strictly required for trainer enablement** — see §"Verification optionality" below.
 
-**Investigation:** Identify where the divergence happens. The hypothesis from ADR-028 §Finding 3:
-- HTTP response: constructed in-flight by `coordinator/http-server.js` from the in-memory verification result
-- Persisted pair: constructed by `coordinator/logger.logPair()` (or equivalent) at pair-write time
+**Verification optionality (analysis added 2026-06-22 14:25 BST):**
 
-**Two acceptable fixes:**
+ADR-024 §Precondition 2 says "verification pass non-trivial" as a quality gate. There are two interpretations:
+1. **Strict:** Each pair must have non-trivial verification before trainer consumes it. Under this interpretation, Repair 2 (now scoped as "implement verification") IS on the critical path.
+2. **Lenient:** The trainer's outcome filter can handle unverified pairs. Pairs with `verification.method: 'none'` can be quarantined or routed through a different code path (e.g., AZR re-verification).
 
-**Option A (preferred):** Make the persisted pair carry the same `verification` object as the response.
-- Modify `logger.logPair()` to accept a `verification` argument and include it in the JSONL record.
-- Modify the call site (likely `coordinator/index.js` or `coordinator/refine.js`) to pass the same `verification` object that the HTTP response uses.
-- Result: HTTP response and persisted pair have identical `verification` blocks.
+Under the lenient interpretation (which ADR-024 §Open Questions #4 partially anticipated with "AZR result gates MetaClaw"), unverified pairs can still flow through if there's a downstream quality check. The trainer's outcome filter (`outcome-filter.js`) currently does not differentiate verified vs unverified pairs — but it COULD be extended to do so.
 
-**Option B (fallback):** Downgrade the HTTP response to match the persisted pair.
-- Modify `coordinator/http-server.js` to construct its `verification` block from the same source the pair writer uses.
-- Result: both report the same minimal `verification: {method: 'none', passed: True, duration_ms: 0}` (or whatever the coordinator's actual verification layer produces).
+**Recommendation (revised Repair 2):**
+1. **Mark original Repair 2 complete** (no work needed for reconciliation).
+2. **Add a verification check to `outcome-filter.js`** as a follow-on: under rule='verified_only', drop pairs where `verification.method === 'none'`. This is a 5-line code change + 1 unit test.
+3. **Defer "implement verification" to ADR-033** — not on the critical path.
 
-**Archimedes should pick:** Option A is preferred because it surfaces real verification work to the trainer. Option B is fallback if Option A's plumbing is too invasive.
-
-### Verification (Repair 2)
-
-1. After fix, run a new `curl /coordinate` smoke test:
-   ```bash
-   curl -X POST http://127.0.0.1:18081/coordinate \
-     -H 'Content-Type: application/json' \
-     -d '{"problem":"test","task_type":"standard"}' \
-     | jq .verification
-   ```
-2. Capture the new pair file (`docker exec aware-2-coordinator ls -la /data/awareness-pairs/`) and read the new record:
-   ```bash
-   docker exec aware-2-coordinator cat /data/awareness-pairs/$(date -u +%Y-%m-%d).jsonl | tail -1 | jq .verification
-   ```
-3. **Assert: response and persisted `verification` blocks are equal.** If not equal, the fix is incomplete.
-4. Document the new `verification.method` value in <internal-doc> (overwrite ADR-025's smoke-test citation).
-5. **Operator sign-off required** before proceeding to Repair 3.
+**Verification (revised Repair 2):**
+1. Confirm no divergence: re-run `curl /coordinate` smoke test + `docker exec cat` on the new pair file. Both should show identical `verification` blocks.
+2. Add the `verified_only` rule to `outcome-filter.js`.
+3. Add a unit test for `verified_only`.
+4. **Operator sign-off required** before proceeding to Repair 3.
 
 ---
 

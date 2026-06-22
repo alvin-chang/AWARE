@@ -214,17 +214,22 @@ const config = {
     get jobTimeoutSec() { return num('AWARE_TRAINER_JOB_TIMEOUT_SEC', 18000, { min: 60, max: 86400 }); },
     // Phase 4 (ADR-020 618-627) outcome filter rule. The trainer
     // applies this to every preference pair before packaging it into
-    // the DPO dataset. Default 'noop' = keep everything; operator
-    // flips to 'min_score_gap' or 'tag_match' once they have a
-    // working corpus and a real filter strategy. See
+    // the DPO dataset. Default changed 2026-06-22 (ADR-029 Repair 1)
+    // from 'noop' to 'min_score_gap' to guard against PRM-inverted
+    // pairs in production data. Operators can still opt back into
+    // 'noop' explicitly via env var override. See
     // src/trainer/outcome-filter.js for the full rule set.
-    get filterRule() { return str('AWARE_TRAINER_FILTER_RULE', 'noop'); },
+    get filterRule() { return str('AWARE_TRAINER_FILTER_RULE', 'min_score_gap'); },
     // Companion to filterRule='min_score_gap'. Drop records where
     // (chosen.prm_score - rejected.prm_score) < filterMinGap. Default
-    // 0.05 matches heavy-think's toDpoDataset() default so the
-    // operator's mental model of "tight pairs are bad" is consistent
-    // across the two filter layers.
-    get filterMinGap() { return num('AWARE_TRAINER_FILTER_MIN_GAP', 0.05, { min: 0, max: 1 }); },
+    // raised 2026-06-22 (ADR-029 Repair 1) from 0.05 to 0.20 to be
+    // stricter than heavy-think's toDpoDataset() default. The strict
+    // default guards against low-confidence pairs that may be PRM
+    // artifacts (see ADR-028 §Finding 1 — PRM scoring is currently
+    // inverted on hedging-vs-hallucination, so wide gaps may not
+    // mean what they used to). Operators who want a more lenient
+    // corpus can override via env var.
+    get filterMinGap() { return num('AWARE_TRAINER_FILTER_MIN_GAP', 0.20, { min: 0, max: 1 }); },
     // Companion to filterRule='tag_match'. Allow-list of task_type
     // values to keep (comma-separated env var). Empty default =
     // "operator hasn't decided yet" → keep all (see outcome-filter.js).

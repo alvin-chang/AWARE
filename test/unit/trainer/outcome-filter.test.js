@@ -25,11 +25,15 @@ function makeRecord(overrides = {}) {
   };
 }
 
-// -- noop (default) -------------------------------------------------------
+// -- noop (explicit opt-in) ----------------------------------------------
+// As of 2026-06-22 (ADR-029 Repair 1), 'noop' is no longer the
+// default rule. It's still available for explicit opt-in via
+// { rule: 'noop' }. These tests verify the explicit noop path still
+// works as before.
 
-test('outcome-filter: noop rule keeps all valid records', () => {
+test('outcome-filter: noop rule (explicit) keeps all valid records', () => {
   const records = [makeRecord(), makeRecord({ problem: 'What is 3+3?' })];
-  const result = filterOutcomePairs(records);
+  const result = filterOutcomePairs(records, { rule: 'noop' });
   assert.equal(result.kept.length, 2);
   assert.equal(result.dropped.length, 0);
   assert.equal(result.stats.rule, 'noop');
@@ -38,9 +42,9 @@ test('outcome-filter: noop rule keeps all valid records', () => {
   assert.equal(result.stats.totalDropped, 0);
 });
 
-test('outcome-filter: noop is the default when options.rule is omitted', () => {
+test('outcome-filter: min_score_gap is the default when options.rule is omitted (changed 2026-06-22 per ADR-029 Repair 1)', () => {
   const result = filterOutcomePairs([makeRecord()]);
-  assert.equal(result.stats.rule, 'noop');
+  assert.equal(result.stats.rule, 'min_score_gap');
 });
 
 test('outcome-filter: empty input returns empty arrays, not an error', () => {
@@ -72,24 +76,124 @@ test('outcome-filter: min_score_gap drops records with gap < threshold', () => {
   assert.match(result.dropped[0].reason, /^min_score_gap:0\.0500<0\.1$/);
 });
 
-test('outcome-filter: min_score_gap keeps records when scores are missing (defensive)', () => {
+test('outcome-filter: min_score_gap drops records with missing prm_scores (strict policy, ADR-029 Repair 1)', () => {
+  // Was 'keep' (lenient), now 'drop' (strict). Rationale: ADR-024
+  // §Precondition 2 requires "PRM scores from real extraction";
+  // a pair without scores cannot satisfy that bar.
   const noScores = makeRecord({
     chosen: { reasoning: 'X' },     // no prm_score
     rejected: { reasoning: 'Y' },   // no prm_score
   });
   const result = filterOutcomePairs([noScores], { rule: 'min_score_gap' });
-  assert.equal(result.kept.length, 1, 'missing scores should not penalize');
+  assert.equal(result.kept.length, 0, 'missing scores should now drop the pair');
+  assert.equal(result.dropped.length, 1);
+  assert.equal(result.dropped[0].reason, 'min_score_gap:missing_prm_scores');
 });
 
-test('outcome-filter: min_score_gap uses default 0.05 when minGap is omitted', () => {
-  const rec = makeRecord({
-    chosen: { reasoning: 'A', prm_score: 0.51 },
-    rejected: { reasoning: 'B', prm_score: 0.50 },
+test('outcome-filter: min_score_gap drops records with only chosen.prm_score missing', () => {
+  const noChosenScore = makeRecord({
+    chosen: { reasoning: 'X' },     // no prm_score
+    rejected: { reasoning: 'Y', prm_score: 0.5 },
   });
+  const result = filterOutcomePairs([noChosenScore], { rule: 'min_score_gap' });
+  assert.equal(result.dropped.length, 1);
+  assert.equal(result.dropped[0].reason, 'min_score_gap:missing_prm_scores');
+});
+
+test('outcome-filter: min_score_gap drops records with only rejected.prm_score missing', () => {
+  const noRejectedScore = makeRecord({
+    chosen: { reasoning: 'X', prm_score: 0.9 },
+    rejected: { reasoning: 'Y' },   // no prm_score
+  });
+  const result = filterOutcomePairs([noRejectedScore], { rule: 'min_score_gap' });
+  assert.equal(result.dropped.length, 1);
+  assert.equal(result.dropped[0].reason, 'min_score_gap:missing_prm_scores');
+});
+
+test('outcome-filter: min_score_gap uses default 0.20 when minGap is omitted (changed 2026-06-22 per ADR-029 Repair 1)', () => {
+  const rec = makeRecord({
+    chosen: { reasoning: 'A', prm_score: 0.70 },
+    rejected: { reasoning: 'B', prm_score: 0.55 },
+  });
+  // gap = 0.15, below 0.20 → drop
   const result = filterOutcomePairs([rec], { rule: 'min_score_gap' });
-  // gap = 0.01, below 0.05 → drop
   assert.equal(result.kept.length, 0);
   assert.match(result.dropped[0].reason, /^min_score_gap/);
+});
+
+test('outcome-filter: min_score_gap keeps records with gap >= 0.20 (new default)', () => {
+  const rec = makeRecord({
+    chosen: { reasoning: 'A', prm_score: 0.85 },
+    rejected: { reasoning: 'B', prm_score: 0.50 },
+  });
+  // gap = 0.35, above 0.20 → keep
+  const result = filterOutcomePairs([rec], { rule: 'min_score_gap' });
+  assert.equal(result.kept.length, 1);
+});
+
+test('outcome-filter: min_score_gap directionality check — drops pairs where chosen < rejected (PRM inversion)', () => {
+  // The exact pattern from ADR-028 §Finding 1: PRM scoring inverts
+  // chosen/rejected on hedging-vs-hallucination. The directionality
+  // check catches these as a hard negative regardless of magnitude.
+  const inverted = makeRecord({
+    chosen: { reasoning: 'A', prm_score: 0.75 },
+    rejected: { reasoning: 'B', prm_score: 0.80 },
+  });
+  const result = filterOutcomePairs([inverted], { rule: 'min_score_gap' });
+  assert.equal(result.dropped.length, 1);
+  assert.equal(result.kept.length, 0);
+  assert.match(result.dropped[0].reason, /^min_score_gap:inverted:/);
+  assert.match(result.dropped[0].reason, /<=0$/);
+});
+
+test('outcome-filter: min_score_gap directionality check — drops pairs where chosen == rejected (tie)', () => {
+  // gap = 0 — was previously dropped by magnitude gate (gap + epsilon
+  // < minGap), now dropped explicitly by directionality check with a
+  // clearer reason string.
+  const tied = makeRecord({
+    chosen: { reasoning: 'A', prm_score: 0.5 },
+    rejected: { reasoning: 'B', prm_score: 0.5 },
+  });
+  const result = filterOutcomePairs([tied], { rule: 'min_score_gap' });
+  assert.equal(result.dropped.length, 1);
+  assert.match(result.dropped[0].reason, /^min_score_gap:inverted:0\.0000<=0$/);
+});
+
+test('outcome-filter: min_score_gap directionality check — catches ADR-028 production pair 0 (gap=-0.05)', () => {
+  // Reproduction of the exact inversion pattern from
+  // /data/awareness-pairs/2026-06-22.jsonl pair 0:
+  // "What is AWARE 2.0?" → chosen=0.75, rejected=0.80, gap=-0.05
+  const rec = makeRecord({
+    problem: 'What is AWARE 2.0?',
+    chosen: { reasoning: 'hedged answer', prm_score: 0.75 },
+    rejected: { reasoning: 'confident answer', prm_score: 0.80 },
+  });
+  const result = filterOutcomePairs([rec], { rule: 'min_score_gap', minGap: 0.20 });
+  assert.equal(result.dropped.length, 1);
+  assert.match(result.dropped[0].reason, /^min_score_gap:inverted:-0\.0500<=0$/);
+});
+
+test('outcome-filter: min_score_gap directionality check — catches ADR-028 production pair 1 (gap=-0.40)', () => {
+  // Reproduction of pair 1 from the same file:
+  // "Reply with hello" → chosen=0.60, rejected=1.00, gap=-0.40
+  const rec = makeRecord({
+    problem: 'Reply with the single word: hello',
+    chosen: { reasoning: 'some answer', prm_score: 0.60 },
+    rejected: { reasoning: 'hello', prm_score: 1.00 },
+  });
+  const result = filterOutcomePairs([rec], { rule: 'min_score_gap', minGap: 0.20 });
+  assert.equal(result.dropped.length, 1);
+  assert.match(result.dropped[0].reason, /^min_score_gap:inverted:-0\.4000<=0$/);
+});
+
+test('outcome-filter: min_score_gap directionality check — keeps records where chosen > rejected (positive direction)', () => {
+  const rec = makeRecord({
+    chosen: { reasoning: 'A', prm_score: 0.85 },
+    rejected: { reasoning: 'B', prm_score: 0.50 },
+  });
+  // gap = 0.35, positive, above 0.20 default → keep
+  const result = filterOutcomePairs([rec], { rule: 'min_score_gap' });
+  assert.equal(result.kept.length, 1);
 });
 
 // -- tag_match ------------------------------------------------------------
