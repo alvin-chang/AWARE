@@ -26,6 +26,25 @@ const FRAMEWORKS = {
       'MAP': { name: 'Map', description: 'Risk assessment' },
       'MEASURE': { name: 'Measure', description: 'Measurement and analysis' },
       'MANAGE': { name: 'Manage', description: 'Risk management' }
+    },
+    // NOTE: control IDs below use NIST CSF subcategory format (PR.AC, DE.CM,
+    // etc.). These are the IDs referenced by AWARE component mappings; the
+    // NIST_AI_RMF label is retained for the framework-mapper API. A future
+    // ADR should reconcile the CSF vs AI RMF ID scheme. (Pre-existing
+    // inconsistency, flagged during OWASP LLM Top 10 mapping PR.)
+    controls: {
+      'GV.PO': { name: 'Govern — Policies, Processes, and Procedures', description: 'Organisational policies, processes, and procedures for AI risk management are established.' },
+      'GV.RM': { name: 'Govern — Risk Management Strategy', description: 'AI risk management strategy is established and integrated.' },
+      'PR.AC': { name: 'Protect — Access Control', description: 'Identities, credentials, and access management for AI system components.' },
+      'PR.IP': { name: 'Protect — Information Protection', description: 'Information protection processes and procedures for AI systems.' },
+      'PR.AA': { name: 'Protect — Awareness and Training', description: 'Personnel are trained on AI security and operational responsibilities.' },
+      'DE.CM': { name: 'Detect — Continuous Monitoring', description: 'AI systems and assets are monitored to detect anomalies and events.' },
+      'DE.AE': { name: 'Detect — Anomalies and Events', description: 'Anomalous activity on AI systems is detected and the potential impact is understood.' },
+      'RS.RP': { name: 'Respond — Response Planning', description: 'Response processes and procedures for AI incidents are executed and maintained.' },
+      'RS.MA': { name: 'Respond — Analysis', description: 'Analysis is performed to establish what has taken place during an AI event.' },
+      'RS.MI': { name: 'Respond — Mitigation', description: 'Activities are performed to prevent expansion of an AI event and mitigate its effects.' },
+      'RA-1': { name: 'Risk Assessment — Asset Vulnerability', description: 'Asset vulnerabilities are identified, validated, and recorded.' },
+      'RA-3': { name: 'Risk Assessment — Threat Modelling', description: 'Threats, both internal and external, are identified and recorded.' }
     }
   },
   ISO_27001: {
@@ -46,6 +65,28 @@ const FRAMEWORKS = {
       '12': { name: 'Internal Control Frameworks', description: 'ICT risk management' },
       '26': { name: 'ICT Incidents', description: 'Operational resilience' },
       '27': { name: 'Threat Intelligence', description: 'Cyber threat intelligence' }
+    },
+    controls: {
+      'Art.12': { name: 'Internal Governance and Control', description: 'Financial entities must have an internal governance and control framework for ICT risk management, including roles, responsibilities, and risk tolerance.' },
+      'Art.26': { name: 'Major ICT-Related Incident Reporting', description: 'Financial entities must define, document, and implement processes to detect, manage, log, and classify ICT-related incidents.' },
+      'Art.27': { name: 'Cyber Threat Intelligence and Penetration Testing', description: 'Financial entities must maintain threat intelligence capabilities and conduct regular threat-led penetration testing.' }
+    }
+  },
+  OWASP_LLM_TOP_10: {
+    id: 'OWASP_LLM_TOP_10',
+    name: 'OWASP Top 10 for Large Language Model Applications',
+    version: 'v1.1',
+    controls: {
+      'LLM01': { name: 'Prompt Injection', description: 'Manipulating LLMs via crafted inputs can lead to unauthorised access, data breaches, and compromised decision-making.' },
+      'LLM02': { name: 'Insecure Output Handling', description: 'Neglecting to validate LLM outputs may lead to downstream security exploits, including code execution that compromises systems and exposes data.' },
+      'LLM03': { name: 'Training Data Poisoning', description: 'Tampered training data can impair LLM models leading to responses that may compromise security, accuracy, or ethical behaviour.' },
+      'LLM04': { name: 'Model Denial of Service', description: 'Overloading LLMs with resource-heavy operations can cause service disruptions and increased costs.' },
+      'LLM05': { name: 'Supply Chain Vulnerabilities', description: 'Depending upon compromised components, services or datasets undermines system integrity, causing data breaches and system failures.' },
+      'LLM06': { name: 'Sensitive Information Disclosure', description: 'Failure to protect against disclosure of sensitive information in LLM outputs can result in legal consequences or a loss of competitive advantage.' },
+      'LLM07': { name: 'Insecure Plugin Design', description: 'LLM plugins processing untrusted inputs and having insufficient access control risk severe exploits like remote code execution.' },
+      'LLM08': { name: 'Excessive Agency', description: 'Granting LLMs unchecked autonomy to take action can lead to unintended consequences, jeopardising reliability, privacy, and trust.' },
+      'LLM09': { name: 'Overreliance', description: 'Failing to critically assess LLM outputs can lead to compromised decision making, security vulnerabilities, and legal liabilities.' },
+      'LLM10': { name: 'Model Theft', description: 'Unauthorised access to proprietary large language models risks theft, competitive advantage, and dissemination of sensitive information.' }
     }
   }
 };
@@ -59,7 +100,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.ID-01', 'AI.ID-02'],
     'NIST_AI_RMF': ['PR.AC', 'DE.CM'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM05', 'LLM10']
   },
 
   // Phase 1.2: Per-Agent Sandbox Policies
@@ -67,7 +109,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.OPS-04', 'AI.OPS-05'],
     'NIST_AI_RMF': ['PR.IP', 'DE.AE'],
     'ISO_27001': ['A.12.1', 'A.12.4'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM04', 'LLM07', 'LLM08']
   },
 
   // Phase 1.3: Behavioural Baseline
@@ -75,7 +118,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.MT-01'],
     'NIST_AI_RMF': ['DE.CM', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
-    'DORA': ['Art.26', 'Art.27']
+    'DORA': ['Art.26', 'Art.27'],
+    'OWASP_LLM_TOP_10': ['LLM03', 'LLM09']
   },
 
   // Phase 1.4: Kill Switch
@@ -83,7 +127,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.OPS-02', 'AI.OPS-03'],
     'NIST_AI_RMF': ['RS.MI', 'RS.RP'],
     'ISO_27001': ['A.16.1'],
-    'DORA': ['Art.26']
+    'DORA': ['Art.26'],
+    'OWASP_LLM_TOP_10': ['LLM04', 'LLM08']
   },
 
   // Phase 2.1: Pheromone Specialists
@@ -91,7 +136,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.OT-02'],
     'NIST_AI_RMF': ['PR.IP'],
     'ISO_27001': ['A.12.1'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM09']
   },
 
   // Phase 2.2: Security-Weighted Heuristic
@@ -99,7 +145,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.OT-01', 'AI.OT-02'],
     'NIST_AI_RMF': ['RA-1', 'RA-3'],
     'ISO_27001': ['A.12.1'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM02']
   },
 
   // Phase 3.1A: Agent Identity & Authentication
@@ -107,7 +154,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.ID-01', 'AI.ID-02'],
     'NIST_AI_RMF': ['PR.AC', 'PR.AA'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM05', 'LLM06', 'LLM07', 'LLM10']
   },
 
   // Phase 3.1B: Behavioural Anomaly Detection
@@ -115,7 +163,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.MT-01', 'AI.OPS-01'],
     'NIST_AI_RMF': ['DE.CM', 'DE.AE', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
-    'DORA': ['Art.26', 'Art.27']
+    'DORA': ['Art.26', 'Art.27'],
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM03', 'LLM06', 'LLM09', 'LLM10']
   },
 
   // Phase 3.1C: Tool Access Control
@@ -123,7 +172,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.OPS-04', 'AI.OPS-05'],
     'NIST_AI_RMF': ['PR.AC', 'PR.IP'],
     'ISO_27001': ['A.9.4'],
-    'DORA': ['Art.12']
+    'DORA': ['Art.12'],
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM02', 'LLM04', 'LLM05', 'LLM07', 'LLM08']
   },
 
   // Phase 3.2: Compliance Mapping
@@ -131,7 +181,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'CSA_AI_CM': ['AI.ID-01', 'AI.MT-01'],
     'NIST_AI_RMF': ['GV.PO', 'GV.RM'],
     'ISO_27001': ['A.12.4'],
-    'DORA': ['Art.12', 'Art.26']
+    'DORA': ['Art.12', 'Art.26'],
+    'OWASP_LLM_TOP_10': ['LLM09']
   }
 };
 
@@ -216,6 +267,42 @@ class FrameworkMapper {
           category: catId,
           categoryName: cat.name,
           description: cat.description
+        });
+      }
+    }
+
+    // OWASP LLM Top 10 has flat LLM01-LLM10 controls
+    if (frameworkId === 'OWASP_LLM_TOP_10') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          description: ctrl.description
+        });
+      }
+    }
+
+    // DORA uses Art.NN prefixed controls (matches mapping format)
+    if (frameworkId === 'DORA') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          description: ctrl.description
+        });
+      }
+    }
+
+    // NIST AI RMF controls (CSF subcategory format) — see note in FRAMEWORKS
+    if (frameworkId === 'NIST_AI_RMF') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          description: ctrl.description
         });
       }
     }

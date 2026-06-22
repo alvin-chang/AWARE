@@ -2,20 +2,24 @@
 
 **Document:** AWARE Compliance Matrix  
 **Project:** AWARE Evolution  
-**Date:** 2026-03-28 (updated 2026-04-02)  
+**Date:** 2026-03-28 (updated 2026-06-22)  
 **Status:** Phase 1–4 COMPLETE ✅ — All ADRs (010–019) approved and implemented  
-**Framework Versions:** CSA AI Control Matrix v1.0, NIST AI RMF (2023), ISO 27001:2022, DORA (EU) 2022/2554  
+**Framework Versions:** CSA AI Control Matrix v2026, NIST AI RMF (2023), ISO 27001:2022, DORA (EU) 2022/2554, OWASP Top 10 for LLM Applications v1.1  
 
 ---
 
 ## Overview
 
-This document maps every AWARE Evolution capability to its regulatory controls across four frameworks:
+This document maps every AWARE Evolution capability to its regulatory and threat-framework controls across five frameworks:
 
+**Regulatory frameworks:**
 - **CSA AI Control Matrix** — Cloud Security Alliance AI Security controls
 - **NIST AI RMF** — NIST AI Risk Management Framework (2023)
 - **ISO 27001:2022** — Information security management systems
 - **DORA** — Digital Operational Resilience Act (EU, 2022/2554)
+
+**Threat frameworks:**
+- **OWASP Top 10 for LLM Applications v1.1** — LLM-specific attack taxonomy
 
 Controls are marked:
 - ✅ **Implemented** — evidence available and verified
@@ -464,9 +468,54 @@ Digital Operational Resilience Act, applicable to financial sector entities. AWA
 
 ---
 
+## Threat Framework Coverage
+
+This section maps AWARE capabilities to the **OWASP Top 10 for Large Language Model Applications v1.1**. Unlike the regulatory frameworks above, the OWASP LLM Top 10 is an attack-taxonomy framework — it describes threats that AWARE's defensive controls mitigate. Coverage is the proportion of the 10 controls addressed by at least one AWARE component.
+
+### OWASP LLM Top 10 v1.1 — AWARE Coverage Summary
+
+| OWASP Control | Title | Coverage Status | Primary AWARE Components |
+|---|---|---|---|
+| LLM01 | Prompt Injection | ✅ Covered | `tool-access-control`, `security-heuristic`, `anomaly-detection` |
+| LLM02 | Insecure Output Handling | ✅ Covered | `tool-access-control`, `security-heuristic` |
+| LLM03 | Training Data Poisoning | 🔄 Partial | `anomaly-detection`, `behavioral-baseline` (Downstream behavioural drift only — does not inspect training data. Training-time controls (data validation, supply chain attestation) TBD.) |
+| LLM04 | Model Denial of Service | ✅ Covered | `sandbox-policies`, `tool-access-control`, `kill-switch` |
+| LLM05 | Supply Chain Vulnerabilities | 🔄 Partial | `identity-provider`, `tool-access-control`, `agent-registry` (plugin auth only; full SBOM TBD) |
+| LLM06 | Sensitive Information Disclosure | ✅ Covered | `identity-provider`, `anomaly-detection`, `tool-access-control` |
+| LLM07 | Insecure Plugin Design | ✅ Covered | `identity-provider`, `tool-access-control`, `sandbox-policies` |
+| LLM08 | Excessive Agency | ✅ Covered | `tool-access-control`, `sandbox-policies`, `kill-switch` |
+| LLM09 | Overreliance | 🔄 Partial | `anomaly-detection`, `compliance-mapping`, `pheromone-specialists` (audit trail supports human review; explicit human-in-the-loop workflow TBD) |
+| LLM10 | Model Theft | 🔄 Partial | `identity-provider`, `anomaly-detection`, `agent-registry` (access controls and behaviour monitoring; encrypted model storage TBD) |
+
+**Overall coverage: 6/10 controls ✅ Covered, 4/10 🔄 Partial.** No controls are unaddressed. Partial entries have named gaps; see ADR-016 for the gap-tracker plan.
+
+### Component-to-LLM Control Mapping
+
+| AWARE Component | LLM Controls Covered |
+|---|---|
+| `agent-registry` (Phase 1.1) | LLM05, LLM10 |
+| `sandbox-policies` (Phase 1.2) | LLM04, LLM07, LLM08 |
+| `behavioral-baseline` (Phase 1.3) | LLM03, LLM09 |
+| `kill-switch` (Phase 1.4) | LLM04, LLM08 |
+| `pheromone-specialists` (Phase 2.1) | LLM09 |
+| `security-heuristic` (Phase 2.2) | LLM01, LLM02 |
+| `identity-provider` (Phase 3.1A) | LLM05, LLM06, LLM07, LLM10 |
+| `anomaly-detection` (Phase 3.1B) | LLM01, LLM03, LLM06, LLM09, LLM10 |
+| `tool-access-control` (Phase 3.1C) | LLM01, LLM02, LLM04, LLM05, LLM07, LLM08 |
+| `compliance-mapping` (Phase 3.2) | LLM09 |
+
+### Threat Framework Maintenance
+
+Threat-framework mappings are reviewed:
+- **On framework release** — OWASP LLM Top 10 ships version bumps periodically; coverage must be re-assessed within 30 days of any new release.
+- **Quarterly** — covered by the gap-tracker review cycle (ADR-016).
+- **Owner:** Compliance team (security eng reviews).
+
+---
+
 ## Maintenance
 
-This document is updated to reflect Phase 1–4 completion (2026-04-02).
+This document is updated to reflect Phase 1–4 completion (2026-04-02) and the addition of OWASP LLM Top 10 v1.1 threat-framework coverage (2026-06-22).
 
 **Status:** ✅ Phase 1–4 COMPLETE — All ADRs (010–019) approved and implemented
 
@@ -486,4 +535,4 @@ This document is updated to reflect Phase 1–4 completion (2026-04-02).
 
 ---
 
-*Document updated by Chronicler (Scribe), 2026-04-02. Phase 1–4 compliance evidence now populated. All ADRs (010–019) approved.*
+*Document updated by Chronicler (Scribe), 2026-04-02. Phase 1–4 compliance evidence now populated. All ADRs (010–019) approved. Threat-framework coverage (OWASP LLM Top 10 v1.1) added by Forge (Coder), 2026-06-22, pending Archimedes + Critic review.*

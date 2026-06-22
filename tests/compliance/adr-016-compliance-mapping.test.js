@@ -49,6 +49,145 @@ describe('ADR-016: Compliance Mapping & Reporting', () => {
 
       expect(result).toBe(true);
     });
+
+    it('F-3: registers OWASP LLM Top 10 framework', () => {
+      const mapper = new FrameworkMapper();
+      const framework = mapper.getFramework('OWASP_LLM_TOP_10');
+
+      expect(framework).not.toBeNull();
+      expect(framework.name).toBe('OWASP Top 10 for Large Language Model Applications');
+      expect(framework.version).toBe('v1.1');
+      expect(Object.keys(framework.controls)).toHaveLength(10);
+    });
+
+    it('F-4: returns all 10 OWASP LLM controls', () => {
+      const mapper = new FrameworkMapper();
+      const controls = mapper.getFrameworkControls('OWASP_LLM_TOP_10');
+
+      expect(controls).toHaveLength(10);
+      expect(controls.map(c => c.id)).toEqual(
+        expect.arrayContaining(['LLM01', 'LLM02', 'LLM03', 'LLM04', 'LLM05', 'LLM06', 'LLM07', 'LLM08', 'LLM09', 'LLM10'])
+      );
+    });
+
+    it('F-5: maps identity-provider to OWASP controls (LLM05/06/07/10)', () => {
+      const mapper = new FrameworkMapper();
+      const mapping = mapper.getComponentMapping('identity-provider');
+
+      expect(mapping).not.toBeNull();
+      expect(mapping.OWASP_LLM_TOP_10).toEqual(
+        expect.arrayContaining(['LLM05', 'LLM06', 'LLM07', 'LLM10'])
+      );
+    });
+
+    it('F-6: maps tool-access-control to OWASP LLM controls for LLM01/02/04/05/07/08', () => {
+      const mapper = new FrameworkMapper();
+      const mapping = mapper.getComponentMapping('tool-access-control');
+
+      expect(mapping).not.toBeNull();
+      expect(mapping.OWASP_LLM_TOP_10).toEqual(
+        expect.arrayContaining(['LLM01', 'LLM02', 'LLM04', 'LLM05', 'LLM07', 'LLM08'])
+      );
+    });
+
+    it('F-7: every AWARE component is mapped to at least one OWASP LLM control', () => {
+      const mapper = new FrameworkMapper();
+      const allMappings = mapper.getAllMappings();
+
+      for (const [componentId, mapping] of Object.entries(allMappings)) {
+        expect(mapping.OWASP_LLM_TOP_10).toBeDefined();
+        expect(mapping.OWASP_LLM_TOP_10.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('T4: componentCoversControl works for OWASP LLM controls', () => {
+      const mapper = new FrameworkMapper();
+      const covers = mapper.componentCoversControl('tool-access-control', 'OWASP_LLM_TOP_10', 'LLM01');
+      const doesNotCover = mapper.componentCoversControl('kill-switch', 'OWASP_LLM_TOP_10', 'LLM01');
+
+      expect(covers).toBe(true);
+      expect(doesNotCover).toBe(false);
+    });
+
+    it('T5: compliance matrix includes OWASP framework for every component', () => {
+      const mapper = new FrameworkMapper();
+      const matrix = mapper.generateComplianceMatrix();
+
+      for (const componentId of Object.keys(matrix)) {
+        expect(matrix[componentId].OWASP_LLM_TOP_10).toBeDefined();
+        expect(matrix[componentId].OWASP_LLM_TOP_10.frameworkName)
+          .toBe('OWASP Top 10 for Large Language Model Applications');
+        expect(matrix[componentId].OWASP_LLM_TOP_10.controls.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('B-1: enumerates DORA controls (pre-existing latent bug fix)', () => {
+      // Pre-existing: getFrameworkControls('DORA') returned []. Fixed by
+      // adding controls sub-object to DORA framework definition.
+      const mapper = new FrameworkMapper();
+      const controls = mapper.getFrameworkControls('DORA');
+
+      expect(controls.length).toBeGreaterThan(0);
+      expect(controls.map(c => c.id)).toEqual(
+        expect.arrayContaining(['Art.12', 'Art.26', 'Art.27'])
+      );
+    });
+
+    it('B-2: enumerates NIST AI RMF controls (pre-existing latent bug fix)', () => {
+      // Pre-existing: getFrameworkControls('NIST_AI_RMF') returned []. Fixed by
+      // adding controls sub-object with CSF subcategory IDs.
+      const mapper = new FrameworkMapper();
+      const controls = mapper.getFrameworkControls('NIST_AI_RMF');
+
+      expect(controls.length).toBeGreaterThan(0);
+      expect(controls.map(c => c.id)).toEqual(
+        expect.arrayContaining(['PR.AC', 'DE.CM', 'PR.IP', 'RS.MA'])
+      );
+    });
+
+    it('B-3: DORA control IDs match component mapping IDs (Art.NN format)', () => {
+      const mapper = new FrameworkMapper();
+      const controls = mapper.getFrameworkControls('DORA');
+      const ids = controls.map(c => c.id);
+
+      // Each DORA control ID returned by getFrameworkControls must match
+      // the format used in AWARE_COMPONENT_MAPPINGS (Art.NN).
+      for (const id of ids) {
+        expect(id).toMatch(/^Art\.\d+$/);
+      }
+    });
+
+    it('B-4: NIST control IDs match component mapping IDs (CSF format)', () => {
+      const mapper = new FrameworkMapper();
+      const controls = mapper.getFrameworkControls('NIST_AI_RMF');
+      const ids = controls.map(c => c.id);
+
+      // Each NIST control ID must be a string that could appear in
+      // AWARE_COMPONENT_MAPPINGS.NIST_AI_RMF.
+      const allMappings = mapper.getAllMappings();
+      const knownIds = new Set();
+      for (const mapping of Object.values(allMappings)) {
+        if (mapping.NIST_AI_RMF) mapping.NIST_AI_RMF.forEach(id => knownIds.add(id));
+      }
+
+      for (const id of ids) {
+        expect(knownIds.has(id)).toBe(true);
+      }
+    });
+
+    it('B-5: every framework returns > 0 controls (no silently-empty enumeration)', () => {
+      // Regression guard: prevents re-introduction of the DORA/NIST silent-empty bug.
+      const mapper = new FrameworkMapper();
+      const frameworks = mapper.getFrameworks();
+
+      for (const frameworkId of Object.keys(frameworks)) {
+        const controls = mapper.getFrameworkControls(frameworkId);
+        expect({ frameworkId, count: controls.length }).toEqual(
+          expect.objectContaining({ count: expect.any(Number) })
+        );
+        expect(controls.length).toBeGreaterThan(0);
+      }
+    });
   });
 
   describe('Evidence Collector', () => {
