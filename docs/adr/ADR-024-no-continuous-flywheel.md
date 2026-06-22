@@ -1,7 +1,7 @@
 # ADR-024 — AWARE 2.0 Has No Continuous Data Flywheel
 
-**Status:** Proposed
-**Date:** 2026-06-21
+**Status:** **Partially reversed 2026-06-22** — see §Supersession at end. The three preconditions in §Decision remain valid as **quality gates** but no longer **gate enablement**. ADR-027 (accepted 2026-06-22) reverses the no-continuous-flywheel framing for the AWARE 2.0 stack: continuous OC-traffic flywheel is now restored. The "demand-driven or quarterly-cadence" framing in §Decision remains valid as the *quality gate* pattern (don't fire on garbage pairs), but the *enablement* framing is reversed.
+**Date:** 2026-06-21 (original); 2026-06-22 (partial reversal recorded)
 **Author:** Archimedes (Architect) on behalf of operator "Continue" directive (2026-06-21)
 **Supersedes:** Implicit "continuous improvement" assumption in ADR-020 §Decision 1 (AZR + MetaClaw + HeavySkill-as-flywheel); follows from ADR-023 (HeavySkill not the flywheel) by naming what *is*.
 **Complementary:** ADR-022 (HeavySkill v2 plugin implementation stands — K+S is opt-in tool, not a flywheel); ADR-023 (HeavySkill not the flywheel — *what is*?).
@@ -104,3 +104,32 @@ None yet. This ADR is the canonical record of the no-continuous-flywheel decisio
 ---
 
 *Recorded by Archimedes (Architect) on behalf of operator "Continue" directive at 2026-06-21 16:34 UTC. Status: Proposed — pending operator confirmation that this ADR accurately captures the no-continuous-flywheel decision, separate from ADR-023's no-HeavySkill-as-flywheel decision.*
+
+---
+
+## Supersession (recorded 2026-06-22)
+
+**Operator decision 2026-06-22 13:50 BST (single-character confirmation "1" on orchestrator's three-path question):** Path 1 of ADR-027 is selected. The no-continuous-flywheel framing in §Decision is **partially reversed** for the AWARE 2.0 stack.
+
+**What stands (still valid):**
+- The three preconditions in §Decision remain correct as **quality gates** for any candidate pair:
+  1. Production chat model running and serving user requests (ADR-025 addresses this).
+  2. ≥ `AWARE_TRAINER_MIN_PAIRS_PER_RUN` (default 100) **real** preference pairs in `aware_conversations` (real = chosen/rejected differentiated by content; PRM scores from real extraction; verification pass non-trivial).
+  3. `/version` endpoint wired to the coordinator's model router (`AWARE_TRAINER_WEIGHTS_DIR` integration).
+- §Consequences §"Negative" item 1 ("No continuous improvement path") — **still true** until all three quality gates hold simultaneously. The trainer must reject pairs that fail any of the three gates via `outcome-filter.js`.
+- §"Compliance cadence" recommendation — **still valid** as a "warm pipeline" insurance policy even under continuous flywheel (catches cases where OC traffic dips below threshold for >90 days).
+
+**What is reversed:**
+- §Decision sentence 1 ("AWARE 2.0 has no continuous data flywheel") — **reversed.** AWARE 2.0 now has a continuous data flywheel, gated only by the quality filters in `outcome-filter.js`.
+- §Decision "Until all three preconditions hold: Trainer container stays at `AWARE_TRAINER_ENABLED=0`" — **reversed.** Trainer may be enabled when the runtime path is approved by the operator and the runbook (ADR-029, proposed) is in place. The 100-pair minimum still applies as a poller cadence warmth check.
+- §"Re-evaluation trigger" (§Open Questions #3): "production chat model deployed AND ≥1000 real preference pairs in `aware_conversations` AND ≥1 successful v15+ LoRA deployment via the coordinator's model router" — **replaced** by a simpler threshold: production chat model deployed (ADR-025 done) AND ≥100 real preference pairs in `aware_conversations` AND `outcome-filter.js` rejects <20% of incoming pairs (i.e., pair quality holds steady).
+
+**What is unchanged:**
+- HeavySkill remains a separate opt-in shipping surface per ADR-022.
+- AZR self-play and MetaClaw remain the named producers in ADR-020 §Decision 1; ADR-027 does not supersede ADR-020 §Decision 1's producer-side commitments, only the no-continuous-flywheel gating.
+
+**Implication for <internal-doc> and other artifacts:**
+- "Pair writer dormant" framing (already corrected in commit `02cea51`) — confirmed accurate under Path 1; the pair writer is the data source for the flywheel.
+- <internal-doc> §"Layer 3 outstanding" / §"D5 run attempt" sections that referenced "no flywheel" should be updated to "flywheel under Path 1, awaiting trainer runbook ADR-029 and runtime approval."
+
+**Canonical record of the reversal:** ADR-027 (Accepted 2026-06-22 13:50 BST).
