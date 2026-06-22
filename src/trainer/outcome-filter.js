@@ -10,10 +10,17 @@
 // unconsumed aware_conversations rows.
 //
 // FILTER RULES (configurable via options.rule):
-//   - "noop"           — keep all records. Default. Phase 4 first slice.
+//   - "noop"           — keep all records. Default behavior on dev/legacy
+//                        paths; NOT the recommended default in production.
+//                        Phase 4 first slice.
 //   - "min_score_gap"  — drop records where (chosen.prm_score -
-//                        rejected.prm_score) < options.minGap. Same
-//                        gate as heavy-think's toDpoDataset()'s
+//                        rejected.prm_score) < options.minGap. **Added
+//                        2026-06-22 (ADR-029 Repair 1): also drops any
+//                        pair where chosen.prm_score ≤ rejected.prm_score
+//                        (the "directionality check"), regardless of
+//                        magnitude. This catches PRM-inverted pairs
+//                        where the "rejected" attempt is actually better.
+//                        Same gate as heavy-think's toDpoDataset()'s
 //                        minScoreGap, exposed at the filter level so
 //                        operators can tune it without code changes.
 //   - "tag_match"      — drop records whose task_type is NOT in
@@ -63,8 +70,8 @@
 
 /**
  * @typedef {FilterOptions}
- * @property {"noop"|"min_score_gap"|"tag_match"|"azr_result"} [rule="noop"]
- * @property {number} [minGap=0.05] — used when rule="min_score_gap"
+ * @property {"noop"|"min_score_gap"|"tag_match"|"azr_result"} [rule="min_score_gap"]
+ * @property {number} [minGap=0.20] — used when rule="min_score_gap"
  * @property {string[]} [allowedTaskTypes=[]] — used when rule="tag_match"
  * @property {Map<string, {passed: boolean, runId: string, recordedAt: string}>} [azrIndex=new Map()]
  *           — used when rule="azr_result". Keys are content_hash
@@ -95,7 +102,18 @@ const VALID_RULES = new Set(['noop', 'min_score_gap', 'tag_match', 'azr_result']
  * @returns {FilterResult}
  */
 export function filterOutcomePairs(records, options = {}) {
-  const rule = options.rule || 'noop';
+  // Default rule is 'min_score_gap' as of 2026-06-22 (ADR-029 Repair 1).
+  // The legacy default 'noop' is still available via explicit opt-in:
+  // filterOutcomePairs(records, { rule: 'noop' }).
+  //
+  // Rationale: 'noop' was the original Phase 4 first-slice default when
+  // there was no production data. As of 2026-06-22 there is real data
+  // (verified live: /data/awareness-pairs/2026-06-22.jsonl has 2 pairs)
+  // and PRM scoring is inverted on hedging-vs-hallucination (see ADR-028
+  // §Finding 1). Keeping noop as default would let inverted pairs flow
+  // through to the trainer. min_score_gap with directionality check
+  // catches the inversion as a hard negative.
+  const rule = options.rule || 'min_score_gap';
   if (!VALID_RULES.has(rule)) {
     throw new Error(
       `outcome-filter: unknown rule '${rule}', expected one of: ` +
@@ -164,11 +182,42 @@ function _applyRule(rule, rec, options) {
     case 'min_score_gap': {
       const chosenScore = rec?.chosen?.prm_score;
       const rejectedScore = rec?.rejected?.prm_score;
+      // Missing scores policy changed 2026-06-22 (ADR-029 Repair 1):
+      // was 'keep' (lenient, "let downstream decide"), now 'drop'
+      // (strict, "we can't verify quality so don't train on it").
+      // Rationale: a pair without PRM scores cannot satisfy ADR-024
+      // §Precondition 2's "PRM scores from real extraction" clause.
+      // Letting such pairs through would train the model on pairs we
+      // can't evaluate. Drop and surface the reason in the trainer's
+      // debug log so operators can decide whether to re-score.
       if (typeof chosenScore !== 'number' || typeof rejectedScore !== 'number') {
-        return { action: 'keep' };  // missing scores — don't penalize, let downstream decide
+        return { action: 'drop', reason: 'min_score_gap:missing_prm_scores' };
       }
-      const minGap = typeof options.minGap === 'number' ? options.minGap : 0.05;
+      // Function default raised 2026-06-22 (ADR-029 Repair 1) from
+      // 0.05 to 0.20 to match the config default in src/config/index.cjs.
+      // The config default takes precedence at runtime (the trainer
+      // reads config.trainer.filterMinGap and passes it explicitly),
+      // but the function default matters for direct callers (unit tests,
+      // ad-hoc CLI scripts, future modules that bypass config).
+      const minGap = typeof options.minGap === 'number' ? options.minGap : 0.20;
       const gap = chosenScore - rejectedScore;
+      // Directionality check (NEW 2026-06-22, ADR-029 Repair 1):
+      // drop any pair where chosen.prm_score ≤ rejected.prm_score.
+      // This is a hard negative that catches PRM-inverted pairs
+      // regardless of magnitude. Without this check, a pair with
+      // chosen=0.51, rejected=0.50 (gap=0.01) would be dropped by
+      // the magnitude gate (gap < minGap=0.05), but a pair with
+      // chosen=0.50, rejected=0.51 (gap=-0.01) would also be dropped
+      // by the magnitude gate — same outcome, correct reasoning.
+      // However, a pair with chosen=0.10, rejected=0.50 (gap=-0.40)
+      // is also dropped by the magnitude gate. The directionality
+      // check makes the "why" explicit in the reason string, which
+      // is more useful for operator visibility than a generic
+      // "below threshold" message that could equally mean "ties" or
+      // "near-ties".
+      if (gap <= 0) {
+        return { action: 'drop', reason: `min_score_gap:inverted:${gap.toFixed(4)}<=0` };
+      }
       // Use a small epsilon to match heavy-think's toDpoDataset convention
       if (gap + 1e-9 < minGap) {
         return { action: 'drop', reason: `min_score_gap:${gap.toFixed(4)}<${minGap}` };
