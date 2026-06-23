@@ -55,7 +55,7 @@ volumes:
   #   docker volume rm aware-2-ollama-models
   # aware-2-preference-pairs removed (Phase 2.4): the named volume was
   # mounted at /root/.<runtime>/metaclaw/preference-pairs but the AWARE
-  # process (running as `aware`, $HOME=/home/aware) writes to
+  # process (running as `aware`, with HOME=/home/aware) writes to
   # /home/aware/.<runtime>/metaclaw/preference-pairs/. The coordinator
   # service now uses a host bind mount to that path instead. The orphan
   # Docker volume can be removed with:
@@ -133,7 +133,7 @@ services:
       args:
         - HEAVY_THINK_TAG=v0.2.1
         - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
-    image: aware-coordinator:0.4.3-phase4-heavy-think-from-gitea
+    image: aware-coordinator:0.4.4-phase4-heavy-think-from-gitea
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
@@ -149,20 +149,25 @@ services:
       - AWARE_REQUEST_TIMEOUT_MS=${AWARE_REQUEST_TIMEOUT_MS:-120000}
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
-      # 2026-06-23: API key wiring. The config validator
-      # (config/index.cjs) checks `<redacted-credential-name>` for the mode=online
-      # gate; heavy-think's minimax.js checks `<redacted-credential-name>`. Both
-      # are read at call time from process.env. We inject both from
-      # the host shell so the operator can `source <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env`
-      # (which exports <redacted-credential-name>) and `export <redacted-credential-name>=$MIN...EY`
-      # before `docker compose up`. The compose `env_file:` block
-      # references `${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env`,
-      # which is a placeholder path that does not exist on this host.
-      # Operators who want the env_file path to work should either
-      # (a) symlink `<host-secret-dir>` to `.openclaw/credentials`, or
-      # (b) source ACTIVE-CREDENTIALS.env into their shell before
-      # invoking docker compose.
+      # 2026-06-23: API key wiring. The canonical env var is
+      # <redacted-credential-name> (matches the host credential store + heavy-think
+      # source). We also pass through <redacted-credential-name> for backward compat
+      # with operators still using the legacy name — the config module
+      # reads <redacted-credential-name> first and falls back to <redacted-credential-name> with
+      # a soft deprecation warning. The compose `env_file:` block
+      # references the host's ACTIVE-CREDENTIALS.env file
+      # (path is operator-specific, defaults to
+      # <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env on this host),
+      # Operators should either (a) symlink `<host-secret-dir>` to
+      # `.openclaw/credentials`, or (b) source ACTIVE-CREDENTIALS.env
+      # into their shell before invoking docker compose.
+      # See ADR-042.
       - <redacted-credential-name>=${<redacted-credential-name>:-}
+      # Legacy env var — supported as a deprecated alias. Operators who
+      # still set <redacted-credential-name> instead of <redacted-credential-name> should source
+      # it into the host shell (or set it here directly). Empty by
+      # default; config.model.minimaxKey resolves canonical first then
+      # falls back to <redacted-credential-name> with a soft deprecation warning.
       - <redacted-credential-name>=${<redacted-credential-name>:-}
       - MINIMAX_API_HOST=${MINIMAX_API_HOST:-}
       # 2026-06-23: OLLAMA_URL removed — no Ollama sidecar. If the
@@ -186,16 +191,16 @@ services:
       # Phase 2.4 (ADR-020 618-627) preference-pair output directory.
       # Must match the volume mount point in the volumes: block below
       # (named volume aware-2-pairs-data → /data/awareness-pairs). The
-      # path is intentionally not under $HOME because the image bakes
-      # /home/aware/.<runtime>/metaclaw/preference-pairs at build time,
-      # which would shadow a host bind mount to that path. Phase 1 had
-      # the implicit default $HOME/.<runtime>/metaclaw/preference-pairs
-      # which is why the trainer's pair ingestion has never seen any
-      # live data — the live writes were landing in the image's
-      # ephemeral dir, not the bind-mounted host dir. Phase 2.4 swaps
-      # to a named volume (aware-2-pairs-data) that the trainer reads
-      # via the same mount; host bind mounts from <HOME>/ into
-      # containers silently fail to populate in this Docker Desktop
+      # path is intentionally not under the home directory because the
+      # image bakes /home/aware/.<runtime>/metaclaw/preference-pairs at
+      # build time, which would shadow a host bind mount to that path.
+      # Phase 1 had the implicit default home/.<runtime>/metaclaw/
+      # preference-pairs which is why the trainer's pair ingestion has
+      # never seen any live data — the live writes were landing in the
+      # image's ephemeral dir, not the bind-mounted host dir. Phase 2.4
+      # swaps to a named volume (aware-2-pairs-data) that the trainer
+      # reads via the same mount; host bind mounts from <HOME>/
+      # into containers silently fail to populate in this Docker Desktop
       # environment, so the named volume is the only working path.
       - AWARE_PAIRS_DIR=/data/awareness-pairs
       # The coordinator authenticates with the same password the postgres
@@ -206,9 +211,9 @@ services:
     # The upstream LLM API key is intentionally NOT hardcoded. The
     # compose file reads the env var from the canonical credential
     # store on this host:
-    #   ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+    #   <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env
     # This is a real file (mode 0600) that already contains
-    # <redacted-credential-name>=*** plus a few dozen other agent secrets. It
+    # the upstream LLM key plus a few dozen other agent secrets. It
     # is the source of truth for the whole multi-agent stack, so
     # wiring the AWARE coordinator to read from it means:
     #   - one place to rotate the key
@@ -222,7 +227,7 @@ services:
     # fallback, so /coordinate returns 503 until the key is provided.
     # Required: false makes this a soft dependency.
     env_file:
-      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
         required: false
     volumes:
       # Named volume for preference-pair output. Phase 1 used a bind
@@ -235,7 +240,7 @@ services:
       # to /data/awareness-pairs, the path the named volume mounts at.
       # The previous named volume (`aware-2-preference-pairs`) was
       # mounted at /root/.<runtime>/metaclaw/preference-pairs but the
-      # AWARE process (running as `aware`, $HOME=/home/aware) wrote to
+      # AWARE process (running as `aware`, with HOME=/home/aware) wrote to
       # /home/aware/.<runtime>/metaclaw/preference-pairs — so the volume
       # was dead weight. Phase 2.4 data flywheel unblock.
       - aware-2-pairs-data:/data/awareness-pairs
@@ -377,10 +382,10 @@ services:
       args:
         - HEAVY_THINK_TAG=v0.2.1
         - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
-    # 2026-06-23: bumped to 0.4.3-phase4-heavy-think-from-gitea. Heavy-think
+    # 2026-06-23: bumped to 0.4.4-phase4-heavy-think-from-gitea. Heavy-think
     # is now cloned from the local Gitea in the Dockerfile, not mounted
     # from the host. See ADR-042.
-    image: aware-coordinator:0.4.3-phase4-heavy-think-from-gitea
+    image: aware-coordinator:0.4.4-phase4-heavy-think-from-gitea
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]
@@ -408,7 +413,7 @@ services:
       - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
       - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
     env_file:
-      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
         required: false
     volumes:
       # The trainer's data dir is where it stages DPO dataset JSONLs
