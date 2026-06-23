@@ -188,80 +188,87 @@ to change `config/index.cjs` or `clients/minimax.js`, no operator burden.
 ## Implemented: heavy-think version pinning (2026-06-23, option a from follow-up)
 
 After shipping the restore above, the user picked the **git-tag pinning**
-approach over npm publishing for the immediate term. Implementation:
+approach over npm publishing for the immediate term. Implementation has
+been through three iterations, each making the coupling more robust:
 
-1. **Tag created in two places**:
-   - `~/src/heavy-think`: annotated tag `v0.2.1` at commit `99c3d4d`
-     (the restore + NPE fix commit). Tag message documents the contents.
-   - `~/src/heavy-think.git`: bare mirror of the same repo with the
-     same tag. Created via `git clone --bare heavy-think heavy-think.git`.
+### v1 (2026-06-23 morning): bare mirror + bring-up drift check
 
-2. **Working copy pinned at v0.2.1**: `git checkout v0.2.1` in
-   `~/src/heavy-think/`. `git describe --tags --exact-match HEAD`
-   returns `v0.2.1`.
+- Tagged `~/src/heavy-think` HEAD as `v0.2.1` (annotated, at commit
+  `99c3d4d`).
+- Created bare mirror at `~/src/heavy-think.git` with the same tag.
+- Dockerfile still mounted `../heavy-think` (working copy) as a build
+  context; the bring-up script verified HEAD == HEAVY_THINK_TAG and
+  failed if drifted.
+- Verified: drifted working copy → script aborts; matching tag → build
+  proceeds. Image `aware-coordinator:0.4.2-phase4-heavy-think-pinned`.
 
-3. **Dockerfile.coordinator** declares `ARG HEAVY_THINK_TAG=v0.2.1`
-   and uses `COPY --from=heavy-think ./ /build/heavy-think` (the
-   sibling-repo mount). The pin guarantee comes from the bring-up
-   script's verification step, not from the Dockerfile itself.
+**Weakness**: the working copy was still the build's source of truth.
+Drift caught at *bring-up time*, but only if the operator used the
+bring-up script. `docker compose build coordinator` directly would
+silently use whatever was on disk.
 
-4. **docker-compose.coordinator.yml** wires the build context back
-   to `../heavy-think` (the working tree, not the bare mirror) and
-   passes `HEAVY_THINK_TAG=v0.2.1` as a build arg. Both `coordinator`
-   and `trainer` services updated.
+### v2 (2026-06-23 afternoon): Gitea-backed remote clone
 
-5. **scripts/bring-up-coordinator.sh** adds a pre-build verification:
+User: "Use the local Gitea". Gitea was already running at
+`http://localhost:4001` (port 4001, not the default 3000 — verified
+via `docker ps`).
 
-   ```bash
-   current_tag=$(git -C "$HEAVY_THINK_DIR" describe --tags --exact-match HEAD 2>/dev/null || echo "")
-   if [[ "$current_tag" != "$HEAVY_THINK_TAG" ]]; then
-     fail "heavy-think HEAD is $(git rev-parse --short HEAD), expected $HEAVY_THINK_TAG.
-
-   To fix:
-     cd ~/src/heavy-think
-     git fetch --tags              # if the tag isn't local yet
-     git checkout $HEAVY_THINK_TAG  # pin working tree to the tag
-     $0                             # re-run the bring-up
-
-   Or to use a different heavy-think version:
-     HEAVY_THINK_TAG=v0.2.2 $0      # after tagging the new commit
-
-   See ADR-042 for the version policy."
-   fi
+1. Created `alvin/heavy-think` repo in Gitea (public, via REST API
+   using `<canonical-credential-store>/credentials/gitea-alfie.env`).
+2. Pushed local working copy's `main` branch + `v0.2.1` tag to Gitea.
+3. Verified `git clone http://localhost:4001/alvin/heavy-think.git
+   --branch v0.2.1` from a fresh `/tmp` dir produces the same
+   commit `99c3d4d` with all 9 source files, 24/24 tests pass.
+4. Dockerfile now clones from Gitea inside the build stage:
+   ```dockerfile
+   FROM node:22-alpine AS build
+   RUN apk add --no-cache git
+   ARG HEAVY_THINK_TAG=v0.2.1
+   ARG HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+   RUN git clone --depth 1 --branch ${HEAVY_THINK_TAG} \
+       ${HEAVY_THINK_REPO} /build/heavy-think && \
+       rm -rf /build/heavy-think/.git
    ```
+5. `docker-compose.coordinator.yml` adds `network: host` to the
+   build config so the build container can reach `localhost:4001`
+   (colima's docker-in-docker doesn't auto-resolve host loopback
+   inside build containers; `host.docker.internal` works at runtime
+   but not in BuildKit build stages). `additional_contexts: heavy-think=...`
+   removed.
+6. Bring-up script's drift check removed (no longer needed — working
+   copy isn't the source of truth).
+7. Coordinator image rebuilt as
+   `aware-coordinator:0.4.3-phase4-heavy-think-from-gitea`. `/coordinate`
+   returns ok=true with real HeavySkill output. Image contents verified:
+   `/app/heavy-think/src/` has the v0.2.1 source (same line counts
+   as local + Gitea).
 
-   Verified in both directions: drifted commit → script aborts before
-   the docker build; matching tag → build proceeds.
+**Decoupling proof**: drifted `~/src/heavy-think/src/index.js` with
+a "drift" marker, rebuilt via `docker compose build coordinator`,
+verified the resulting image has 0 occurrences of "drift" — the
+build pulled from Gitea, not from disk.
 
-6. **Coordinator image rebuilt and live** as
-   `aware-coordinator:0.4.2-phase4-heavy-think-pinned`. `/coordinate`
-   returns 200 with real HeavySkill output. Confirmed in the image
-   that `/app/heavy-think/src/` contains the v0.2.1 source (header
-   line + 9 source files).
-
-### To bump heavy-think version
+### To bump heavy-think version (current workflow)
 
 ```bash
-# 1. Tag the new commit in both repos
+# 1. Tag the new commit in the local working copy
 cd ~/src/heavy-think
 git tag -a v0.2.2 <new-commit-sha> -m "..."
-cd ~/src/heavy-think.git
-git tag -a v0.2.2 <new-commit-sha> -m "..."
 
-# 2. Update HEAVY_THINK_TAG in two places
-# - docker-compose.coordinator.yml (both coordinator + trainer blocks)
-# - scripts/bring-up-coordinator.sh (the default value)
+# 2. Push the tag to Gitea (this is the new source of truth)
+git push gitea v0.2.2
 
-# 3. Update working copy + rebuild
-cd ~/src/heavy-think && git checkout v0.2.2
-cd ~/src/AWARE && ./scripts/bring-up-coordinator.sh
+# 3. Update HEAVY_THINK_TAG in docker-compose.coordinator.yml
+#    (both coordinator + trainer blocks)
+
+# 4. Rebuild
+cd ~/src/AWARE && DOCKER_BUILDKIT=1 docker compose \
+  -f docker-compose.coordinator.yml build coordinator
 ```
 
-The bare mirror at `~/src/heavy-think.git/` is currently unused at
-build time (build context is the working tree). It's kept as a
-fallback in case we ever want to switch to a git-clone-in-build-stage
-pattern (e.g. if BuildKit ever adds a way to reference a build context
-at a specific ref).
+The bare mirror at `~/src/heavy-think.git/` is no longer used at
+build time (kept as a local fallback). The canonical remote is now
+Gitea.
 
 ## Rollback
 

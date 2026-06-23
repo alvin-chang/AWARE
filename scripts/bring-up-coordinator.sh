@@ -89,36 +89,10 @@ log "validating $COMPOSE_FILE"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" config >/dev/null \
   || fail "compose file failed validation"
 
-# 3. Build the coordinator + gateway images. The compose file declares
-#   `additional_contexts: [heavy-think=../heavy-think]` for the coordinator,
-#   and the gateway has its own minimal Dockerfile that doesn't need heavy-think.
-#   Step 3a (below) verifies ~/src/heavy-think/HEAD == HEAVY_THINK_TAG so the
-#   image ships exactly the tagged commit, not whatever's on disk. See ADR-042.
-#   Both are BuildKit-backed.
-log "verifying heavy-think source is pinned to ${HEAVY_THINK_TAG}"
-HEAVY_THINK_TAG="${HEAVY_THINK_TAG:-v0.2.1}"
-HEAVY_THINK_DIR="${HEAVY_THINK_DIR:-$HOME/src/heavy-think}"
-if [[ ! -d "$HEAVY_THINK_DIR/.git" ]]; then
-  fail "$HEAVY_THINK_DIR is not a git repo — expected the heavy-think working tree"
-fi
-current_tag=$(git -C "$HEAVY_THINK_DIR" describe --tags --exact-match HEAD 2>/dev/null || echo "")
-if [[ "$current_tag" != "$HEAVY_THINK_TAG" ]]; then
-  current_commit=$(git -C "$HEAVY_THINK_DIR" rev-parse --short HEAD)
-  fail "heavy-think HEAD is $current_commit (tag: '${current_tag:-none}'), expected $HEAVY_THINK_TAG.
-
-To fix:
-  cd $HEAVY_THINK_DIR
-  git fetch --tags              # if the tag isn't local yet
-  git checkout $HEAVY_THINK_TAG  # pin working tree to the tag
-  $0                             # re-run the bring-up
-
-Or to use a different heavy-think version:
-  HEAVY_THINK_TAG=v0.2.2 $0      # after tagging the new commit
-
-See ADR-042 for the version policy."
-fi
-log "  heavy-think is at $current_tag (matches HEAVY_THINK_TAG)"
-
+# 3. Build the coordinator + gateway images. The Dockerfile's Stage 0
+#   clones heavy-think from the local Gitea at HEAVY_THINK_TAG (see
+#   ADR-042), so the host's ~/src/heavy-think/ working copy is NOT the
+#   source of truth. No drift check needed here.
 log "building coordinator + gateway images (this may take a few minutes on first run)"
 DOCKER_BUILDKIT=1 docker compose \
   -f "$COMPOSE_FILE" -p "$PROJECT" \

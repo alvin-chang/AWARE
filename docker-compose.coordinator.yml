@@ -12,11 +12,13 @@
 #     -p aware-2 \
 #     up -d --build
 #
-# Heavy-think source is pinned via git-tag check in the bring-up script
-# (scripts/bring-up-coordinator.sh) — see ADR-042. The script verifies
-# ~/src/heavy-think/HEAD == HEAVY_THINK_TAG (v0.2.1) before invoking
-# `docker build`, so the image always ships the tagged commit, not
-# "whatever's on disk".
+# Heavy-think source is cloned from the local Gitea
+# (http://localhost:4001/alvin/heavy-think, pinned at HEAVY_THINK_TAG=v0.2.1)
+# inside the Dockerfile's Stage 0 (alpine/git). The build does NOT mount
+# ~/src/heavy-think/ from the host — the canonical source is the Gitea
+# remote. To bump heavy-think: tag the new commit in
+# ~/src/heavy-think, push to Gitea (git push gitea v0.2.2), update
+# HEAVY_THINK_TAG in this file, re-build. See ADR-042.
 #
 # Tear down:
 #   docker compose -f docker-compose.coordinator.yml -p aware-2 down
@@ -124,16 +126,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
-      additional_contexts:
-        # ~/src/heavy-think/ as a sibling-repo mount. The bring-up script
-        # (scripts/bring-up-coordinator.sh) verifies HEAD matches
-        # HEAVY_THINK_TAG before the build runs (see ADR-042). If you need
-        # to bump heavy-think: tag the new commit, update HEAVY_THINK_TAG
-        # below, then re-run the bring-up script.
-        - "heavy-think=../heavy-think"
+      # host network so the build stage can reach http://localhost:4001
+      # (Gitea on the host's loopback). Without this, BuildKit's build
+      # container has its own network namespace and can't see the host.
+      network: host
       args:
         - HEAVY_THINK_TAG=v0.2.1
-    image: aware-coordinator:0.4.2-phase4-heavy-think-pinned
+        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+    image: aware-coordinator:0.4.3-phase4-heavy-think-from-gitea
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
@@ -373,15 +373,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
-      additional_contexts:
-        - "heavy-think=../heavy-think"
+      network: host
       args:
         - HEAVY_THINK_TAG=v0.2.1
-    # 2026-06-23: bumped to 0.4.2-phase4-heavy-think-pinned to match
-    # the coordinator rebuild. Same Dockerfile.coordinator, same env-var
-    # names, same trainer defaults. Heavy-think now pinned via git-tag
-    # check in the bring-up script (see ADR-042), not a bare-mirror clone.
-    image: aware-coordinator:0.4.2-phase4-heavy-think-pinned
+        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+    # 2026-06-23: bumped to 0.4.3-phase4-heavy-think-from-gitea. Heavy-think
+    # is now cloned from the local Gitea in the Dockerfile, not mounted
+    # from the host. See ADR-042.
+    image: aware-coordinator:0.4.3-phase4-heavy-think-from-gitea
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]
