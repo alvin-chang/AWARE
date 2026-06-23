@@ -13,7 +13,7 @@
 #     up -d --build
 #
 # Heavy-think source is cloned from the local Gitea
-# (http://localhost:4001/alvin/heavy-think, pinned at HEAVY_THINK_TAG=v0.2.1)
+# (http://localhost:4001/alvin/heavy-think, pinned at HEAVY_THINK_TAG=v0.2.2)
 # inside the Dockerfile's Stage 0 (alpine/git). The build does NOT mount
 # ~/src/heavy-think/ from the host — the canonical source is the Gitea
 # remote. To bump heavy-think: tag the new commit in
@@ -131,9 +131,9 @@ services:
       # container has its own network namespace and can't see the host.
       network: host
       args:
-        - HEAVY_THINK_TAG=v0.2.1
+        - HEAVY_THINK_TAG=v0.2.2
         - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
-    image: aware-coordinator:0.4.4-phase4-heavy-think-from-gitea
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
@@ -380,12 +380,12 @@ services:
       dockerfile: Dockerfile.coordinator
       network: host
       args:
-        - HEAVY_THINK_TAG=v0.2.1
+        - HEAVY_THINK_TAG=v0.2.2
         - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
     # 2026-06-23: bumped to 0.4.4-phase4-heavy-think-from-gitea. Heavy-think
     # is now cloned from the local Gitea in the Dockerfile, not mounted
     # from the host. See ADR-042.
-    image: aware-coordinator:0.4.4-phase4-heavy-think-from-gitea
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]

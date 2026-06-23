@@ -34,7 +34,7 @@ WORKDIR /build
 
 # Pin heavy-think version (declared by compose, also overridable from CLI).
 # The Dockerfile clones the source at exactly this tag from Gitea.
-ARG HEAVY_THINK_TAG=v0.2.1
+ARG HEAVY_THINK_TAG=v0.2.2
 ARG HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
 
 # Clone heavy-think from Gitea at the pinned tag. The tag, not the
