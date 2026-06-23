@@ -10,8 +10,13 @@
 #   DOCKER_BUILDKIT=1 docker compose \
 #     -f docker-compose.coordinator.yml \
 #     -p aware-2 \
-#     --build-context heavy-think=../heavy-think \
 #     up -d --build
+#
+# Heavy-think source is pinned via git-tag check in the bring-up script
+# (scripts/bring-up-coordinator.sh) — see ADR-042. The script verifies
+# ~/src/heavy-think/HEAD == HEAVY_THINK_TAG (v0.2.1) before invoking
+# `docker build`, so the image always ships the tagged commit, not
+# "whatever's on disk".
 #
 # Tear down:
 #   docker compose -f docker-compose.coordinator.yml -p aware-2 down
@@ -120,8 +125,15 @@ services:
       context: .
       dockerfile: Dockerfile.coordinator
       additional_contexts:
+        # ~/src/heavy-think/ as a sibling-repo mount. The bring-up script
+        # (scripts/bring-up-coordinator.sh) verifies HEAD matches
+        # HEAVY_THINK_TAG before the build runs (see ADR-042). If you need
+        # to bump heavy-think: tag the new commit, update HEAVY_THINK_TAG
+        # below, then re-run the bring-up script.
         - "heavy-think=../heavy-think"
-    image: aware-coordinator:0.4.1-phase4-heavy-think-restored
+      args:
+        - HEAVY_THINK_TAG=v0.2.1
+    image: aware-coordinator:0.4.2-phase4-heavy-think-pinned
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
@@ -363,11 +375,13 @@ services:
       dockerfile: Dockerfile.coordinator
       additional_contexts:
         - "heavy-think=../heavy-think"
-    # 2026-06-23: bumped to 0.4.0-phase4-complete-ollama-removed to match
+      args:
+        - HEAVY_THINK_TAG=v0.2.1
+    # 2026-06-23: bumped to 0.4.2-phase4-heavy-think-pinned to match
     # the coordinator rebuild. Same Dockerfile.coordinator, same env-var
-    # names, same trainer defaults. The trainer entry point still runs
-    # `node src/trainer/index.js` (CMD override below).
-    image: aware-coordinator:0.4.1-phase4-heavy-think-restored
+    # names, same trainer defaults. Heavy-think now pinned via git-tag
+    # check in the bring-up script (see ADR-042), not a bare-mirror clone.
+    image: aware-coordinator:0.4.2-phase4-heavy-think-pinned
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]

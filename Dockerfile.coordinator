@@ -3,23 +3,45 @@
 #
 # Build context layout (matches the dev layout at $HOME/src/):
 #   .                              # this repo (AWARE)
-#   ../heavy-think                 # sibling repo: ~/src/heavy-think/
+#   ../heavy-think                 # sibling repo: ~/src/heavy-think/ (pinned by tag)
 #
-# Pass the heavy-think source as a second build context:
-#   DOCKER_BUILDKIT=1 docker build \
-#     -f Dockerfile.coordinator \
-#     --build-context heavy-think=../heavy-think \
-#     -t aware-coordinator:local .
+# Pinning model (see ADR-042):
+#   The bring-up script (scripts/bring-up-coordinator.sh) verifies
+#   ~/src/heavy-think/HEAD == HEAVY_THINK_TAG before invoking `docker
+#   build`. If the working copy has drifted (uncommitted changes, wrong
+#   tag checked out), the script fast-fails with a clear remediation
+#   step. This guarantees the image always ships exactly the tagged
+#   commit, not "whatever happens to be on disk".
 #
-# (When using buildx, this is the canonical multi-repo build pattern.)
+# Build:
+#   DOCKER_BUILDKIT=1 docker compose \
+#     -f docker-compose.coordinator.yml \
+#     -p aware-2 \
+#     up -d --build
 #
-# Production alternative: publish heavy-think to a registry (npm or GHCR) and
-# `npm install heavy-think@<version>` in the build. See ADR-020 Decision 7.
+# The compose file wires additional_contexts: heavy-think=../heavy-think
+# + args: HEAVY_THINK_TAG=v0.2.1. The bring-up script does the pinning
+# check before this build runs.
+#
+# Production alternative: publish heavy-think to a registry (npm or GHCR)
+# and `npm install heavy-think@<version>` in the build. Tracked in ADR-042
+# follow-ups.
 
 # ─── Stage 1: build ───────────────────────────────────────────────
 FROM node:22-alpine AS build
 
 WORKDIR /build
+
+# Pin heavy-think version (declared by compose, also overridable from CLI).
+# The bring-up script enforces that ~/src/heavy-think/HEAD == HEAVY_THINK_TAG
+# before this build runs, so this COPY is guaranteed to land tagged source.
+ARG HEAVY_THINK_TAG=v0.2.1
+
+# Copy heavy-think from the additional build context "heavy-think"
+# (mapped to ../heavy-think in docker-compose.coordinator.yml). The
+# bring-up script guarantees this directory's HEAD matches
+# HEAVY_THINK_TAG before the build starts.
+COPY --from=heavy-think ./ /build/heavy-think
 
 # Copy AWARE package manifest first for better layer caching
 COPY package*.json ./
@@ -42,10 +64,6 @@ COPY db ./db
 # in-image copy is the fallback that makes the default case work.
 # See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md BLOCKER-1.
 COPY config/modal-training.json ./config/modal-training.json
-
-# Copy heavy-think from the build context named "heavy-think"
-# (the multi-context argument passed to `docker build`)
-COPY --from=heavy-think ./ /build/heavy-think
 
 # ─── Stage 2: runtime ─────────────────────────────────────────────
 FROM node:22-alpine AS runtime

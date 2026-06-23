@@ -177,12 +177,91 @@ to change `config/index.cjs` or `clients/minimax.js`, no operator burden.
    });
    ```
 
-4. **Mirror heavy-think source to a registry.** Publish
-   `heavy-think:0.2.0` to npm or GHCR. Replace the
+4. **Mirror heavy-think source to a remote registry.** Publish
+   `heavy-think:0.2.1` to npm or push the bare mirror at
+   `~/src/heavy-think.git` to a remote (GitHub or Gitea). Replace the
    `additional_contexts: heavy-think=../heavy-think` Dockerfile pattern
-   with `npm install heavy-think@0.2.0` (ADR-020 Decision 7 already
+   with `npm install heavy-think@0.2.1` (ADR-020 Decision 7 already
    mentions this as the production alternative; this incident is the
    trigger to actually do it).
+
+## Implemented: heavy-think version pinning (2026-06-23, option a from follow-up)
+
+After shipping the restore above, the user picked the **git-tag pinning**
+approach over npm publishing for the immediate term. Implementation:
+
+1. **Tag created in two places**:
+   - `~/src/heavy-think`: annotated tag `v0.2.1` at commit `99c3d4d`
+     (the restore + NPE fix commit). Tag message documents the contents.
+   - `~/src/heavy-think.git`: bare mirror of the same repo with the
+     same tag. Created via `git clone --bare heavy-think heavy-think.git`.
+
+2. **Working copy pinned at v0.2.1**: `git checkout v0.2.1` in
+   `~/src/heavy-think/`. `git describe --tags --exact-match HEAD`
+   returns `v0.2.1`.
+
+3. **Dockerfile.coordinator** declares `ARG HEAVY_THINK_TAG=v0.2.1`
+   and uses `COPY --from=heavy-think ./ /build/heavy-think` (the
+   sibling-repo mount). The pin guarantee comes from the bring-up
+   script's verification step, not from the Dockerfile itself.
+
+4. **docker-compose.coordinator.yml** wires the build context back
+   to `../heavy-think` (the working tree, not the bare mirror) and
+   passes `HEAVY_THINK_TAG=v0.2.1` as a build arg. Both `coordinator`
+   and `trainer` services updated.
+
+5. **scripts/bring-up-coordinator.sh** adds a pre-build verification:
+
+   ```bash
+   current_tag=$(git -C "$HEAVY_THINK_DIR" describe --tags --exact-match HEAD 2>/dev/null || echo "")
+   if [[ "$current_tag" != "$HEAVY_THINK_TAG" ]]; then
+     fail "heavy-think HEAD is $(git rev-parse --short HEAD), expected $HEAVY_THINK_TAG.
+
+   To fix:
+     cd ~/src/heavy-think
+     git fetch --tags              # if the tag isn't local yet
+     git checkout $HEAVY_THINK_TAG  # pin working tree to the tag
+     $0                             # re-run the bring-up
+
+   Or to use a different heavy-think version:
+     HEAVY_THINK_TAG=v0.2.2 $0      # after tagging the new commit
+
+   See ADR-042 for the version policy."
+   fi
+   ```
+
+   Verified in both directions: drifted commit → script aborts before
+   the docker build; matching tag → build proceeds.
+
+6. **Coordinator image rebuilt and live** as
+   `aware-coordinator:0.4.2-phase4-heavy-think-pinned`. `/coordinate`
+   returns 200 with real HeavySkill output. Confirmed in the image
+   that `/app/heavy-think/src/` contains the v0.2.1 source (header
+   line + 9 source files).
+
+### To bump heavy-think version
+
+```bash
+# 1. Tag the new commit in both repos
+cd ~/src/heavy-think
+git tag -a v0.2.2 <new-commit-sha> -m "..."
+cd ~/src/heavy-think.git
+git tag -a v0.2.2 <new-commit-sha> -m "..."
+
+# 2. Update HEAVY_THINK_TAG in two places
+# - docker-compose.coordinator.yml (both coordinator + trainer blocks)
+# - scripts/bring-up-coordinator.sh (the default value)
+
+# 3. Update working copy + rebuild
+cd ~/src/heavy-think && git checkout v0.2.2
+cd ~/src/AWARE && ./scripts/bring-up-coordinator.sh
+```
+
+The bare mirror at `~/src/heavy-think.git/` is currently unused at
+build time (build context is the working tree). It's kept as a
+fallback in case we ever want to switch to a git-clone-in-build-stage
+pattern (e.g. if BuildKit ever adds a way to reference a build context
+at a specific ref).
 
 ## Rollback
 
