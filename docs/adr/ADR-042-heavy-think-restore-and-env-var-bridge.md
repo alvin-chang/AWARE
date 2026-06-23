@@ -284,3 +284,92 @@ docker compose -f docker-compose.coordinator.yml up -d \
 
 (or edit `docker-compose.coordinator.yml:124` back to the old tag and
 re-up).
+
+
+## Canonical env var name + stub guard (amendment, 2026-06-23)
+
+Three follow-up changes were added after the initial Gitea pin:
+
+### 1. Canonical env var name: `<redacted-credential-name>`
+
+Previously the system had two env var names floating around:
+
+- `<redacted-credential-name>` — what AWARE's config module and bring-up script used
+- `<redacted-credential-name>` — what heavy-think's `makeMinimaxClient()` read
+  directly from `process.env`, and what the host credential store
+  exports
+
+This drift meant a host that only set `<redacted-credential-name>` (the canonical
+form) failed at heavy-think's runtime guard, and a host that only set
+`<redacted-credential-name>` (the legacy form) passed AWARE's config but failed the
+heavy-think guard. Either name worked alone in *some* path but not end-
+to-end.
+
+Decision: **`<redacted-credential-name>` is canonical**, `<redacted-credential-name>` is a
+deprecated alias.
+
+- `src/config/index.cjs`: `minimaxKey` getter reads `<redacted-credential-name>`
+  first, falls back to `<redacted-credential-name>`. New `minimaxKeySource` getter
+  returns `'<redacted-credential-name>' | '<redacted-credential-name>' | 'unset'`.
+- `src/coordinator/index.js:133`: `makeMinimaxClient({apiKey:
+  config.model.minimaxKey})` — the resolved key is passed explicitly
+  so heavy-think doesn't fall through to `process.env`.
+- `src/config/index.cjs: warnings()`: emits a soft `[DEPRECATION]
+  <redacted-credential-name> is deprecated; use <redacted-credential-name> instead` when only
+  the legacy alias is set.
+- `docker-compose.coordinator.yml`: drops the `<redacted-credential-name> →
+  <redacted-credential-name>` bridge script. `<redacted-credential-name>` is the only key in
+  compose; `<redacted-credential-name>` is interpolated from host shell for backward
+  compat.
+- `.env.example`: header updated to reflect `<redacted-credential-name>` canonical,
+  `<redacted-credential-name>` deprecated.
+
+Verified live: both paths return `/coordinate 200` with real HeavySkill
+output (canonical: confidence 0.75; legacy: confidence 0.6).
+
+### 2. Pretest guard against silent re-stubbing in heavy-think
+
+The original regression (stub tree shipped as image) was masked by
+the fact that the pipeline tests exercised `.run` directly — they
+passed on the stub, hiding the breakage from CI. Added a pretest guard
+that fails fast if `src/index.js` looks like the stub:
+
+- `~/src/heavy-think/scripts/check-not-stub.sh`: refuses to run if
+  `src/index.js` has fewer than 50 lines OR exports an object with a
+  `.run` method.
+- `~/src/heavy-think/package.json: pretest`: runs the guard before
+  `npm test`.
+
+Verified:
+- Real source (189 lines, exports `async function heavy_think`):
+  guard passes, tests run.
+- 1-line stub: guard fails with line-count error pointing to v0.2.1
+  tag for restoration.
+- 101-line stub with `{run: ...}` export: guard fails with shape
+  error.
+
+### 3. Contract test asserting `typeof heavy_think === 'function'`
+
+Even with the pretest guard, a future regression could pass the
+guard but still break the operator-facing contract. Added
+`~/src/heavy-think/test/contract.test.js` with 3 assertions:
+
+- `typeof heavy_think === 'function'`
+- `typeof heavy_think.run === 'undefined'` (no object with .run)
+- `heavy_think({...})` returns the documented result shape
+  (`refined_trace`, `confidence`, `attempts`, `cost`)
+
+Test results: 3/3 pass. Wired into `npm test` via `test/*.test.js`
+glob (the prior `test/` glob was broken — Node treated `test/` as a
+single file).
+
+### Outcome
+
+Combined, the canonical-name rename + explicit `apiKey` pass-through
++ pretest stub guard + contract test close the loop on the 2026-06-23
+regression. Future stub-tree check-ins fail at `npm test` with
+actionable errors; future contract drift is caught by the contract
+test; future env-var drift is caught by the deprecation warning.
+
+Heavy-think tag bumped: `v0.2.1 → v0.2.2`. AWARE coordinator image
+bumped: `0.4.4 → 0.4.5`. Both pushed to their respective remotes.
