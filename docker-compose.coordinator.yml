@@ -20,7 +20,12 @@
 #   curl -sS http://127.0.0.1:18080/health  # gateway
 #   curl -sS http://127.0.0.1:18081/health  # coordinator
 #   curl -sS http://127.0.0.1:18081/version # coordinator identity
-#   curl -sS http://127.0.0.1:11434/api/tags  # ollama-sidecar
+#
+# 2026-06-23: Ollama sidecar REMOVED. AWARE_MODE=online runs the
+# coordinator on MiniMax only. See docs/adr/ADR-020 amendment at
+# the bottom of that file (and the bring-up script) for the
+# rationale. The previous ollama-sidecar smoke-test line
+# (curl http://127.0.0.1:11434/api/tags) is no longer applicable.
 
 name: aware-2
 
@@ -36,8 +41,11 @@ volumes:
     name: aware-2-postgres-data
   aware-2-redis-data:
     name: aware-2-redis-data
-  aware-2-ollama-models:
-    name: aware-2-ollama-models
+  # aware-2-ollama-models REMOVED 2026-06-23: Ollama sidecar deprecated.
+  # Coordinator now runs AWARE_MODE=online on MiniMax only. See ADR-020
+  # amendment at the bottom of that file. The named volume can be
+  # cleaned up with:
+  #   docker volume rm aware-2-ollama-models
   # aware-2-preference-pairs removed (Phase 2.4): the named volume was
   # mounted at /root/.<runtime>/metaclaw/preference-pairs but the AWARE
   # process (running as `aware`, $HOME=/home/aware) writes to
@@ -68,11 +76,15 @@ services:
   # (AWARE_GATEWAY_KILL_SWITCH) takes precedence over the coordinator
   # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
   # so the bring-up script's default 4-service stack works without it.
+  # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   gateway:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-    image: aware-gateway:0.1.0-phase-1-gateway
+    image: aware-gateway:0.2.0-ollama-removed
     container_name: aware-2-gateway
     profiles: ["full"]
     ports:
@@ -99,24 +111,61 @@ services:
   # ─── 2. Coordinator ───────────────────────────────────────────
   # The Phase 1 deliverable. Built from Dockerfile.coordinator.
   # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
+  # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   coordinator:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
       additional_contexts:
         - "heavy-think=../heavy-think"
-    image: aware-coordinator:0.2.0-phase-1-router
+    image: aware-coordinator:0.4.1-phase4-heavy-think-restored
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
     environment:
       - COORDINATOR_HOST=0.0.0.0
       - COORDINATOR_PORT=8080
-      - AWARE_MODE=${AWARE_MODE:-hybrid}
+      # 2026-06-23: AWARE_MODE=online (was hybrid). Ollama sidecar
+      # removed; coordinator now runs on MiniMax only. See ADR-020
+      # amendment. If MiniMax is unavailable, /coordinate returns
+      # 503 (single-client-mode behavior). The previous offline
+      # fallback to Ollama no longer exists.
+      - AWARE_MODE=${AWARE_MODE:-online}
       - AWARE_REQUEST_TIMEOUT_MS=${AWARE_REQUEST_TIMEOUT_MS:-120000}
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
-      - OLLAMA_URL=http://ollama-sidecar:11434
+      # 2026-06-23: API key wiring. The config validator
+      # (config/index.cjs) checks `<redacted-credential-name>` for the mode=online
+      # gate; heavy-think's minimax.js checks `<redacted-credential-name>`. Both
+      # are read at call time from process.env. We inject both from
+      # the host shell so the operator can `source <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env`
+      # (which exports <redacted-credential-name>) and `export <redacted-credential-name>=$MIN...EY`
+      # before `docker compose up`. The compose `env_file:` block
+      # references `${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env`,
+      # which is a placeholder path that does not exist on this host.
+      # Operators who want the env_file path to work should either
+      # (a) symlink `<host-secret-dir>` to `.openclaw/credentials`, or
+      # (b) source ACTIVE-CREDENTIALS.env into their shell before
+      # invoking docker compose.
+      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      - MINIMAX_API_HOST=${MINIMAX_API_HOST:-}
+      # 2026-06-23: OLLAMA_URL removed — no Ollama sidecar. If the
+      # env var is set in the host (e.g. from a stale .env), it's
+      # ignored by the coordinator because the Ollama client is no
+      # longer constructed in AWARE_MODE=online. config/index.cjs
+      # still reads it for backward compat (and warns if mode=offline
+      # but the URL is missing), so we leave the door open if someone
+      # wants to flip back to offline mode without re-deploying.
+      # - OLLAMA_URL=http://ollama-sidecar:11434
+      # 2026-06-23: LoRA reloader disabled. It depends on the Ollama
+      # /api/create endpoint to register LoRA adapters with the
+      # local model daemon. Without Ollama, the reloader would
+      # repeatedly fail. Re-enable only if Ollama is reintroduced.
+      - AWARE_LORA_RELOADER_ENABLED=${AWARE_LORA_RELOADER_ENABLED:-false}
       - AWARE_DB_HOST=postgres
       - AWARE_DB_PORT=5432
       - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
@@ -156,10 +205,10 @@ services:
     #     outside the repo
     # If the file is absent (e.g. a CI runner or a fresh dev box
     # that has never logged into the multi-agent system), the
-    # coordinator boots in offline-only mode: the ollama sidecar
-    # still works, but /coordinate returns 500 with
-    # kind: 'internal_error' until the key is provided. Required:
-    # false makes this a soft dependency.
+    # coordinator boots in offline-only-disabled mode: with
+    # AWARE_MODE=online (the new default), there is no offline
+    # fallback, so /coordinate returns 503 until the key is provided.
+    # Required: false makes this a soft dependency.
     env_file:
       - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
         required: false
@@ -181,8 +230,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama-sidecar:
-        condition: service_healthy
+      # 2026-06-23: ollama-sidecar dependency REMOVED. Ollama sidecar
+      # no longer exists. The coordinator runs in AWARE_MODE=online
+      # on MiniMax only — no second-tier backend to wait for.
+      # ollama-sidecar:
+      #   condition: service_healthy
     networks:
       - aware-2
     restart: unless-stopped
@@ -194,46 +246,54 @@ services:
       retries: 3
 
   # ─── 3. Ollama sidecar ───────────────────────────────────────
-  # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
-  # the aware-2-ollama-models volume. Override the default pull model
-  # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
-  ollama-sidecar:
-    image: ollama/ollama:0.5.7
-    container_name: aware-2-ollama
-    ports:
-      - "11434:11434"
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_HOST=0.0.0.0:11434
-    volumes:
-      - aware-2-ollama-models:/root/.ollama
-    networks:
-      - aware-2
-    restart: unless-stopped
-    healthcheck:
-      # The ollama/ollama:0.5.7 image is minimal — it has `ollama` CLI and
-      # `bash`, but no `wget` or `curl`. Use `ollama list` to verify the
-      # daemon is responsive (a 200-equivalent with the model table).
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      start_period: 30s
-      retries: 5
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        ollama serve &
-        OLLAMA_PID=$$!
-        # Wait for daemon to be ready (up to 30s)
-        for i in $$(seq 1 30); do
-          if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
-          sleep 1
-        done
-        # Pre-pull default model unless explicitly disabled
-        if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
-          ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
-        fi
-        wait $$OLLAMA_PID
+  # REMOVED 2026-06-23. AWARE 2.0 now runs on MiniMax only
+  # (AWARE_MODE=online). See ADR-020 amendment for the rationale.
+  # Previous block (kept here commented for archaeology):
+  #
+  #   # ─── 3. Ollama sidecar ───────────────────────────────────────
+  #   # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
+  #   # the aware-2-ollama-models volume. Override the default pull model
+  #   # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
+  #   ollama-sidecar:
+  #     image: ollama/ollama:0.5.7
+  #     container_name: aware-2-ollama
+  #     ports:
+  #       - "11434:11434"
+  #     environment:
+  #       - OLLAMA_KEEP_ALIVE=24h
+  #       - OLLAMA_HOST=0.0.0.0:11434
+  #     volumes:
+  #       - aware-2-ollama-models:/root/.ollama
+  #     networks:
+  #       - aware-2
+  #     restart: unless-stopped
+  #     healthcheck:
+  #       test: ["CMD", "ollama", "list"]
+  #       interval: 15s
+  #       timeout: 5s
+  #       start_period: 30s
+  #       retries: 5
+  #     entrypoint: ["/bin/sh", "-c"]
+  #     command:
+  #       - |
+  #         ollama serve &
+  #         OLLAMA_PID=$$!
+  #         for i in $$(seq 1 30); do
+  #           if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
+  #           sleep 1
+  #         done
+  #         if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
+  #           ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
+  #         fi
+  #         wait $$OLLAMA_PID
+  #
+  # To bring this back (e.g. for offline/air-gapped deployments):
+  # 1. Restore the block above (uncomment).
+  # 2. Restore the `aware-2-ollama-models` volume declaration.
+  # 3. Restore the `coordinator.depends_on.ollama-sidecar` block.
+  # 4. Restore the `coordinator.environment.OLLAMA_URL` line.
+  # 5. Set `AWARE_MODE=offline` (or hybrid) in coordinator env.
+  # 6. Set `AWARE_LORA_RELOADER_ENABLED=true` if you want live LoRA swap.
 
   # ─── 4. Postgres ─────────────────────────────────────────────
   # Session + preference-pair metadata (heavy-think already writes
@@ -303,7 +363,11 @@ services:
       dockerfile: Dockerfile.coordinator
       additional_contexts:
         - "heavy-think=../heavy-think"
-    image: aware-coordinator:0.3.0-phase-3-trainer
+    # 2026-06-23: bumped to 0.4.0-phase4-complete-ollama-removed to match
+    # the coordinator rebuild. Same Dockerfile.coordinator, same env-var
+    # names, same trainer defaults. The trainer entry point still runs
+    # `node src/trainer/index.js` (CMD override below).
+    image: aware-coordinator:0.4.1-phase4-heavy-think-restored
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]
