@@ -78,3 +78,7 @@ security-audit-report.json
 security-audit-npm-audit.json
 security-audit-gitleaks.json
 security-audit-trivy.json
+
+# Generated seed data (see scripts/seed-dev-*.js for source)
+/src/data/users.json
+/src/data/agents.json
