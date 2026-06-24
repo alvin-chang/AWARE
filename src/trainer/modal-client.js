@@ -47,7 +47,7 @@
 // SECURITY MODEL
 // ==============
 // - The Modal SDK reads its credentials from environment variables
-//   (<redacted-credential-name>, <redacted-credential-name>) when the ModalClient is
+//   (MODAL_TOKEN_ID, MODAL_TOKEN_SECRET) when the ModalClient is
 //   constructed. We never log, persist, or echo those values.
 // - The SDK is loaded lazily via dynamic `import()`. The trainer can
 //   boot on machines where the SDK is not installed (CI, dev laptops
@@ -86,11 +86,11 @@ export async function preflightModal(opts = {}) {
   // 1. Token presence. The poller already checks this at boot, but we
   //    re-check here because `submit` could be called by a manually
   //    driven test that skipped `start()`.
-  if (!process.env.<redacted-credential-name> || !process.env.<redacted-credential-name>) {
+  if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) {
     return {
       ok: false,
       reason: 'modal_tokens_missing',
-      detail: '<redacted-credential-name> or <redacted-credential-name> not set in environment',
+      detail: 'MODAL_TOKEN_ID or MODAL_TOKEN_SECRET not set in environment',
     };
   }
 
@@ -203,7 +203,7 @@ export function makeModalClient(opts = {}) {
     const appName = opts.appName || trainingConfig.app_name;
     const functionName = opts.functionName || trainingConfig.function_name || 'train';
 
-    // Build the ModalClient. It reads <redacted-credential-name>/SECRET from env
+    // Build the ModalClient. It reads MODAL_TOKEN_ID/SECRET from env
     // at construction. We do NOT pass the token to the constructor —
     // that's a 12-factor pattern that keeps secrets out of code.
     const client = new modal.ModalClient();

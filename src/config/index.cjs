@@ -20,7 +20,7 @@
 //   import config from './config/index.cjs';         // ESM consumers (coordinator)
 //   const config = require('./config/index.cjs');    // CJS consumers (gateway, tests)
 //   config.gateway.host            // '0.0.0.0' (or process.env.GATEWAY_HOST)
-//   config.model.minimaxKey        // process.env.<redacted-credential-name> (string | undefined)
+//   config.model.minimaxKey        // process.env.LLM_API_KEY (string | undefined)
 //   config.model.mode              // 'online' | 'hybrid' | 'offline'
 //   config.ollama.url              // 'http://127.0.0.1:11434'
 //   config.snapshot()              // redacted JSON for logging
@@ -86,11 +86,11 @@ function redact(name, value) {
 
 function defaultHeavyThinkPath() {
   // src/config/index.js → ../../../heavy-think/src/index.js
-  // The AWARE repo lives at <repo-root>/ and heavy-think is
-  // a sibling at <repo-root>/. From this file:
+  // The AWARE repo lives at /Users/alfie/src/AWARE/ and heavy-think is
+  // a sibling at /Users/alfie/src/heavy-think/. From this file:
   //   src/config/index.js → ../  → src
   //                          ../../  → AWARE repo root
-  //                          ../../../  → <HOME>/src (parent of both repos)
+  //                          ../../../  → /Users/alfie/src (parent of both repos)
   //                          ../../../heavy-think/src/index.js
   // __filename is the CJS path to this file.
   const here = path.dirname(__filename);
@@ -143,7 +143,7 @@ const config = {
   // Model layer
   model: {
     get mode() { return enumOf('AWARE_MODE', ['online', 'hybrid', 'offline'], 'hybrid'); },
-    get minimaxKey() { return str('<redacted-credential-name>', undefined); },
+    get minimaxKey() { return str('LLM_API_KEY', undefined); },
     get minimaxHost() { return str('MINIMAX_API_HOST', undefined); },
     get ollamaUrl() { return str('OLLAMA_URL', 'http://127.0.0.1:11434'); },
   },
@@ -243,8 +243,8 @@ const config = {
     get azrCorpusPath() { return str('AWARE_TRAINER_AZR_CORPUS_PATH', ''); },
     // Modal auth — read from the canonical credential store
     // (ACTIVE-CREDENTIALS.env) at runtime. NEVER in the repo.
-    get modalTokenId() { return str('<redacted-credential-name>', undefined); },
-    get modalTokenSecret() { return str('<redacted-credential-name>', undefined); },
+    get modalTokenId() { return str('MODAL_TOKEN_ID', undefined); },
+    get modalTokenSecret() { return str('MODAL_TOKEN_SECRET', undefined); },
   },
 };
 
@@ -255,7 +255,7 @@ const config = {
  * config object on success.
  *
  * Hard failures (boot-blocking):
- *   - mode=online without <redacted-credential-name>
+ *   - mode=online without LLM_API_KEY
  *   - any numeric / enum parse error (already throws at access)
  *
  * Soft warnings (returned by warnings(), not thrown):
@@ -266,7 +266,7 @@ const config = {
 config.validate = function validate() {
   if (config.model.mode === 'online' && !config.model.minimaxKey) {
     throw new Error(
-      'Config: AWARE_MODE=online requires <redacted-credential-name> (set it via env_file or compose env)'
+      'Config: AWARE_MODE=online requires LLM_API_KEY (set it via env_file or compose env)'
     );
   }
   if (config.gateway.port === config.coordinator.port) {
@@ -300,7 +300,7 @@ config.warnings = function warnings() {
   }
   if (!config.model.minimaxKey && config.model.mode !== 'offline') {
     // Not a hard fail (we have a stub client) but worth flagging.
-    out.push('<redacted-credential-name> is not set — primary tier will fail and fall through to Ollama');
+    out.push('LLM_API_KEY is not set — primary tier will fail and fall through to Ollama');
   }
   return out;
 };
