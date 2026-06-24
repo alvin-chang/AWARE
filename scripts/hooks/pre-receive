@@ -1,0 +1,160 @@
+#!/bin/bash
+# scripts/hooks/pre-receive — Layer 3 of the AWARE 4-layer privacy filter
+# (see docs/security/filter-architecture.md + docs/security/gitea-pre-receive-install.md).
+#
+# Server-side hook installed on the gitea host at:
+#   /data/git/repositories/alvin/aware.git/custom_hooks/pre-receive
+#   (or wherever the local gitea is configured to find bare repos — see
+#   the install doc for the verification command)
+#
+# Runs on every push to the gitea repo, regardless of client-side hook
+# state. Cannot be bypassed by `git push --no-verify` or by removing
+# .git/hooks/* on the contributor's machine.
+#
+# Input: git pre-receive passes one line per ref being updated on stdin:
+#   <old-sha> <new-sha> <ref-name>
+# (See `man githooks` / "GITHOOKS" in the git source.)
+#
+# For an empty ref (new branch), old-sha is 40 zeros.
+# For a deletion, new-sha is 40 zeros.
+
+set -euo pipefail
+
+# We don't know $REPO_ROOT here (server-side, paths differ from working copy).
+# The custom_hooks dir is <repo>.git/custom_hooks, so the bare repo is its parent.
+BARE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_NAME="$(basename "$BARE_REPO" .git)"
+
+# Locate the working copy that ships the rules.
+# Convention: <HOME>/src/AWARE on the host. If not present, fall back
+# to rules baked into this script (mirrored from scripts/pre-commit-check.sh).
+WORKING_COPY="${AWARE_WORKING_COPY:-<HOME>/src/AWARE}"
+if [[ -d "$WORKING_COPY/scripts" ]]; then
+    CONTENT_RULES="$WORKING_COPY/scripts/pre-commit-check.sh"
+    GITLEAKS_CONFIG="$WORKING_COPY/.gitleaks.toml"
+else
+    CONTENT_RULES=""
+    GITLEAKS_CONFIG=""
+fi
+
+echo "==> [Layer 3/3] pre-receive on $REPO_NAME (gitea-side)"
+
+FAILED=0
+PUSHED_REFS=()
+
+# 1) For every ref being updated, scan the new content.
+#    `git diff <old>..<new>` gives the full patch; we grep it for the rules.
+while read -r OLD_SHA NEW_SHA REFNAME; do
+    # Skip empty lines
+    [[ -z "$OLD_SHA" ]] && continue
+
+    PUSHED_REFS+=("$REFNAME")
+
+    # Deletion: nothing to scan
+    if [[ "$NEW_SHA" =~ ^0+$ ]]; then
+        echo "    $REFNAME: deletion (no scan)"
+        continue
+    fi
+
+    # Brand-new ref: scan the entire tree
+    if [[ "$OLD_SHA" =~ ^0+$ ]]; then
+        echo "    $REFNAME: new ref — scanning full tree at $NEW_SHA"
+        NEW_TREE_FILES="$(git --git-dir="$BARE_REPO" ls-tree -r --name-only "$NEW_SHA" 2>/dev/null || true)"
+    else
+        echo "    $REFNAME: $OLD_SHA..$NEW_SHA — scanning diff"
+        DIFF_FILES="$(git --git-dir="$BARE_REPO" diff --name-only "$OLD_SHA" "$NEW_SHA" 2>/dev/null || true)"
+        NEW_TREE_FILES="$DIFF_FILES"
+    fi
+
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+
+        # Get the file content from the NEW tree (always exists in new sha,
+        # because we just checked $NEW_SHA is not all-zeros)
+        FILE_CONTENT="$(git --git-dir="$BARE_REPO" show "${NEW_SHA}:${f}" 2>/dev/null || true)"
+        [[ -z "$FILE_CONTENT" ]] && continue
+
+        # Rule 1: docs/audits/*.md host-path patterns
+        if [[ "$f" == docs/audits/*.md ]]; then
+            if echo "$FILE_CONTENT" | grep -E '(/Users/[a-z]+/|\.aws/|\.ssh/|\.kube/|\.docker/|\.gnupg/)' >/dev/null 2>&1; then
+                echo "    ✗ $f — host-path pattern in docs/audits/"
+                FAILED=1
+            fi
+        fi
+
+        # Rule 2: STATUS.md LAN IP + secrets paths
+        if [[ "$f" == "STATUS.md" ]]; then
+            if echo "$FILE_CONTENT" | grep -E '\b(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\b' >/dev/null 2>&1; then
+                echo "    ✗ $f — LAN IP in STATUS.md"
+                FAILED=1
+            fi
+            if echo "$FILE_CONTENT" | grep -E '<redacted-credential-path>*\.env|api-keys\.env|credentials\.env' >/dev/null 2>&1; then
+                echo "    ✗ $f — secrets path in STATUS.md"
+                FAILED=1
+            fi
+        fi
+
+        # Rule 3: src/data/*.json shape (not the .json.template)
+        if [[ "$f" == "src/data/users.json" || "$f" == "src/data/agents.json" ]]; then
+            echo "    ✗ $f is tracked in push. Only .json.template should be committed."
+            FAILED=1
+        fi
+        if [[ "$f" == "src/data/users.json.template" || "$f" == "src/data/agents.json.template" ]]; then
+            if echo "$FILE_CONTENT" | grep -E '"passwordHash"|"credentials"' >/dev/null 2>&1; then
+                echo "    ✗ $f contains passwordHash/credentials fields"
+                FAILED=1
+            fi
+        fi
+    done <<< "$NEW_TREE_FILES"
+done
+
+# 2) gitleaks against the union of the pushed pack.
+#    We re-pack the new SHAs into a temp bundle and scan it.
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "    gitleaks detect against the pushed pack"
+
+    # Build a list of the new SHAs that were pushed
+    SCAN_SHAS=()
+    while read -r OLD_SHA NEW_SHA REFNAME; do
+        [[ -z "$NEW_SHA" ]] && continue
+        [[ "$NEW_SHA" =~ ^0+$ ]] && continue
+        SCAN_SHAS+=("$NEW_SHA")
+    done
+    # (We re-read above so SCAN_SHAS is independent of the inner loop)
+
+    if [[ ${#SCAN_SHAS[@]} -gt 0 ]]; then
+        # git --git-dir=<bare> diff between SHAs is the new content.
+        # We feed each SHAs's tree into gitleaks by using --source <tempdir>
+        # populated via git archive.
+        SCAN_DIR="$(mktemp -d -t aware-prereceive-XXXXXX)"
+        trap 'rm -rf "$SCAN_DIR"' EXIT
+
+        for sha in "${SCAN_SHAS[@]}"; do
+            (cd "$SCAN_DIR" && git --git-dir="$BARE_REPO" archive "$sha" | tar -x) 2>/dev/null || true
+        done
+
+        GITLEAKS_ARGS=(detect --source "$SCAN_DIR" --redact --no-banner --exit-code 1)
+        if [[ -f "$GITLEAKS_CONFIG" ]]; then
+            GITLEAKS_ARGS+=(--config "$GITLEAKS_CONFIG")
+        fi
+
+        if ! gitleaks "${GITLEAKS_ARGS[@]}" 2>/dev/null; then
+            echo "    ✗ gitleaks detected a pattern in the pushed pack."
+            FAILED=1
+        fi
+    fi
+else
+    echo "    (gitleaks not in PATH — running content rules only."
+    echo "     Install gitleaks in the gitea container for full Layer 3 enforcement.)"
+fi
+
+if [[ $FAILED -eq 1 ]]; then
+    echo ""
+    echo "✗ pre-receive REJECTED the push."
+    echo "  Pushed refs: ${PUSHED_REFS[*]}"
+    echo "  See docs/security/filter-architecture.md for the full filter spec."
+    exit 1
+fi
+
+echo "✓ Layer 3 (pre-receive) passed. ${#PUSHED_REFS[@]} ref(s) accepted."
+exit 0
