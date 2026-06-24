@@ -1,0 +1,98 @@
+# Gitea Actions workflow — Layer 4(b) of the AWARE 4-layer privacy filter
+# (see docs/security/filter-architecture.md).
+#
+# Mirror of .github/workflows/lint-private-data.yml. Runs the same 4
+# checks against the local gitea mirror.
+#
+# NOTE: gitea Actions must be ENABLED in the gitea container config
+# (gitea/conf/app.ini [actions] section + a runner registered). Today
+# the local gitea at http://localhost:4001 does NOT have Actions
+# enabled — this file is dormant until Herald flips the switch.
+# When Actions is enabled, this workflow auto-fires.
+#
+# For now, the primary CI guard is .github/workflows/lint-private-data.yml
+# (Layer 4(a), already shipped in Phase A1). The gitea workflow is
+# defence in depth and will activate when Actions is enabled.
+#
+# Decision log: see docs/security/filter-architecture.md "Layer 4"
+# section, "Why both (a) and (b)?".
+
+name: Lint private-data patterns (gitea)
+
+on:
+  pull_request:
+    branches: [main, "feature/**", "fix/**", "chore/**", "docs/**"]
+  push:
+    branches: [main]
+
+jobs:
+  lint-host-paths:
+    name: docs/audits/*.md host-path patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block host-specific paths in docs/audits/*.md
+        run: |
+          set -euo pipefail
+          if grep -rE '(/Users/[a-z]+/|\.aws/|\.ssh/|\.kube/|~/\.[a-z]+/)' docs/audits/ 2>/dev/null; then
+            echo "::error::Host-specific path pattern found in docs/audits/*.md"
+            exit 1
+          fi
+          echo "✅ No host-path patterns in docs/audits/*.md"
+
+  lint-status-md:
+    name: STATUS.md LAN IPs and secrets paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block LAN IPs and secrets paths in STATUS.md
+        run: |
+          set -euo pipefail
+          if [[ ! -f STATUS.md ]]; then
+            echo "STATUS.md not present on this branch — skipping"
+            exit 0
+          fi
+          if grep -E '\b(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\b' STATUS.md; then
+            echo "::error::LAN IP found in STATUS.md"
+            exit 1
+          fi
+          if grep -E '<redacted-credential-path>*\.env|api-keys\.env|credentials\.env' STATUS.md; then
+            echo "::error::Secrets file path found in STATUS.md"
+            exit 1
+          fi
+          echo "✅ STATUS.md is clean"
+
+  lint-fixture-data:
+    name: src/data/*.json shape check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block committed src/data/users.json or agents.json with hash values
+        run: |
+          set -euo pipefail
+          for f in src/data/users.json src/data/agents.json; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error::$f is tracked in git. Only .json.template should be committed."
+              exit 1
+            fi
+            if [[ -f "${f}.template" ]]; then
+              if grep -E '"passwordHash"|"credentials"' "${f}.template"; then
+                echo "::error::${f}.template contains passwordHash or credentials fields"
+                exit 1
+              fi
+            fi
+          done
+          echo "✅ src/data/*.json shape is clean"
+
+  gitleaks-scan:
+    name: gitleaks custom rules (anti-pattern detection)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks with custom rules
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

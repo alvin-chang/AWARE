@@ -1,0 +1,136 @@
+#!/bin/bash
+# scripts/hooks/pre-push — Layer 2 of the AWARE 4-layer privacy filter
+# (see docs/security/filter-architecture.md).
+#
+# Hard-blocks `git push` if the changes being pushed would re-introduce
+# any of the privacy patterns the 2026-06-23 Sentinel audit flagged.
+#
+# Differences from Layer 1 (pre-commit):
+#   - Scans the *full diff* being pushed (not just staged content)
+#   - Runs `gitleaks detect` against the working tree (catches patterns
+#     outside staged content, e.g. files modified but not staged)
+#   - Loops over every ref being pushed (branch + tag)
+#
+# Bypassability: still client-side. `git push --no-verify` skips it.
+# Layer 3 (gitea pre-receive) is the server-side last line of defense.
+#
+# Input: git pre-push passes "<local-ref> <local-sha> <remote-ref> <remote-sha>"
+# one per line on stdin (see `man gittutorial-2` / `man githooks`).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+REMOTE="$1"   # destination remote name (e.g. "origin")
+URL="$2"      # destination URL (e.g. "http://...alvin/aware.git")
+
+echo "==> [Layer 2/3] pre-push to $REMOTE ($URL)"
+echo "    Full re-scan + gitleaks against ALL changed refs"
+
+FAILED=0
+
+# 1) gitleaks against the working tree (not just staged).
+#    detect (vs protect) scans the full tree without requiring staged content.
+#    This catches patterns in modified-but-unstaged files, plus the full
+#    new content of any ref being pushed.
+#
+#    --no-git: don't scan git history (history may have known false positives
+#    from before the filter existed; we only want NEW content blocked).
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "    gitleaks detect --source . --no-git"
+    if ! gitleaks detect --source "$REPO_ROOT" --no-git \
+        --config "$REPO_ROOT/.gitleaks.toml" \
+        --redact --no-banner --exit-code 1 2>/dev/null; then
+        echo ""
+        echo "✗ pre-push blocked: gitleaks found a pattern in the working tree."
+        echo "  See .gitleaks.toml for the rule that fired."
+        FAILED=1
+    fi
+else
+    echo "  (gitleaks not installed — skipping. Install: brew install gitleaks)"
+fi
+
+# 2) For every ref being pushed, scan the new content being introduced.
+#    We compare <local-sha>..<remote-sha> (or <local-sha> for new refs)
+#    and grep the patch for the A1 content rules.
+echo "    Scanning diffs of pushed refs..."
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+    # Skip empty lines
+    [[ -z "$LOCAL_REF" ]] && continue
+
+    # New branch (no remote SHA yet) — scan the entire local tree
+    if [[ -z "$REMOTE_SHA" || "$REMOTE_SHA" =~ ^0+$ ]]; then
+        RANGE_OR_TREE="$LOCAL_SHA"
+        RANGE_LABEL="(new ref: $LOCAL_REF)"
+    else
+        RANGE_OR_TREE="$REMOTE_SHA..$LOCAL_SHA"
+        RANGE_LABEL="($REMOTE_REF..$LOCAL_REF)"
+    fi
+
+    echo "    -> $LOCAL_REF $RANGE_LABEL"
+
+    # Get the list of changed files in this range
+    if [[ "$RANGE_OR_TREE" == *..* ]]; then
+        CHANGED_FILES="$(git diff --name-only "$RANGE_OR_TREE" 2>/dev/null || true)"
+    else
+        # New ref: list the tree
+        CHANGED_FILES="$(git ls-tree -r --name-only "$RANGE_OR_TREE" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$CHANGED_FILES" ]]; then
+        continue
+    fi
+
+    # Run the same content checks the pre-commit hook runs, against changed files only.
+    # This mirrors the A1 CI lint jobs.
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        # Only scan files that exist on disk
+        if [[ ! -f "$f" ]]; then
+            continue
+        fi
+
+        # Rule 1: docs/audits/*.md host-path patterns
+        if [[ "$f" == docs/audits/*.md ]]; then
+            if grep -E '(/Users/[a-z]+/|\.aws/|\.ssh/|\.kube/|\.docker/|\.gnupg/)' "$f" >/dev/null 2>&1; then
+                echo "    ✗ $f — host-path pattern in docs/audits/"
+                FAILED=1
+            fi
+        fi
+
+        # Rule 2: STATUS.md LAN IP + secrets paths
+        if [[ "$f" == "STATUS.md" ]]; then
+            if grep -E '\b(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\b' "$f" >/dev/null 2>&1; then
+                echo "    ✗ $f — LAN IP in STATUS.md"
+                FAILED=1
+            fi
+            if grep -E '<redacted-credential-path>*\.env|api-keys\.env|credentials\.env' "$f" >/dev/null 2>&1; then
+                echo "    ✗ $f — secrets path in STATUS.md"
+                FAILED=1
+            fi
+        fi
+
+        # Rule 3: src/data/*.json shape (not the .json.template)
+        if [[ "$f" == "src/data/users.json" || "$f" == "src/data/agents.json" ]]; then
+            echo "    ✗ $f is tracked in push. Only .json.template should be committed."
+            FAILED=1
+        fi
+        if [[ "$f" == "src/data/users.json.template" || "$f" == "src/data/agents.json.template" ]]; then
+            if grep -E '"passwordHash"|"credentials"' "$f" >/dev/null 2>&1; then
+                echo "    ✗ $f contains passwordHash/credentials fields (should be generated, not committed)"
+                FAILED=1
+            fi
+        fi
+    done <<< "$CHANGED_FILES"
+done
+
+if [[ $FAILED -eq 1 ]]; then
+    echo ""
+    echo "✗ pre-push blocked. See docs/security/filter-architecture.md for the full filter spec."
+    echo "  To override (NOT RECOMMENDED): git push --no-verify"
+    exit 1
+fi
+
+echo "✓ Layer 2 (pre-push) passed."
+exit 0
