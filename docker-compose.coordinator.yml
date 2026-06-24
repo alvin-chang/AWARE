@@ -10,8 +10,15 @@
 #   DOCKER_BUILDKIT=1 docker compose \
 #     -f docker-compose.coordinator.yml \
 #     -p aware-2 \
-#     --build-context heavy-think=../heavy-think \
 #     up -d --build
+#
+# Heavy-think source is cloned from the local Gitea
+# (http://localhost:4001/alvin/heavy-think, pinned at HEAVY_THINK_TAG=v0.2.2)
+# inside the Dockerfile's Stage 0 (alpine/git). The build does NOT mount
+# ~/src/heavy-think/ from the host — the canonical source is the Gitea
+# remote. To bump heavy-think: tag the new commit in
+# ~/src/heavy-think, push to Gitea (git push gitea v0.2.2), update
+# HEAVY_THINK_TAG in this file, re-build. See ADR-042.
 #
 # Tear down:
 #   docker compose -f docker-compose.coordinator.yml -p aware-2 down
@@ -20,7 +27,12 @@
 #   curl -sS http://127.0.0.1:18080/health  # gateway
 #   curl -sS http://127.0.0.1:18081/health  # coordinator
 #   curl -sS http://127.0.0.1:18081/version # coordinator identity
-#   curl -sS http://127.0.0.1:11434/api/tags  # ollama-sidecar
+#
+# 2026-06-23: Ollama sidecar REMOVED. AWARE_MODE=online runs the
+# coordinator on MiniMax only. See docs/adr/ADR-020 amendment at
+# the bottom of that file (and the bring-up script) for the
+# rationale. The previous ollama-sidecar smoke-test line
+# (curl http://127.0.0.1:11434/api/tags) is no longer applicable.
 
 name: aware-2
 
@@ -36,11 +48,14 @@ volumes:
     name: aware-2-postgres-data
   aware-2-redis-data:
     name: aware-2-redis-data
-  aware-2-ollama-models:
-    name: aware-2-ollama-models
+  # aware-2-ollama-models REMOVED 2026-06-23: Ollama sidecar deprecated.
+  # Coordinator now runs AWARE_MODE=online on MiniMax only. See ADR-020
+  # amendment at the bottom of that file. The named volume can be
+  # cleaned up with:
+  #   docker volume rm aware-2-ollama-models
   # aware-2-preference-pairs removed (Phase 2.4): the named volume was
   # mounted at /root/.<runtime>/metaclaw/preference-pairs but the AWARE
-  # process (running as `aware`, $HOME=/home/aware) writes to
+  # process (running as `aware`, with HOME=/home/aware) writes to
   # /home/aware/.<runtime>/metaclaw/preference-pairs/. The coordinator
   # service now uses a host bind mount to that path instead. The orphan
   # Docker volume can be removed with:
@@ -68,11 +83,15 @@ services:
   # (AWARE_GATEWAY_KILL_SWITCH) takes precedence over the coordinator
   # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
   # so the bring-up script's default 4-service stack works without it.
+  # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   gateway:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-    image: aware-gateway:0.1.0-phase-1-gateway
+    image: aware-gateway:0.2.0-ollama-removed
     container_name: aware-2-gateway
     profiles: ["full"]
     ports:
@@ -99,24 +118,71 @@ services:
   # ─── 2. Coordinator ───────────────────────────────────────────
   # The Phase 1 deliverable. Built from Dockerfile.coordinator.
   # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
+  # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   coordinator:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
-      additional_contexts:
-        - "heavy-think=../heavy-think"
-    image: aware-coordinator:0.2.0-phase-1-router
+      # host network so the build stage can reach http://localhost:4001
+      # (Gitea on the host's loopback). Without this, BuildKit's build
+      # container has its own network namespace and can't see the host.
+      network: host
+      args:
+        - HEAVY_THINK_TAG=v0.2.2
+        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
     environment:
       - COORDINATOR_HOST=0.0.0.0
       - COORDINATOR_PORT=8080
-      - AWARE_MODE=${AWARE_MODE:-hybrid}
+      # 2026-06-23: AWARE_MODE=online (was hybrid). Ollama sidecar
+      # removed; coordinator now runs on MiniMax only. See ADR-020
+      # amendment. If MiniMax is unavailable, /coordinate returns
+      # 503 (single-client-mode behavior). The previous offline
+      # fallback to Ollama no longer exists.
+      - AWARE_MODE=${AWARE_MODE:-online}
       - AWARE_REQUEST_TIMEOUT_MS=${AWARE_REQUEST_TIMEOUT_MS:-120000}
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
-      - OLLAMA_URL=http://ollama-sidecar:11434
+      # 2026-06-23: API key wiring. The canonical env var is
+      # <redacted-credential-name> (matches the host credential store + heavy-think
+      # source). We also pass through <redacted-credential-name> for backward compat
+      # with operators still using the legacy name — the config module
+      # reads <redacted-credential-name> first and falls back to <redacted-credential-name> with
+      # a soft deprecation warning. The compose `env_file:` block
+      # references the host's ACTIVE-CREDENTIALS.env file
+      # (path is operator-specific, defaults to
+      # <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env on this host),
+      # Operators should either (a) symlink `<host-secret-dir>` to
+      # `.openclaw/credentials`, or (b) source ACTIVE-CREDENTIALS.env
+      # into their shell before invoking docker compose.
+      # See ADR-042.
+      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      # Legacy env var — supported as a deprecated alias. Operators who
+      # still set <redacted-credential-name> instead of <redacted-credential-name> should source
+      # it into the host shell (or set it here directly). Empty by
+      # default; config.model.minimaxKey resolves canonical first then
+      # falls back to <redacted-credential-name> with a soft deprecation warning.
+      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      - MINIMAX_API_HOST=${MINIMAX_API_HOST:-}
+      # 2026-06-23: OLLAMA_URL removed — no Ollama sidecar. If the
+      # env var is set in the host (e.g. from a stale .env), it's
+      # ignored by the coordinator because the Ollama client is no
+      # longer constructed in AWARE_MODE=online. config/index.cjs
+      # still reads it for backward compat (and warns if mode=offline
+      # but the URL is missing), so we leave the door open if someone
+      # wants to flip back to offline mode without re-deploying.
+      # - OLLAMA_URL=http://ollama-sidecar:11434
+      # 2026-06-23: LoRA reloader disabled. It depends on the Ollama
+      # /api/create endpoint to register LoRA adapters with the
+      # local model daemon. Without Ollama, the reloader would
+      # repeatedly fail. Re-enable only if Ollama is reintroduced.
+      - AWARE_LORA_RELOADER_ENABLED=${AWARE_LORA_RELOADER_ENABLED:-false}
       - AWARE_DB_HOST=postgres
       - AWARE_DB_PORT=5432
       - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
@@ -125,16 +191,16 @@ services:
       # Phase 2.4 (ADR-020 618-627) preference-pair output directory.
       # Must match the volume mount point in the volumes: block below
       # (named volume aware-2-pairs-data → /data/awareness-pairs). The
-      # path is intentionally not under $HOME because the image bakes
-      # /home/aware/.<runtime>/metaclaw/preference-pairs at build time,
-      # which would shadow a host bind mount to that path. Phase 1 had
-      # the implicit default $HOME/.<runtime>/metaclaw/preference-pairs
-      # which is why the trainer's pair ingestion has never seen any
-      # live data — the live writes were landing in the image's
-      # ephemeral dir, not the bind-mounted host dir. Phase 2.4 swaps
-      # to a named volume (aware-2-pairs-data) that the trainer reads
-      # via the same mount; host bind mounts from <HOME>/ into
-      # containers silently fail to populate in this Docker Desktop
+      # path is intentionally not under the home directory because the
+      # image bakes /home/aware/.<runtime>/metaclaw/preference-pairs at
+      # build time, which would shadow a host bind mount to that path.
+      # Phase 1 had the implicit default home/.<runtime>/metaclaw/
+      # preference-pairs which is why the trainer's pair ingestion has
+      # never seen any live data — the live writes were landing in the
+      # image's ephemeral dir, not the bind-mounted host dir. Phase 2.4
+      # swaps to a named volume (aware-2-pairs-data) that the trainer
+      # reads via the same mount; host bind mounts from <HOME>/
+      # into containers silently fail to populate in this Docker Desktop
       # environment, so the named volume is the only working path.
       - AWARE_PAIRS_DIR=/data/awareness-pairs
       # The coordinator authenticates with the same password the postgres
@@ -145,9 +211,9 @@ services:
     # The upstream LLM API key is intentionally NOT hardcoded. The
     # compose file reads the env var from the canonical credential
     # store on this host:
-    #   ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+    #   <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env
     # This is a real file (mode 0600) that already contains
-    # <redacted-credential-name>=*** plus a few dozen other agent secrets. It
+    # the upstream LLM key plus a few dozen other agent secrets. It
     # is the source of truth for the whole multi-agent stack, so
     # wiring the AWARE coordinator to read from it means:
     #   - one place to rotate the key
@@ -156,12 +222,12 @@ services:
     #     outside the repo
     # If the file is absent (e.g. a CI runner or a fresh dev box
     # that has never logged into the multi-agent system), the
-    # coordinator boots in offline-only mode: the ollama sidecar
-    # still works, but /coordinate returns 500 with
-    # kind: 'internal_error' until the key is provided. Required:
-    # false makes this a soft dependency.
+    # coordinator boots in offline-only-disabled mode: with
+    # AWARE_MODE=online (the new default), there is no offline
+    # fallback, so /coordinate returns 503 until the key is provided.
+    # Required: false makes this a soft dependency.
     env_file:
-      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
         required: false
     volumes:
       # Named volume for preference-pair output. Phase 1 used a bind
@@ -174,15 +240,18 @@ services:
       # to /data/awareness-pairs, the path the named volume mounts at.
       # The previous named volume (`aware-2-preference-pairs`) was
       # mounted at /root/.<runtime>/metaclaw/preference-pairs but the
-      # AWARE process (running as `aware`, $HOME=/home/aware) wrote to
+      # AWARE process (running as `aware`, with HOME=/home/aware) wrote to
       # /home/aware/.<runtime>/metaclaw/preference-pairs — so the volume
       # was dead weight. Phase 2.4 data flywheel unblock.
       - aware-2-pairs-data:/data/awareness-pairs
     depends_on:
       postgres:
         condition: service_healthy
-      ollama-sidecar:
-        condition: service_healthy
+      # 2026-06-23: ollama-sidecar dependency REMOVED. Ollama sidecar
+      # no longer exists. The coordinator runs in AWARE_MODE=online
+      # on MiniMax only — no second-tier backend to wait for.
+      # ollama-sidecar:
+      #   condition: service_healthy
     networks:
       - aware-2
     restart: unless-stopped
@@ -194,46 +263,54 @@ services:
       retries: 3
 
   # ─── 3. Ollama sidecar ───────────────────────────────────────
-  # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
-  # the aware-2-ollama-models volume. Override the default pull model
-  # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
-  ollama-sidecar:
-    image: ollama/ollama:0.5.7
-    container_name: aware-2-ollama
-    ports:
-      - "11434:11434"
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_HOST=0.0.0.0:11434
-    volumes:
-      - aware-2-ollama-models:/root/.ollama
-    networks:
-      - aware-2
-    restart: unless-stopped
-    healthcheck:
-      # The ollama/ollama:0.5.7 image is minimal — it has `ollama` CLI and
-      # `bash`, but no `wget` or `curl`. Use `ollama list` to verify the
-      # daemon is responsive (a 200-equivalent with the model table).
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      start_period: 30s
-      retries: 5
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        ollama serve &
-        OLLAMA_PID=$$!
-        # Wait for daemon to be ready (up to 30s)
-        for i in $$(seq 1 30); do
-          if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
-          sleep 1
-        done
-        # Pre-pull default model unless explicitly disabled
-        if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
-          ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
-        fi
-        wait $$OLLAMA_PID
+  # REMOVED 2026-06-23. AWARE 2.0 now runs on MiniMax only
+  # (AWARE_MODE=online). See ADR-020 amendment for the rationale.
+  # Previous block (kept here commented for archaeology):
+  #
+  #   # ─── 3. Ollama sidecar ───────────────────────────────────────
+  #   # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
+  #   # the aware-2-ollama-models volume. Override the default pull model
+  #   # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
+  #   ollama-sidecar:
+  #     image: ollama/ollama:0.5.7
+  #     container_name: aware-2-ollama
+  #     ports:
+  #       - "11434:11434"
+  #     environment:
+  #       - OLLAMA_KEEP_ALIVE=24h
+  #       - OLLAMA_HOST=0.0.0.0:11434
+  #     volumes:
+  #       - aware-2-ollama-models:/root/.ollama
+  #     networks:
+  #       - aware-2
+  #     restart: unless-stopped
+  #     healthcheck:
+  #       test: ["CMD", "ollama", "list"]
+  #       interval: 15s
+  #       timeout: 5s
+  #       start_period: 30s
+  #       retries: 5
+  #     entrypoint: ["/bin/sh", "-c"]
+  #     command:
+  #       - |
+  #         ollama serve &
+  #         OLLAMA_PID=$$!
+  #         for i in $$(seq 1 30); do
+  #           if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
+  #           sleep 1
+  #         done
+  #         if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
+  #           ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
+  #         fi
+  #         wait $$OLLAMA_PID
+  #
+  # To bring this back (e.g. for offline/air-gapped deployments):
+  # 1. Restore the block above (uncomment).
+  # 2. Restore the `aware-2-ollama-models` volume declaration.
+  # 3. Restore the `coordinator.depends_on.ollama-sidecar` block.
+  # 4. Restore the `coordinator.environment.OLLAMA_URL` line.
+  # 5. Set `AWARE_MODE=offline` (or hybrid) in coordinator env.
+  # 6. Set `AWARE_LORA_RELOADER_ENABLED=true` if you want live LoRA swap.
 
   # ─── 4. Postgres ─────────────────────────────────────────────
   # Session + preference-pair metadata (heavy-think already writes
@@ -301,9 +378,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
-      additional_contexts:
-        - "heavy-think=../heavy-think"
-    image: aware-coordinator:0.3.0-phase-3-trainer
+      network: host
+      args:
+        - HEAVY_THINK_TAG=v0.2.2
+        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+    # 2026-06-23: bumped to 0.4.4-phase4-heavy-think-from-gitea. Heavy-think
+    # is now cloned from the local Gitea in the Dockerfile, not mounted
+    # from the host. See ADR-042.
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]
@@ -331,7 +413,7 @@ services:
       - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
       - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
     env_file:
-      - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
         required: false
     volumes:
       # The trainer's data dir is where it stages DPO dataset JSONLs

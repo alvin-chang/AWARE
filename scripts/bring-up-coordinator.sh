@@ -7,17 +7,17 @@
 # Usage:
 #   AWARE_BRINGUP_OK=1 ./scripts/bring-up-coordinator.sh
 #
-# Cost: ~850MB of Docker image pulls (first time only), ~1-2 min for boot.
+# Cost: ~750MB of Docker image pulls (first time only), ~1-2 min for boot.
+# (Reduced from ~850MB after Ollama sidecar was removed 2026-06-23.)
 #
 # What it verifies:
 #   1. `docker compose config` validates the compose file
 #   2. The coordinator image builds (via Dockerfile.coordinator)
-#   3. All 5 services come up
+#   3. All 4 services come up (coordinator, postgres, redis, gateway)
 #   4. coordinator /health returns 200
 #   5. coordinator /version returns the expected version string
-#   6. ollama-sidecar /api/tags returns 200
-#   7. postgres / redis respond to their healthchecks
-#   8. Cleanup: docker compose down -v
+#   6. postgres / redis respond to their healthchecks
+#   7. Cleanup: docker compose down -v
 #
 # The script is intentionally verbose and exits on the first failure.
 
@@ -70,15 +70,29 @@ else
   log "credential store not found at $CREDS_FILE; coordinator will run in offline-only mode"
 fi
 
+# Bridge: AWARE source reads `<redacted-credential-name>` (config/index.cjs gate + the
+# default-provider minimax client), but the canonical credential store
+# exports `<redacted-credential-name>`. If <redacted-credential-name> is unset but <redacted-credential-name>
+# is set, alias them. Compose env interpolation then sees both names
+# and the coordinator's mode=online gate passes. This avoids forcing
+# every operator to maintain two env entries that hold the same value.
+#
+# See ADR-022 follow-up: rename in source to <redacted-credential-name> (single
+# name end-to-end), drop this bridge.
+if [[ -z "${<redacted-credential-name>:-}" && -n "${<redacted-credential-name>:-}" ]]; then
+  log "  bridging <redacted-credential-name> → <redacted-credential-name> (compose needs both names)"
+  export <redacted-credential-name>="$<redacted-credential-name>"
+fi
+
 # 2. Validate compose
 log "validating $COMPOSE_FILE"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" config >/dev/null \
   || fail "compose file failed validation"
 
-# 3. Build the coordinator + gateway images. The compose file declares
-#   `additional_contexts: [heavy-think=../heavy-think]` for the coordinator,
-#   and the gateway has its own minimal Dockerfile that doesn't need heavy-think.
-#   Both are BuildKit-backed.
+# 3. Build the coordinator + gateway images. The Dockerfile's Stage 0
+#   clones heavy-think from the local Gitea at HEAVY_THINK_TAG (see
+#   ADR-042), so the host's ~/src/heavy-think/ working copy is NOT the
+#   source of truth. No drift check needed here.
 log "building coordinator + gateway images (this may take a few minutes on first run)"
 DOCKER_BUILDKIT=1 docker compose \
   -f "$COMPOSE_FILE" -p "$PROJECT" \
@@ -86,10 +100,11 @@ DOCKER_BUILDKIT=1 docker compose \
   build coordinator gateway \
   || fail "coordinator/gateway image build failed"
 
-# 4. Bring up the 5-service stack (gateway behind the `full` profile)
+# 4. Bring up the 4-service stack (gateway behind the `full` profile).
+# Ollama sidecar removed 2026-06-23 — see ADR-020 amendment.
 log "starting services"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" --profile full up -d \
-  coordinator ollama-sidecar postgres redis gateway \
+  coordinator postgres redis gateway \
   || fail "docker compose up failed"
 
 # 5. Wait for healthchecks. The simplest correct check: `docker inspect`
@@ -101,7 +116,7 @@ elapsed=0
 while (( elapsed < HEALTH_TIMEOUT )); do
   all_healthy=true
   status=""
-  for c in aware-2-coordinator aware-2-ollama aware-2-postgres aware-2-redis aware-2-gateway; do
+  for c in aware-2-coordinator aware-2-postgres aware-2-redis aware-2-gateway; do
     status=$(docker inspect --format '{{.State.Health.Status}}' "$c" 2>/dev/null || echo "missing")
     if [[ "$status" != "healthy" ]]; then
       all_healthy=false
@@ -141,10 +156,11 @@ echo "  → $health"
 echo "$health" | grep -q '"status":"ok"' \
   || fail "coordinator /health is not ok"
 
-log "smoke test: ollama-sidecar /api/tags"
-# The ollama image has no curl/wget; use docker exec + ollama list
-tags=$(docker compose -f "$COMPOSE_FILE" -p "$PROJECT" exec -T ollama-sidecar ollama list 2>&1)
-echo "  → $(echo "$tags" | head -c 500)"
+# 2026-06-23: ollama-sidecar smoke test REMOVED. Ollama no longer
+# in the stack. Previous block (kept commented for archaeology):
+#   log "smoke test: ollama-sidecar /api/tags"
+#   tags=$(docker compose -f "$COMPOSE_FILE" -p "$PROJECT" exec -T ollama-sidecar ollama list 2>&1)
+#   echo "  → $(echo "$tags" | head -c 500)"
 
 log "smoke test: postgres is accepting connections"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" exec -T postgres \

@@ -265,7 +265,7 @@ run attempts.
 
 ```yaml
 env_file:
-  - path: ${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env
+  - path: ${HOME}/<canonical-credential-store>/ACTIVE-CREDENTIALS.env
     required: false
 ```
 
@@ -274,18 +274,7 @@ to inspect the trainer's resolved environment printed the
 **entire contents of `ACTIVE-CREDENTIALS.env`** as the trainer
 service's `environment` block. This includes:
 
-- `<redacted-credential-name>`, `<redacted-credential-name>`
-- `<redacted-credential-name>`
-- `GITHUB_TOKEN`
-- `GATEWAY_TOKEN`
-- `<redacted-credential-name>`
-- `LINKEDIN_*` (4 vars)
-- `BUFFER_ACCESS_TOKEN`
-- `DEVICE_OPERATOR_TOKEN`
-- `EXEC_APPROVALS_TOKEN`
-- `QWEN_PORTAL_*` (3 vars)
-- `TELEGRAM_BOT_TOKEN`
-- `<redacted-credential-name>`, `<redacted-credential-name>`, `<redacted-credential-name>`
+- The full set of credentials defined in `<canonical-credential-store>/ACTIVE-CREDENTIALS.env` (operator-rotate per standing rule)
 
 **Third credential leak of the session.** The first two were
 `~/.modal.toml` directly; this one is a side effect of
@@ -392,7 +381,6 @@ they require the trainer to boot first. Once BLOCKER-1 and
 MEDIUM-2 are fixed, we can run the 5h GPU job and see what
 surfaces.
 
-— (redacted)
 
 
 ---
@@ -417,7 +405,7 @@ surfaces.
 
 **LOW-5: still out of D5 scope** (AZR cross-container handoff)
 
-**LOW-7: still pending operator action** — three credential leaks this session; standing rule says operator rotates, agent reports. Recommend rotating the entire `~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env`.
+**LOW-7: still pending operator action** — three credential leaks this session; standing rule says operator rotates, agent reports. Recommend rotating the entire `<canonical-credential-store>/ACTIVE-CREDENTIALS.env`.
 
 **INFO-8/9: unchanged** (aarch64 image; 307/307 tests + 81.61% branches)
 
