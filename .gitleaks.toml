@@ -33,6 +33,19 @@ paths = [
     # Documented history of the anti-pattern (explains the
     # rewrite — Finding 1, 2 in the 2026-06-23 private-data audit)
     '''docs/security/history-rewrites\.md''',
+    # Filter-hooks test fixtures (literal banned patterns by design —
+    # used to verify the BLOCK behavior of the privacy filter)
+    '''tests/security/filter-hooks\.test\.js''',
+    # CI/script files that contain the rule's OWN regex patterns as
+    # literals — gitleaks matches the rule against the rule definition,
+    # producing false positives. The patterns in these files are
+    # intended; they're what we scan FOR, not what we want to block.
+    '''scripts/hooks/pre-commit''',
+    '''scripts/hooks/pre-push''',
+    '''scripts/hooks/pre-receive''',
+    '''scripts/pre-commit-check\.sh''',
+    '''\.gitea/workflows/lint-private-data\.yml''',
+    '''\.github/workflows/lint-private-data\.yml''',
 ]
 
 # Custom rules for patterns that gitleaks' default ruleset doesn't catch.
