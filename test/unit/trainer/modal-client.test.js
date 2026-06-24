@@ -97,26 +97,26 @@ function writeFakeSdkFile(impl) {
 // -- preflightModal: missing tokens ----------------------------------
 
 test('preflight: returns modal_tokens_missing when env unset', async () => {
-  const oldId = process.env.<redacted-credential-name>;
-  const oldSecret = process.env.<redacted-credential-name>;
-  delete process.env.<redacted-credential-name>;
-  delete process.env.<redacted-credential-name>;
+  const oldId = process.env.MODAL_TOKEN_ID;
+  const oldSecret = process.env.MODAL_TOKEN_SECRET;
+  delete process.env.MODAL_TOKEN_ID;
+  delete process.env.MODAL_TOKEN_SECRET;
 
   try {
     const { preflightModal } = await import(MODAL_CLIENT_PATH);
     const r = await preflightModal();
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'modal_tokens_missing');
-    assert.match(r.detail, /<redacted-credential-name>/);
+    assert.match(r.detail, /MODAL_TOKEN_ID/);
   } finally {
-    if (oldId !== undefined) process.env.<redacted-credential-name> = oldId;
-    if (oldSecret !== undefined) process.env.<redacted-credential-name> = oldSecret;
+    if (oldId !== undefined) process.env.MODAL_TOKEN_ID = oldId;
+    if (oldSecret !== undefined) process.env.MODAL_TOKEN_SECRET = oldSecret;
   }
 });
 
 test('preflight: returns modal_sdk_unimportable when SDK not installed', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   try {
     const { preflightModal } = await import(MODAL_CLIENT_PATH);
@@ -125,14 +125,14 @@ test('preflight: returns modal_sdk_unimportable when SDK not installed', async (
     assert.equal(r.reason, 'modal_sdk_unimportable');
     assert.match(r.detail, /this-package-does-not-exist-xyz/);
   } finally {
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('preflight: returns modal_sdk_surface_incomplete when ModalClient missing', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   // Fake SDK that exports the wrong shape (Python-shaped: modal.Function
   // with from_training_script, no ModalClient class).
@@ -149,14 +149,14 @@ test('preflight: returns modal_sdk_surface_incomplete when ModalClient missing',
     assert.match(r.detail, /ModalClient/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('preflight: returns modal_sdk_surface_incomplete when client lacks .volumes.fromName', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   // Fake SDK where ModalClient exists but the instance doesn't
   // expose .volumes. This catches a future SDK version that
@@ -173,14 +173,14 @@ test('preflight: returns modal_sdk_surface_incomplete when client lacks .volumes
     assert.match(r.detail, /\.volumes\.fromName/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('preflight: returns ok=true with sdk reference on success', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   const { fakePath, tmpDir } = writeFakeSdkFile(
     'export class ModalClient { constructor() { return { volumes: { fromName: () => {} }, functions: { fromName: () => {} } }; } }\n'
@@ -194,8 +194,8 @@ test('preflight: returns ok=true with sdk reference on success', async () => {
     assert.equal(typeof r.sdk.ModalClient, 'function');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
@@ -231,8 +231,8 @@ test('submit: rejects when config.app_name is missing', async () => {
 // -- makeModalClient().submit: preflight failure -------------------
 
 test('submit: surfaces preflight failure as a typed error', async () => {
-  delete process.env.<redacted-credential-name>;
-  delete process.env.<redacted-credential-name>;
+  delete process.env.MODAL_TOKEN_ID;
+  delete process.env.MODAL_TOKEN_SECRET;
 
   const { makeModalClient } = await import(MODAL_CLIENT_PATH);
   const c = makeModalClient();
@@ -255,8 +255,8 @@ test('submit: surfaces preflight failure as a typed error', async () => {
 // volumes.fromName + client.functions.fromName(app, fn) + fn.spawn → FunctionCall
 
 test('submit: full happy path — calls fromName, spawn, returns handle', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   const mock = makeMockSdk({ callId: 'fc-real-shape-1234' });
 
@@ -328,14 +328,14 @@ test('submit: full happy path — calls fromName, spawn, returns handle', async 
     delete globalThis.__spawnCalls;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('submit: poll translates modal success (resolved promise) → completed/exitCode=0', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-success-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-success-sdk.mjs');
@@ -366,14 +366,14 @@ test('submit: poll translates modal success (resolved promise) → completed/exi
     assert.equal(pollRes.exitCode, 0);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('submit: poll translates modal failure (thrown) → failed/exitCode=1/exception as errorMessage', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modal-fail-'));
   const fakeSdkPath = path.join(tmpDir, 'fake-fail-sdk.mjs');
@@ -405,8 +405,8 @@ test('submit: poll translates modal failure (thrown) → failed/exitCode=1/excep
     assert.equal(pollRes.errorMessage, 'boom');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
@@ -424,8 +424,8 @@ test('submit: poll translates modal failure (thrown) → failed/exitCode=1/excep
 // actually instantiate a ModalClient.
 
 test('resolveInflight (on makeModalClient): returns handle wrapping a fromId call', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   // Use a fake SDK that exposes client.functionCalls.fromId with
   // the same shape as the real SDK. The fromId call should
   // return a FunctionCall-shaped object with .get({timeoutMs}).
@@ -460,14 +460,14 @@ test('resolveInflight (on makeModalClient): returns handle wrapping a fromId cal
     assert.equal(r.exitCode, 0);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('resolveInflight (on makeModalClient): returns null if SDK has no functionCalls.fromId', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   // Old SDK shape — no functionCalls service. The wrapper should
   // log a warning and return null (the trainer will warn "no live
   // job handle; will retry next tick").
@@ -488,14 +488,14 @@ test('resolveInflight (on makeModalClient): returns null if SDK has no functionC
     assert.equal(r, null);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('resolveInflight (on makeModalClient): returns null if fromId throws (NotFoundError etc.)', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -515,14 +515,14 @@ test('resolveInflight (on makeModalClient): returns null if fromId throws (NotFo
     assert.equal(r, null);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('resolveInflight (on makeModalClient): returns null if jobId is missing', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -539,14 +539,14 @@ test('resolveInflight (on makeModalClient): returns null if jobId is missing', a
     assert.equal(r, null);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('resolveInflight (on makeModalClient): poll() translates FunctionTimeoutError → running', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   // SDK whose fromId returns a call that throws FunctionTimeoutError
   // on get({timeoutMs}) — the call is still running.
   const fakeImpl = `
@@ -576,8 +576,8 @@ test('resolveInflight (on makeModalClient): poll() translates FunctionTimeoutErr
     assert.equal(r.status, 'running');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
@@ -586,8 +586,8 @@ test('resolveInflight (on makeModalClient): poll() translates FunctionTimeoutErr
 // not look for a <runId>.size sentinel file that the python side
 // never produces.
 test('getCheckpoint reads run_summary.json sizes_mb.merged_mb (bug #13)', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -628,14 +628,14 @@ test('getCheckpoint reads run_summary.json sizes_mb.merged_mb (bug #13)', async 
     assert.match(ckpt.checkpointPath, /\/checkpoints\/run-test-13$/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('getCheckpoint falls back to adapter_mb when merged_mb is missing (bug #13)', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -664,14 +664,14 @@ test('getCheckpoint falls back to adapter_mb when merged_mb is missing (bug #13)
     assert.equal(ckpt.sizeMb, 48, 'sizeMb should be Math.round(adapter_mb) when merged_mb missing');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
 test('getCheckpoint returns sizeMb=0 when run_summary.json does not exist (bug #13 + #14)', async () => {
-  process.env.<redacted-credential-name> = 'test-token-id-placeholder';
-  process.env.<redacted-credential-name> = 'test-token-secret-placeholder';
+  process.env.MODAL_TOKEN_ID = 'test-token-id-placeholder';
+  process.env.MODAL_TOKEN_SECRET = 'test-token-secret-placeholder';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -698,8 +698,8 @@ test('getCheckpoint returns sizeMb=0 when run_summary.json does not exist (bug #
     assert.equal(ckpt.sizeMb, 0, 'sizeMb should be 0 when no run_summary.json is readable from the trainer host');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
@@ -708,8 +708,8 @@ test('getCheckpoint returns sizeMb=0 when run_summary.json does not exist (bug #
 // treated 0 as missing data, which masks a legitimate empty-merged
 // checkpoint (e.g. peft config that disables merge).
 test('getCheckpoint returns sizeMb=0 (not adapter_mb fallback) when merged_mb is literally 0 (F-002)', async () => {
-  process.env.<redacted-credential-name> = 'test-tok';
-  process.env.<redacted-credential-name> = 'test-tok';
+  process.env.MODAL_TOKEN_ID = 'test-tok';
+  process.env.MODAL_TOKEN_SECRET = 'test-tok';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -744,8 +744,8 @@ test('getCheckpoint returns sizeMb=0 (not adapter_mb fallback) when merged_mb is
       'F-002: merged_mb=0 must yield sizeMb=0, not fall through to adapter_mb');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });
 
@@ -755,8 +755,8 @@ test('getCheckpoint returns sizeMb=0 (not adapter_mb fallback) when merged_mb is
 // runtimes sharing a Modal volume mount). New behavior: try the
 // readFile and handle ENOENT cleanly without the prior check.
 test('getCheckpoint handles ENOENT cleanly without existsSync pre-check (F-007)', async () => {
-  process.env.<redacted-credential-name> = 'test-tok';
-  process.env.<redacted-credential-name> = 'test-tok';
+  process.env.MODAL_TOKEN_ID = 'test-tok';
+  process.env.MODAL_TOKEN_SECRET = 'test-tok';
   const fakeImpl = `
     function ModalClient() { return client; }
     const client = {
@@ -787,7 +787,7 @@ test('getCheckpoint handles ENOENT cleanly without existsSync pre-check (F-007)'
       'F-007: missing ckptDir should yield sizeMb=0 via ENOENT handling, not crash');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    delete process.env.<redacted-credential-name>;
-    delete process.env.<redacted-credential-name>;
+    delete process.env.MODAL_TOKEN_ID;
+    delete process.env.MODAL_TOKEN_SECRET;
   }
 });

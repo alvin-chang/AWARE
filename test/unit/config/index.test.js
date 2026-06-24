@@ -20,12 +20,12 @@ function clearV2Env() {
       k === 'AWARE_KILL_SWITCH' || k === 'AWARE_GATEWAY_KILL_SWITCH' ||
       k === 'AWARE_HEAVY_THINK_PATH' ||
       k === 'AWARE_MODE' || k === 'OLLAMA_URL' ||
-      k === '<redacted-credential-name>' || k === 'MINIMAX_API_HOST' ||
+      k === 'LLM_API_KEY' || k === 'MINIMAX_API_HOST' ||
       k === 'AWARE_PRM_CACHE_ENABLED' || k === 'AWARE_PRM_CACHE_TTL_DAYS' ||
       k === 'AWARE_PRM_CACHE_TABLE' ||
       k === 'AWARE_BUDGET_ENABLED' || k === 'AWARE_BUDGET_WINDOW_DAYS' ||
       k === 'AWARE_BUDGET_SOFT_LIMIT_USD' || k === 'AWARE_BUDGET_HARD_LIMIT_USD' ||
-      k === '<redacted-credential-name>' || k === '<redacted-credential-name>'
+      k === 'MODAL_TOKEN_ID' || k === 'MODAL_TOKEN_SECRET'
     ) {
       delete process.env[k];
     }
@@ -69,7 +69,7 @@ test('config: env overrides take effect', (t) => {
   process.env.COORDINATOR_URL = 'http://upstream:9999';
   process.env.AWARE_GATEWAY_KILL_SWITCH = '1';
   process.env.AWARE_MODE = 'online';
-  process.env.<redacted-credential-name>='***';
+  process.env.LLM_API_KEY='***';
   process.env.OLLAMA_URL = 'http://ollama:11434';
 
   const config = require('../../../src/config/index.cjs');
@@ -121,11 +121,11 @@ test('config: kill-switch is bool, not just string "1"', (t) => {
 
 test('config: validate() throws on mode=online without key', (t) => {
   process.env.AWARE_MODE = 'online';
-  // no <redacted-credential-name>
+  // no LLM_API_KEY
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
-  assert.throws(() => config.validate(), /AWARE_MODE=online requires <redacted-credential-name>/);
+  assert.throws(() => config.validate(), /AWARE_MODE=online requires LLM_API_KEY/);
 });
 
 test('config: validate() throws on GATEWAY_PORT == COORDINATOR_PORT', (t) => {
@@ -176,7 +176,7 @@ test('config: validate() passes with mode=hybrid (no key required)', (t) => {
 
 test('config: validate() passes with mode=online + key', (t) => {
   process.env.AWARE_MODE = 'online';
-  process.env.<redacted-credential-name> = 'present';
+  process.env.LLM_API_KEY = 'present';
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
@@ -189,12 +189,12 @@ test('config: warnings() lists missing key for online-ish modes', (t) => {
 
   // Default mode=hybrid, no key → should warn
   const w = config.warnings();
-  assert.ok(w.some(s => s.includes('<redacted-credential-name> is not set')));
+  assert.ok(w.some(s => s.includes('LLM_API_KEY is not set')));
 });
 
 test('config: warnings() is empty when configured', (t) => {
   process.env.AWARE_MODE = 'online';
-  process.env.<redacted-credential-name> = 'present';
+  process.env.LLM_API_KEY = 'present';
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
@@ -202,7 +202,7 @@ test('config: warnings() is empty when configured', (t) => {
 });
 
 test('config: snapshot() redacts secrets', (t) => {
-  process.env.<redacted-credential-name> = 'PLACEHOLDER';
+  process.env.LLM_API_KEY = 'PLACEHOLDER';
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
@@ -255,7 +255,7 @@ test('config: heavy-think path defaults to dev-layout sibling', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
-  // The default resolves to <repo-root>/src/index.js
+  // The default resolves to /Users/alfie/src/heavy-think/src/index.js
   // (or wherever heavy-think lives on the dev host).
   assert.match(config.heavyThink.path, /heavy-think[\\\/]src[\\\/]index\.js$/);
 });
@@ -438,26 +438,26 @@ test('config: trainer.modalTokenSecret unset by default', (t) => {
 });
 
 test('config: trainer.modalTokenId redacted in snapshot', (t) => {
-  process.env.<redacted-credential-name> = 'ak-THIS-IS-A-SECRET-NEVER-LOG';
+  process.env.MODAL_TOKEN_ID = 'ak-THIS-IS-A-SECRET-NEVER-LOG';
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
   const snap = config.snapshot();
   const json = JSON.stringify(snap);
   // The actual token value must never appear in the snapshot
   assert.ok(!json.includes('ak-THIS-IS-A-SECRET-NEVER-LOG'),
-    'snapshot must not contain <redacted-credential-name> value');
+    'snapshot must not contain MODAL_TOKEN_ID value');
   // But the length is preserved for debug logs
   assert.match(snap.trainer.modalTokenId, /length=29/);
 });
 
 test('config: trainer.modalTokenSecret redacted in snapshot', (t) => {
-  process.env.<redacted-credential-name> = 'as-THIS-IS-A-SECRET-NEVER-LOG-XYZ';
+  process.env.MODAL_TOKEN_SECRET = 'as-THIS-IS-A-SECRET-NEVER-LOG-XYZ';
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
   const snap = config.snapshot();
   const json = JSON.stringify(snap);
   assert.ok(!json.includes('as-THIS-IS-A-SECRET-NEVER-LOG-XYZ'),
-    'snapshot must not contain <redacted-credential-name> value');
+    'snapshot must not contain MODAL_TOKEN_SECRET value');
   assert.match(snap.trainer.modalTokenSecret, /length=33/);
 });
 

@@ -11,8 +11,8 @@ import {
 } from '../../../src/coordinator/index.js';
 
 test('buildDefaultRouter accepts opts.heavyThinkPath (used by tests + Docker image)', async () => {
-  // Absolute path to the actual heavy-think source (sibling repo at <repo-root>/)
-  // From test/unit/coordinator/, 4 `..` lands at <HOME>/src/, then heavy-think/...
+  // Absolute path to the actual heavy-think source (sibling repo at /Users/alfie/src/heavy-think/)
+  // From test/unit/coordinator/, 4 `..` lands at /Users/alfie/src/, then heavy-think/...
   const heavyThinkAbs = new URL('../../../../heavy-think/src/index.js', import.meta.url).pathname;
   const router = await buildDefaultRouter({
     heavyThinkPath: heavyThinkAbs,
@@ -132,15 +132,15 @@ test('buildDefaultRouter without env var or opts: minimax stub fails, ollama stu
     ollamaClient: { name: 'ollama', offline: true, generate: async () => ({ reasoning: 'fallback' }) },
   });
   // Save and clear env var to ensure minimax stub is used
-  const saved = process.env.<redacted-credential-name>;
-  delete process.env.<redacted-credential-name>;
+  const saved = process.env.LLM_API_KEY;
+  delete process.env.LLM_API_KEY;
   try {
     const result = await router.generate('hi');
     // The minimax stub throws, ollama stub succeeds
     assert.equal(result._routed_via, 'ollama');
     assert.equal(result.reasoning, 'fallback');
   } finally {
-    if (saved !== undefined) process.env.<redacted-credential-name> = saved;
+    if (saved !== undefined) process.env.LLM_API_KEY = saved;
   }
 });
 

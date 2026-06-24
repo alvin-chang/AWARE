@@ -16,7 +16,12 @@
 description = "AWARE-specific allowlist for known-false-positive files"
 paths = [
     # Test fixtures with placeholder token names — not real secrets
+    # (test code references env var names like MODAL_TOKEN_ID to exercise
+    # the env-var-parsing logic; the var names are not secret values)
     '''test/unit/trainer/modal-client.test.js''',
+    '''test/unit/trainer/index\.test\.js''',
+    '''test/unit/coordinator/index\.test\.js''',
+    '''test/unit/config/index\.test\.js''',
     # k8s deployment manifest with placeholder secret
     '''k8s-deployment\.yaml''',
     # Performance test with example JWT

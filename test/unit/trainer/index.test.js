@@ -109,8 +109,8 @@ function setV2Env() {
   process.env.AWARE_TRAINER_ENABLED = '1';
   process.env.AWARE_TRAINER_POLL_INTERVAL_SEC = '60';
   process.env.AWARE_TRAINER_MIN_PAIRS_PER_RUN = '100';
-  process.env.<redacted-credential-name> = 'ak-test-token-id-1234567890';
-  process.env.<redacted-credential-name> = 'as-test-token-secret-1234567890abcdef';
+  process.env.MODAL_TOKEN_ID = 'ak-test-token-id-1234567890';
+  process.env.MODAL_TOKEN_SECRET = 'as-test-token-secret-1234567890abcdef';
 }
 
 function clearV2Env() {
@@ -146,7 +146,7 @@ test('trainer: kill switch off — start() returns immediately, no log noise', a
 test('trainer: missing Modal token — warns but starts', async (t) => {
   t.after(() => clearV2Env());
   setV2Env();
-  delete process.env.<redacted-credential-name>;
+  delete process.env.MODAL_TOKEN_ID;
 
   const logger = makeTestLogger();
   const poller = new TrainerPoller({ logger, dataDir: await makeTempDataDir() });
@@ -154,7 +154,7 @@ test('trainer: missing Modal token — warns but starts', async (t) => {
   await poller.stop();
 
   assert.ok(
-    logger.lines.warn.some((l) => /<redacted-credential-name>.*unset/.test(l)),
+    logger.lines.warn.some((l) => /MODAL_TOKEN_ID.*unset/.test(l)),
     'expected missing-token warning'
   );
   // Critically: the token VALUE never appears in any log line
