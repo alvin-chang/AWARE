@@ -114,9 +114,9 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
     expect(result.stdout).toMatch(/Host-specific path pattern/);
   });
 
-  test('BLOCKS <canonical-credential-store>/ and <canonical-credential-store>/ in docs/audits/*.md', () => {
+  test('BLOCKS ~/.aws/ and ~/.ssh/ in docs/audits/*.md', () => {
     const tmp = makeFixtureRepo({
-      docsAuditsContent: 'See <canonical-credential-store>/credentials and <canonical-credential-store>/id_rsa for the key.\n',
+      docsAuditsContent: 'See ~/.aws/credentials and ~/.ssh/id_rsa for the key.\n',
       statusMdContent: null,
       usersJsonTracked: false,
       usersTemplateContent: null,
@@ -130,7 +130,7 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
   test('BLOCKS LAN IP 192.168.x.x in STATUS.md', () => {
     const tmp = makeFixtureRepo({
       docsAuditsContent: null,
-      statusMdContent: 'Gitea is at http://<redacted-lan-ip>:4001/alvin/aware\n',
+      statusMdContent: 'Gitea is at http://192.168.1.198:4001/alvin/aware\n',
       usersJsonTracked: false,
       usersTemplateContent: null,
     });
@@ -143,7 +143,7 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
   test('BLOCKS LAN IP 10.x.x.x in STATUS.md', () => {
     const tmp = makeFixtureRepo({
       docsAuditsContent: null,
-      statusMdContent: 'Internal: http://<redacted-lan-ip>:8080\n',
+      statusMdContent: 'Internal: http://10.0.1.50:8080\n',
       usersJsonTracked: false,
       usersTemplateContent: null,
     });
@@ -156,7 +156,7 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
   test('BLOCKS secrets file path in STATUS.md', () => {
     const tmp = makeFixtureRepo({
       docsAuditsContent: null,
-      statusMdContent: 'See <redacted-credential-path> for the values.\n',
+      statusMdContent: 'See secrets/api-keys.env for the values.\n',
       usersJsonTracked: false,
       usersTemplateContent: null,
     });
@@ -295,10 +295,10 @@ describe('Layer 3: scripts/hooks/pre-receive (gitea-side)', () => {
 // ─── Cross-cutting: known false positives ───────────────────────────────
 
 describe('Known false positives (must NOT be blocked)', () => {
-  test('docs/audits/*.md with <canonical-credential-store>/ and <canonical-credential-store>/ paths PASSES', () => {
+  test('docs/audits/*.md with ~/.local/ and ~/.config/ paths PASSES', () => {
     // The A1 rules explicitly allow these (per the regex in pre-commit-check.sh)
     const tmp = makeFixtureRepo({
-      docsAuditsContent: 'See <canonical-credential-store>/share/app.log and <canonical-credential-store>/app/config.json\n',
+      docsAuditsContent: 'See ~/.local/share/app.log and ~/.config/app/config.json\n',
       statusMdContent: null,
       usersJsonTracked: false,
       usersTemplateContent: null,

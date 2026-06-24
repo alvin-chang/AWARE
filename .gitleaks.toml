@@ -45,7 +45,6 @@ paths = [
     '''scripts/hooks/pre-receive''',
     '''scripts/pre-commit-check\.sh''',
     '''\.gitea/workflows/lint-private-data\.yml''',
-    '''\.github/workflows/lint-private-data\.yml''',
 ]
 
 # Custom rules for patterns that gitleaks' default ruleset doesn't catch.
