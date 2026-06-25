@@ -66,15 +66,19 @@ function resolveHeavyThinkPath(opts = {}) {
  *   silently treated as "no pluginConfig" so a misbehaving caller
  *   doesn't break the request path; the validation is logged on the
  *   envelope for observability.
+ * @param {string} [options.system_prompt] — MR-HIGH-002 fix: when present,
+ *   the system prompt is forwarded to heavy_think as a separate role
+ *   instead of being concatenated into the user message. This is the
+ *   architectural fix for the prompt-injection structural ambiguity.
+ *   If absent, derived from `task_type` via TASK_GUIDANCE (preserves the
+ *   legacy behavior of having system guidance in the prompt at all).
  */
-export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir, pluginConfig }) {
+export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir, pluginConfig, system_prompt }) {
   // MR-HIGH-001 / MR-HIGH-002: Input-side prompt-injection defense.
-  // The user-supplied `problem` is forwarded to the model with no
-  // message-role separation at the heavy-think boundary. As a partial
-  // defense, reject problem strings that contain well-known injection
-  // patterns before they reach the model. This is a coarse rule-based
-  // filter; full system-prompt isolation requires heavy-think-side
-  // changes (tracked separately).
+  // The user-supplied `problem` is forwarded to the model. With MR-HIGH-002
+  // fixed architecturally (system-prompt isolation), the rule-based filter
+  // here is defense-in-depth: a belt-and-suspenders measure for attacks
+  // that try to alter `problem` itself (rather than impersonate the system).
   if (typeof problem === 'string' && detectPromptInjection(problem)) {
     const err = new Error('problem rejected by injection filter');
     err.code = 'invalid_input';
@@ -98,6 +102,13 @@ export async function coordinate({ problem, task_type, context, K, client, sessi
     taskType: task_type || 'standard',
   });
 
+  // MR-HIGH-002 fix: derive system_prompt from task_type if caller didn't
+  // provide one. This ensures the heavy-think-side receives an explicit
+  // system_prompt and uses { system, user } isolation — without changing
+  // the behavior for legacy callers (same wording, just architecturally
+  // separated from the user input).
+  const effectiveSystemPrompt = system_prompt || TASK_GUIDANCE[task_type || 'standard'] || TASK_GUIDANCE.standard;
+
   return await awareHeavyThink({
     problem,
     task_type: task_type || 'standard',
@@ -107,6 +118,7 @@ export async function coordinate({ problem, task_type, context, K, client, sessi
     pairsDir: pairsDir || config.coordinator.pairsDir,
     pluginConfig: pcValidation.value,
     pluginConfigValidation: pcValidation,
+    system_prompt: effectiveSystemPrompt,
   });
 }
 
@@ -135,6 +147,19 @@ function detectPromptInjection(text) {
   }
   return false;
 }
+
+// MR-HIGH-002 fix: TASK_GUIDANCE mirrors the same map in
+// heavy-think/src/parallel.js. AWARE uses this to derive system_prompt
+// from task_type when the caller doesn't pass one explicitly. The wording
+// MUST stay in sync with heavy-think's map; if you change one, change the
+// other. Tested by test/unit/coordinator/system-prompt-isolation.test.js.
+export const TASK_GUIDANCE = {
+  simple: 'You are a careful, concise problem-solver. Aim for the most direct correct answer.',
+  standard: 'You are a thorough, careful problem-solver. Consider multiple angles. Show your reasoning.',
+  security: 'You are a security-focused expert. Identify threats, attack vectors, and mitigations. Be exhaustive.',
+  financial: 'You are a financial/audit expert. Show calculations, cite constraints, flag risks explicitly.',
+  creative: 'You are a creative thinker. Explore non-obvious approaches. Prefer novel solutions to conventional ones.',
+};
 
 /**
  * Build the default AWARE 2.0 model router.
