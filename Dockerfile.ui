@@ -1,5 +1,7 @@
 # Use the official Node.js runtime as the base image for building
-FROM node:18-alpine AS builder
+# SC-MOD-008 (security audit 2026-06-25): standardized on
+# node:22-alpine to match Dockerfile.coordinator + Dockerfile.gateway.
+FROM node:22-alpine AS builder
 
 # Set the working directory in the container
 WORKDIR /app

@@ -8,6 +8,21 @@ import { startServer } from '../../../src/coordinator/http-server.js';
 import { COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from '../../../src/coordinator/index.js';
 import { _setPoolForTest as _setBudgetPoolForTest } from '../../../src/budget/watchdog.js';
 
+// SC-CRITICAL-002: the coordinator
+// /coordinate endpoint now requires Authorization: Bearer <token> unless
+// AWARE_COORDINATOR_AUTH_DISABLED=*** set. The existing test suite asserts
+// the legacy no-auth behavior end-to-end (29 fetch calls to /coordinate +
+// /budget/status). To keep those tests green without rewriting the entire
+// suite, we opt out at the file scope. The dedicated auth tests further
+// down (test/auth.test.js in the same dir, added with this fix) verify
+// the gate works for the positive + negative paths.
+test.before(() => {
+  process.env.AWARE_COORDINATOR_AUTH_DISABLED = '1';
+});
+test.after(() => {
+  delete process.env.AWARE_COORDINATOR_AUTH_DISABLED;
+});
+
 // Helper: build a stub router with controllable backends.
 // Returns a router whose health() matches the real ModelRouter's contract:
 //   { mode, ok, at, clients: { [name]: { ok, cached, at } } }
@@ -588,13 +603,36 @@ test('Phase 2.3 + T2: per-request cost cap fires when watchdog is soft', async (
 
 test('every response carries an x-request-id header that matches body.request_id', async () => {
   await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
-    const customId = 'test-req-' + Date.now();
+    // SC-HIGH-002: only UUID v4 inbound headers are echoed; arbitrary
+    // strings (the previous `'test-req-' + Date.now()` pattern) are
+    // replaced with a freshly-generated UUID.
+    const customId = '12345678-1234-4234-8234-1234567890ab';
     const res = await fetch(`http://${h.host}:${h.port}/version`, {
       headers: { 'x-request-id': customId },
     });
     assert.equal(res.headers.get('x-request-id'), customId);
     const body = await res.json();
     assert.equal(body.request_id, customId);
+  });
+});
+
+test('coordinator replaces non-UUID x-request-id with a fresh UUID (SC-HIGH-002)', async () => {
+  await withServer({ port: 0, router: stubRouter([{ name: 'minimax', healthy: true }]) }, async (h) => {
+    // Non-UUID strings must be replaced with a fresh UUID, regardless
+    // of content. Covers the log-poisoning attack class where a
+    // malicious upstream injects arbitrary content into the
+    // x-request-id header that would then land in
+    // aware_conversations.request_id and log lines.
+    const malicious = 'test-req-evil [FAKE] admin action';
+    const res = await fetch(`http://${h.host}:${h.port}/version`, {
+      headers: { 'x-request-id': malicious },
+    });
+    const echoed = res.headers.get('x-request-id');
+    const body = await res.json();
+    assert.notEqual(echoed, malicious, 'malicious header must not be echoed');
+    assert.notEqual(body.request_id, malicious, 'malicious id must not be in body');
+    assert.match(echoed, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.equal(echoed, body.request_id, 'header and body.request_id must match');
   });
 });
 

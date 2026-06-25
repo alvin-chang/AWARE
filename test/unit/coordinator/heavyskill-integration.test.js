@@ -41,6 +41,45 @@ test('awareHeavyThink wraps heavy_think and returns ok:true on success', async (
   assert.equal(result.ok, true);
   assert.ok(result.refined_trace);
   assert.equal(result.attempts.length, 2);
+  // HO-HIGH-001: autonomy_level is surfaced alongside confidence.
+  // The default mockClient returns confidence=0.9 (refine), so we
+  // expect L3_autonomous.
+  assert.equal(result.confidence, 0.9);
+  assert.equal(result.autonomy_level, 'L3_autonomous');
+});
+
+test('awareHeavyThink maps confidence → autonomy_level across L1/L2/L3 (HO-HIGH-001)', async () => {
+  // Helper that returns a client whose refine-phase confidence we control.
+  const makeClient = (refineConf, prmConf) => ({
+    async generate(prompt, opts = {}) {
+      if (opts.phase === 'prm_score') {
+        return { reasoning: JSON.stringify({ score: 7, strengths: [], weaknesses: [], confidence: prmConf }) };
+      }
+      if (opts.phase === 'refine') {
+        return { reasoning: 'refined output', confidence: refineConf };
+      }
+      return { reasoning: `attempt ${opts.attempt_index}: solving` };
+    },
+    calls: [],
+  });
+
+  // L1: confidence < 0.6 → human must review
+  const r1 = await awareHeavyThink({
+    problem: 'p', K: 1, client: makeClient(0.4, 0.5), writePairs: false,
+  });
+  assert.equal(r1.autonomy_level, 'L1_suggest');
+
+  // L2: 0.6 ≤ c < 0.85 → auto-apply with audit log
+  const r2 = await awareHeavyThink({
+    problem: 'p', K: 1, client: makeClient(0.75, 0.7), writePairs: false,
+  });
+  assert.equal(r2.autonomy_level, 'L2_assist');
+
+  // L3: c ≥ 0.85 → autonomous
+  const r3 = await awareHeavyThink({
+    problem: 'p', K: 1, client: makeClient(0.95, 0.9), writePairs: false,
+  });
+  assert.equal(r3.autonomy_level, 'L3_autonomous');
 });
 
 test('awareHeavyThink returns error envelope on failure', async () => {

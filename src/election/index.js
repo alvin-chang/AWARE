@@ -3,6 +3,7 @@
 
 // C-03 FIX: Static registry for simulation — maps nodeId -> ElectionManager instance
 // In real Raft, this would be RPC calls. For simulation, nodes call each other directly.
+const crypto = require('crypto');
 ElectionManager.registry = {};
 
 class ElectionManager {
@@ -40,7 +41,7 @@ class ElectionManager {
     }
     
     // Random timeout between 300-600ms for testing, normally 150-300ms
-    const timeout = Math.floor(Math.random() * 300) + 300;
+    const timeout = Math.floor(crypto.randomInt(0, 300)) + 300;
     
     this.electionTimeout = setTimeout(() => {
       if (this.state !== 'leader') {
@@ -115,7 +116,7 @@ class ElectionManager {
           console.error(`[RPC] Error requesting vote from ${nodeId}:`, err.message);
           callback(false);
         });
-    }, Math.random() * 100); // Random network delay
+    }, crypto.randomInt(0, 100)); // Random network delay (SC-HIGH-005)
   }
 
   // Become the leader

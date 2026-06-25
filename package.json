@@ -4,7 +4,7 @@
   "description": "AWARE - Autonomous Compliance Infrastructure for AI Agents",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node src/api/index.js",
     "dev": "nodemon src/index.js",
     "init-users": "node scripts/init-users.js",
     "seed:dev:users": "node scripts/seed-dev-users.js",
@@ -57,6 +57,6 @@
     "supertest": "^6.3.3"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=22.0.0"
   }
 }

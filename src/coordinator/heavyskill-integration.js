@@ -66,10 +66,26 @@ export async function awareHeavyThink(options) {
     // the trainer's _fetchUnconsumedPairPaths returns 0 rows because the
     // WHERE clause pair_path IS NOT NULL filters them all out. Phase 2.4
     // data flywheel unblock.
+    // HO-HIGH-001 (security audit 2026-06-25): surface an
+    // autonomy_level alongside confidence so callers can act on a
+    // discrete tier instead of re-interpreting a float. Mapping per
+    // APTS Foundation §HO-017 (Surfaces confidence levels) and §RP-004:
+    //   - L1 (suggest):  confidence < 0.6   → human must review
+    //   - L2 (assist):   0.6 ≤ c < 0.85    → auto-apply with audit log
+    //   - L3 (autonomous): c ≥ 0.85        → auto-apply
+    const confidence = typeof result.confidence === 'number'
+      ? result.confidence
+      : null;
+    const autonomy_level = confidence == null
+      ? null
+      : confidence < 0.6 ? 'L1_suggest'
+      : confidence < 0.85 ? 'L2_assist'
+      : 'L3_autonomous';
     const envelope = {
       ok: true,
       ...result,
       pair_path: result.pair_path || pairPath || null,
+      autonomy_level,
     };
     // Echo the validated pluginConfig + validation result in the
     // envelope. The HTTP layer can read these for audit logging and

@@ -3,6 +3,7 @@
 // ADR-016: Compliance Mapping & Reporting
 
 const EventEmitter = require('events');
+const crypto = require('crypto');
 
 /**
  * Gap Status
@@ -31,7 +32,7 @@ class GapTracker extends EventEmitter {
    * @returns {string} gapId
    */
   createGap(gapData) {
-    const id = gapData.id || `gap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const id = gapData.id || `gap-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
 
     const gap = {
       id,

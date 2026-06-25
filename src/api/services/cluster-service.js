@@ -1,4 +1,5 @@
 // src/api/services/cluster-service.js
+const crypto = require('crypto');
 class ClusterService {
   constructor(config = {}) {
     this.clusterState = {
@@ -32,7 +33,7 @@ class ClusterService {
 
     this.clusterState = {
       ...this.clusterState,
-      clusterId: `cluster-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      clusterId: `cluster-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`,
       name: name,
       status: 'initializing',
       configuration: {
@@ -139,7 +140,7 @@ class ClusterService {
     const sum = nodes.reduce((acc, node) => {
       // In a real system, each node would report metrics
       // For now, return a random value
-      return acc + Math.random() * 100;
+      return acc + crypto.randomInt(0, 100);
     }, 0);
 
     return sum / nodes.length;
@@ -149,7 +150,7 @@ class ClusterService {
   calculateMax(nodes, metric) {
     if (nodes.length === 0) return 0;
 
-    return Math.max(...nodes.map(node => Math.random() * 100));
+    return Math.max(...nodes.map(node => crypto.randomInt(0, 100)));
   }
 
   // Scale cluster up by adding nodes
