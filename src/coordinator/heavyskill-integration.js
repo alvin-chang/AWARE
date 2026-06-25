@@ -9,14 +9,60 @@
 
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import {
-  heavy_think as heavyThink,
-  defaultKForTaskType,
-  K_CONFIGS,
-} from '../../../heavy-think/src/index.js';
 import * as prmCache from '../db/prm-cache.js';
+import config from '../config/index.cjs';
 
 const DEFAULT_PAIRS_DIR = join(homedir(), '.<runtime>', 'metaclaw', 'preference-pairs');
+
+// Lazy-load heavy-think from `config.heavyThink.path`. The previous static
+// import `'../../../heavy-think/src/index.js'` resolved to `/heavy-think/...`
+// in the Docker image (where `WORKDIR=/app`), but the actual location baked
+// by Dockerfile.coordinator is `/app/heavy-think/`. The static path ignored
+// `AWARE_HEAVY_THINK_PATH` and caused the coordinator to crash-loop on
+// import-time `ERR_MODULE_NOT_FOUND`. Resolving via `config.heavyThink.path`
+// honors the env override.
+//
+// We avoid top-level `await import()` because `heavyskill-integration.js`
+// is transitively `require()`d from CJS code paths (rate-limit.test.js
+// pulls in http-server.js → coordinator/index.js → this file), and
+// top-level await turns the module into an "async module" that `require()`
+// rejects with ERR_REQUIRE_ASYNC_MODULE. Instead we resolve heavy-think
+// once on the first call to `awareHeavyThink` and cache the result.
+let _heavyThinkMod = null;
+let _heavyThinkLoadError = null;
+let _heavyThinkLoadPromise = null;
+async function loadHeavyThink() {
+  if (_heavyThinkMod) return _heavyThinkMod;
+  if (_heavyThinkLoadError) throw _heavyThinkLoadError;
+  if (_heavyThinkLoadPromise) return _heavyThinkLoadPromise;
+  _heavyThinkLoadPromise = import(config.heavyThink.path)
+    .then((mod) => {
+      if (typeof mod.heavy_think !== 'function') {
+        throw new Error(
+          `heavy_think not exported from ${config.heavyThink.path} — ` +
+          `check that AWARE_HEAVY_THINK_PATH points at a heavy-think build >= v0.2.x`
+        );
+      }
+      _heavyThinkMod = mod;
+      return mod;
+    })
+    .catch((err) => {
+      _heavyThinkLoadError = err;
+      _heavyThinkLoadPromise = null; // allow retry on next call
+      throw err;
+    });
+  return _heavyThinkLoadPromise;
+}
+
+// Test seam: lets unit tests force the heavy-think loader to a fresh state
+// after they've swapped `process.env.AWARE_HEAVY_THINK_PATH` or mocked the
+// `import` builtin. Not exported on the public surface — see
+// test/unit/coordinator/heavyskill-integration.test.js for usage.
+export function __resetHeavyThinkForTest() {
+  _heavyThinkMod = null;
+  _heavyThinkLoadError = null;
+  _heavyThinkLoadPromise = null;
+}
 
 /**
  * AWARE coordinator wrapper around heavy_think.
@@ -60,6 +106,7 @@ export async function awareHeavyThink(options) {
     // underlying reasoning + refinement + PRM scoring build { system, user }
     // message shapes. The system prompt is forwarded as-is; heavy_think is
     // responsible for routing it to the right pipeline stages.
+    const { heavy_think: heavyThink } = await loadHeavyThink();
     const result = await heavyThink({
       ...options,
       preferencePairPath: pairPath,
@@ -134,4 +181,7 @@ function classifyError(err) {
 }
 
 export { DEFAULT_PAIRS_DIR, buildPairPath, classifyError };
-export { defaultKForTaskType, K_CONFIGS };
+// (defaultKForTaskType and K_CONFIGS were previously re-exported here but
+// no consumer imports them from this module — `plugin-config.js` is the
+// canonical source for both. Removed in v2.5.4 along with the static
+// heavy-think import.)

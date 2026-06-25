@@ -18,7 +18,7 @@
 // T3 fallback lives in the router. T1 retry is handled by heavy-think itself.
 
 import http from 'node:http';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { coordinate, buildDefaultRouter, COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from './index.js';
 import config from '../config/index.cjs';
 import { logConversationFireAndForget } from '../db/logger.js';
@@ -181,8 +181,11 @@ function _rateLimitKey(req) {
     const tok = auth.slice(7).trim();
     if (tok.length > 0) {
       // Stable, collision-resistant key without exposing the raw token.
-      const crypto = require('node:crypto');
-      return 'tok:' + crypto.createHash('sha256').update(tok).digest('hex').slice(0, 16);
+      // v2.5.4: use the imported createHash (ESM), not require() (CJS).
+      // The previous require() worked under CJS-loaded http-server.js but
+      // the runtime is ESM (package.json type=module), so require is
+      // undefined and the call path crashed when auth was enabled.
+      return 'tok:' + createHash('sha256').update(tok).digest('hex').slice(0, 16);
     }
   }
   // Fall back to client IP.

@@ -163,15 +163,18 @@ services:
     image: aware-coordinator:0.4.5-phase4-heavy-think-from-internal-git
     container_name: aware-2-coordinator
     ports:
-      - "18081:8080"
+      - "38181:8080"
     environment:
-      # SC-CRITICAL-007: bind coordinator to 127.0.0.1 inside the container.
-      # The 18081:8080 port mapping above exposes 8080 on the host; with
-      # 127.0.0.1 binding the coordinator still accepts connections from
-      # other containers on the aware-2 network but is NOT reachable from
-      # host processes that aren't on the published port's path. Operators
-      # who intentionally want raw host access should override via env.
-      - COORDINATOR_HOST=${COORDINATOR_HOST:-127.0.0.1}
+      # SC-CRITICAL-007: bind coordinator to 0.0.0.0 inside the container.
+      # The 38181:8080 port mapping above exposes 8080 on the host; with
+      # 0.0.0.0 binding the docker-proxy can DNAT host:38181 traffic to
+      # container:8080 (the previous 127.0.0.1 binding broke host access
+      # because docker-proxy connects via the container bridge IP, not
+      # loopback). Only the published port path reaches the coordinator
+      # from outside the docker network. Operators who want to harden
+      # further can drop the ports: mapping and rely on sibling-container
+      # network access only.
+      - COORDINATOR_HOST=${COORDINATOR_HOST:-0.0.0.0}
       - COORDINATOR_PORT=8080
       # 2026-06-23: AWARE_MODE=online (was hybrid). Ollama sidecar
       # removed; coordinator now runs on MiniMax only. See ADR-020
