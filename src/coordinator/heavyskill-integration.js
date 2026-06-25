@@ -56,6 +56,10 @@ export async function awareHeavyThink(options) {
     : null;
 
   try {
+    // MR-HIGH-002 fix: forward system_prompt through to heavy_think so the
+    // underlying reasoning + refinement + PRM scoring build { system, user }
+    // message shapes. The system prompt is forwarded as-is; heavy_think is
+    // responsible for routing it to the right pipeline stages.
     const result = await heavyThink({
       ...options,
       preferencePairPath: pairPath,
