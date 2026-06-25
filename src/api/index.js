@@ -11,6 +11,9 @@ const resourcesRouter = require('./routes/resources');
 const agentsRouter = require('./routes/agents');
 const policiesRouter = require('./routes/policies');
 const metricsRouter = require('./routes/metrics');
+// SC-MOD-015: previously-orphaned routes — see mounting block below.
+const complianceRouter = require('./routes/compliance');
+const toolsRouter = require('./routes/tools');
 const { authenticateToken, authLimiter } = require('./middleware/auth');
 const ClusterService = require('./services/cluster-service');
 
@@ -221,9 +224,62 @@ class APIGateway {
     this.app.use('/api/agents', agentsRouter);
     this.app.use('/api/policies', policiesRouter);
     this.app.use('/api/metrics', metricsRouter);
-    
+
     // Phase 1.4: Kill Switch routes
     this.app.use('/api/kill-switch', killSwitchRouter);
+
+    // SC-MOD-015: Mount the previously-orphaned route files. Two of the
+    // five (compliance.js, tools.js) export Express routers directly
+    // and mount as-is. The other three (identity-v2.js, audit.js,
+    // hot-reload-policies.js) export collections of route handlers
+    // and need a small adapter — see src/api/routes/identity-v2.js,
+    // audit.js, hot-reload-policies.js for the adapter wrappers.
+    this.app.use('/api/compliance', complianceRouter);
+    this.app.use('/api/tools', toolsRouter);
+
+    // SC-MOD-015: lazy-require identity-v2 because its module-load
+    // chain (auth.js + Agent.js) calls process.exit(1) if SECRET_KEY
+    // is missing or <32 chars. Defer to first request so the gateway
+    // can boot with config.secretKey but still surface clear errors
+    // if the env validation fails at runtime.
+    this.app.use('/api/identity-v2', (req, res, next) => {
+      if (!this._identityV2Router) {
+        try {
+          const { router } = require('./routes/identity-v2');
+          this._identityV2Router = router;
+        } catch (err) {
+          return res.status(503).json({
+            success: false,
+            error: 'identity-v2 routes unavailable: ' + err.message,
+          });
+        }
+      }
+      this._identityV2Router(req, res, next);
+    });
+
+    // SC-MOD-015: audit.js exports 5 route handlers (not a router).
+    // Wrap them in a router with the canonical /api/audit paths
+    // matching the inline comments in src/api/routes/audit.js.
+    const auditHandlers = require('./routes/audit');
+    const auditAdapter = require('express').Router();
+    auditAdapter.post('/log', auditHandlers.logDecisionRoute);
+    auditAdapter.get('/chain/:decisionId', auditHandlers.getChainRoute);
+    auditAdapter.get('/verify', auditHandlers.verifyChainRoute);
+    auditAdapter.get('/export', auditHandlers.exportChainRoute);
+    auditAdapter.get('/records/:decisionId', auditHandlers.getRecordRoute);
+    this.app.use('/api/audit', auditAdapter);
+
+    // SC-MOD-015: hot-reload-policies.js exports 6 route handlers.
+    // Wrap them with canonical /api/policies/* paths.
+    const policyHandlers = require('./routes/hot-reload-policies');
+    const policyAdapter = require('express').Router();
+    policyAdapter.post('/validate', policyHandlers.validatePolicyRoute);
+    policyAdapter.put('/:policyId', policyHandlers.updatePolicyRoute);
+    policyAdapter.get('/', policyHandlers.listPoliciesRoute);
+    policyAdapter.get('/:policyId', policyHandlers.getPolicyRoute);
+    policyAdapter.post('/:policyId/reload', policyHandlers.reloadPolicyRoute);
+    policyAdapter.get('/:policyId/history', policyHandlers.getPolicyHistoryRoute);
+    this.app.use('/api/policies/hot', policyAdapter);
 
     // Catch-all for undefined routes
     this.app.use('*', (req, res) => {

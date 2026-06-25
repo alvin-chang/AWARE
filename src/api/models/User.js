@@ -19,6 +19,34 @@ if (!fs.existsSync(USERS_DATA_FILE)) {
   fs.writeFileSync(USERS_DATA_FILE, JSON.stringify({ users: [] }, null, 2));
 }
 
+// SC-CRITICAL-005: boot-time
+// check. A1 deleted src/data/users.json from the public repo, so a
+// fresh deployment has no users and /login fails. We auto-create
+// { users: [] } on first read above; this guard refuses to serve
+// auth in production when the file is empty (no provisioned users
+// = no real admin = locked out by design, not by accident).
+if (process.env.NODE_ENV === 'production') {
+  try {
+    const _usersData = JSON.parse(fs.readFileSync(USERS_DATA_FILE, 'utf8'));
+    if (!_usersData.users || _usersData.users.length === 0) {
+      throw new Error(
+        'User model: users.json is empty in NODE_ENV=production. ' +
+        'SC-CRITICAL-005. ' +
+        'Provision users via a real flow before starting the API. ' +
+        'See docs/adr/ADR-042.'
+      );
+    }
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      throw new Error(
+        'User model: users.json does not exist in NODE_ENV=production. ' +
+        'SC-CRITICAL-005.'
+      );
+    }
+    throw e;
+  }
+}
+
 class User {
   constructor(userData) {
     this.id = userData.id || crypto.randomUUID();
@@ -33,8 +61,12 @@ class User {
   }
 
   // Hash a password with salt
+  // SC-HIGH-006: bumped iterations 10k -> 100k to match Agent.js and OWASP 2023
+  // PBKDF2-SHA256 baseline. Note: 600k is OWASP-2023 for SHA256; for SHA512 the
+  // per-iteration cost is higher so 100k is comparable. See Agent.js for the
+  // canonical credential-hash configuration.
   static hashPassword(password, salt) {
-    return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
   }
 
   // Generate a random salt

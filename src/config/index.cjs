@@ -86,11 +86,11 @@ function redact(name, value) {
 
 function defaultHeavyThinkPath() {
   // src/config/index.js → ../../../heavy-think/src/index.js
-  // The AWARE repo lives at /Users/alfie/src/AWARE/ and heavy-think is
-  // a sibling at /Users/alfie/src/heavy-think/. From this file:
+  // The AWARE repo lives at [REDACTED-PATH] and heavy-think is
+  // a sibling at [REDACTED-PATH] From this file:
   //   src/config/index.js → ../  → src
   //                          ../../  → AWARE repo root
-  //                          ../../../  → /Users/alfie/src (parent of both repos)
+  //                          ../../../  → [REDACTED-PATH] (parent of both repos)
   //                          ../../../heavy-think/src/index.js
   // __filename is the CJS path to this file.
   const here = path.dirname(__filename);
@@ -129,6 +129,23 @@ const config = {
     // path the compose file mounts the host dir to, so that a host bind
     // mount to a non-image-baked path can be used without shadowing.
     get pairsDir() { return str('AWARE_PAIRS_DIR', path.join(os.homedir(), '.<runtime>', 'metaclaw', 'preference-pairs')); },
+    // SC-CRITICAL-002: Bearer token
+    // required for /coordinate + /budget/status. Fails-closed at boot
+    // when NODE_ENV=production if unset or shorter than 32 chars.
+    // Test runs opt out by setting AWARE_COORDINATOR_AUTH_DISABLED=1
+    // (the test bootstrap does this in test/unit/coordinator/http-server.test.js).
+    // Reads AWARE_COORDINATOR_TOKEN; falls through to undefined if unset
+    // so validate() can decide based on NODE_ENV.
+    get authToken() { return str('AWARE_COORDINATOR_TOKEN', undefined); },
+    // SC-MOD-001: per-principal rate limiting on /coordinate.
+    // Token bucket with sliding window — keeps an in-memory record of
+    // recent request timestamps keyed by token (or by client IP when
+    // auth is disabled). Defaults: 60 requests / 60s per principal.
+    // Operators tune via env vars. Tests can opt out via
+    // AWARE_COORDINATOR_RATE_LIMIT_DISABLED=1.
+    get rateLimitMax() { return num('AWARE_COORDINATOR_RATE_LIMIT_MAX', 60, { min: 1, max: 100_000 }); },
+    get rateLimitWindowMs() { return num('AWARE_COORDINATOR_RATE_LIMIT_WINDOW_MS', 60_000, { min: 1_000, max: 3_600_000 }); },
+    get rateLimitDisabled() { return bool('AWARE_COORDINATOR_RATE_LIMIT_DISABLED', false); },
   },
 
   // Gateway HTTP service
@@ -274,12 +291,31 @@ config.validate = function validate() {
       `Config: GATEWAY_PORT (${config.gateway.port}) must differ from COORDINATOR_PORT (${config.coordinator.port})`
     );
   }
+  // SC-CRITICAL-002: the coordinator
+  // binds 127.0.0.1 by default (localhost-only) but is reachable through
+  // the gateway which binds 0.0.0.0. With no auth on /coordinate, anyone
+  // reaching the gateway could drive MiniMax API costs and inject prompts.
+  // Fail-closed at boot when running in production: AWARE_COORDINATOR_TOKEN
+  // must be set and at least 32 chars. Tests opt out by setting
+  // AWARE_COORDINATOR_AUTH_DISABLED=1 (the coordinator http-server.js
+  // module-level check skips the env-read in that case).
+  const authDisabled = (process.env.AWARE_COORDINATOR_AUTH_DISABLED === '1');
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd && !authDisabled) {
+    const tok = config.coordinator.authToken;
+    if (!tok || typeof tok !== 'string' || tok.length < 32) {
+      throw new Error(
+        'Config: AWARE_COORDINATOR_TOKEN is required and must be ≥32 chars when NODE_ENV=production (SC-CRITICAL-002; 2026-06-25 audit). Set it in the env_file / compose service env, or run with NODE_ENV≠production (development only).'
+      );
+    }
+  }
   // Force-evaluate all lazy accessors so a bad value fails at validate(),
   // not at first request.
   void config.coordinator.requestTimeoutMs;
   void config.coordinator.requestCostCapUsd;
   void config.coordinator.loraReloaderPollIntervalMs;
   void config.coordinator.loraReloaderTimeoutMs;
+  void config.coordinator.authToken;
   void config.gateway.proxyTimeoutMs;
   void config.budget.windowDays;
   void config.budget.softLimitUsd;
@@ -323,6 +359,10 @@ config.snapshot = function snapshot() {
       loraReloaderTimeoutMs: c.coordinator.loraReloaderTimeoutMs,
       loraReloaderModelName: c.coordinator.loraReloaderModelName,
       pairsDir: c.coordinator.pairsDir,
+      // SC-CRITICAL-002: redacted in
+      // snapshot — only show presence + length, never the value.
+      authTokenSet: Boolean(c.coordinator.authToken),
+      authTokenLength: c.coordinator.authToken ? c.coordinator.authToken.length : 0,
     },
     gateway: {
       port: c.gateway.port,

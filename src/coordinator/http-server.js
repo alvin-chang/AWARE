@@ -18,7 +18,7 @@
 // T3 fallback lives in the router. T1 retry is handled by heavy-think itself.
 
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { coordinate, buildDefaultRouter, COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from './index.js';
 import config from '../config/index.cjs';
 import { logConversationFireAndForget } from '../db/logger.js';
@@ -27,6 +27,56 @@ import { checkBudget, getBudgetStatus, isEnabled as isBudgetEnabled } from '../b
 import { makeLoraReloader } from './lora-reloader.js';
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
+
+// SC-CRITICAL-002: Bearer-token auth
+// on /coordinate + /budget/status. The coordinator binds 127.0.0.1 by
+// default but is reachable through the gateway (which binds 0.0.0.0).
+// Without auth, anyone reaching the gateway could drive MiniMax API
+// costs + inject prompts + read budget status.
+//
+// Auth-disabled opt-out is for tests + development only. config.validate()
+// already enforces the token in NODE_ENV=production. The runtime check
+// here also short-circuits when AWARE_COORDINATOR_AUTH_DISABLED=*** is set.
+//
+// IMPORTANT: lazy getter (not const) because Node caches ESM module
+// top-level — a const capture would be pinned to whatever the env was at
+// first import. Tests need to flip this between calls without re-importing.
+function isAuthDisabled() {
+  return (process.env.AWARE_COORDINATOR_AUTH_DISABLED === '1');
+}
+
+// Public routes that don't need auth (liveness probes must work for
+// orchestrators / load balancers).
+const PUBLIC_ROUTES = new Set(['GET /health', 'GET /version']);
+
+// Constant-time token compare. Returns true iff the request carries
+// Authorization: Bearer <expected> matching config.coordinator.authToken.
+// Returns false on every other shape (no header, wrong scheme, wrong token).
+function isAuthorizedCoordinatorRequest(req) {
+  if (isAuthDisabled()) return true;
+  const expected = config.coordinator.authToken;
+  if (!expected || typeof expected !== 'string') return false;
+  const header = req.headers['authorization'];
+  if (!header || typeof header !== 'string') return false;
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m) return false;
+  const presented = m[1];
+  // timingSafeEqual requires equal-length buffers; pad to expected.length
+  // so a wrong-length token takes the same time as a right-length one.
+  const a = Buffer.from(presented.padEnd(expected.length, '\0'), 'utf8');
+  const b = Buffer.from(expected.padEnd(presented.length, '\0'), 'utf8');
+  // Length-equalize by comparing against the expected-length form of `presented`
+  // and the expected-length form of `expected`. If lengths differ, fall
+  // through to a length check + still do a constant-time-ish compare.
+  if (presented.length !== expected.length) {
+    // Force the same number of compares either way to avoid leaking length
+    // via early-return timing.
+    const pad = Buffer.alloc(Math.max(presented.length, expected.length));
+    timingSafeEqual(pad, pad);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
 
 // T0-T4 limits live in the centralized config module (src/config/index.js).
 // Lazy getters re-read env on each access so toggling AWARE_KILL_SWITCH
@@ -51,6 +101,107 @@ if (config.db.enabled) {
 
 function isKilled() {
   return config.coordinator.killSwitch;
+}
+
+// UUID v4 canonical form: 8-4-4-4-12 hex chars, version nibble = 4,
+// variant nibble = 8/9/a/b. Accepting only UUID v4 from client-supplied
+// x-request-id headers means attackers cannot smuggle newlines, escape
+// codes, or terminal-control bytes through the log-correlation channel.
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuidV4(s) {
+  return typeof s === 'string' && UUID_V4_RE.test(s);
+}
+
+// SC-MOD-001 (security audit 2026-06-25): per-principal
+// sliding-window rate limiting on /coordinate. Keyed by the
+// authenticated token (a SHA-256 hex of the token bytes, not the raw
+// token, so logs stay safe) when auth is enabled; falls back to the
+// client IP when auth is disabled (test/local-dev). In-memory store
+// is bounded: at most MAX_BUCKETS principals tracked, oldest entries
+// are evicted on overflow so an attacker can't blow up memory by
+// spraying unique tokens.
+const RATE_LIMIT_MAX_BUCKETS = 10_000;
+const _rateLimitBuckets = new Map(); // key → array of timestamps (ms)
+
+function _rateLimitPrune() {
+  // Evict oldest entries if we're over the cap. O(N) walk but only
+  // triggered on overflow, and 10k entries is cheap.
+  if (_rateLimitBuckets.size <= RATE_LIMIT_MAX_BUCKETS) return;
+  const overflow = _rateLimitBuckets.size - RATE_LIMIT_MAX_BUCKETS;
+  const keys = _rateLimitBuckets.keys();
+  for (let i = 0; i < overflow; i++) {
+    const k = keys.next().value;
+    if (k === undefined) break;
+    _rateLimitBuckets.delete(k);
+  }
+}
+
+function _rateLimitKey(req) {
+  // Prefer token fingerprint when auth is enabled. We hash the raw
+  // bearer token (if present and valid) to avoid storing the raw
+  // secret in process memory any longer than necessary.
+  const auth = req.headers['authorization'];
+  if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+    const tok = auth.slice(7).trim();
+    if (tok.length > 0) {
+      // Stable, collision-resistant key without exposing the raw token.
+      const crypto = require('node:crypto');
+      return 'tok:' + crypto.createHash('sha256').update(tok).digest('hex').slice(0, 16);
+    }
+  }
+  // Fall back to client IP.
+  const ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+  return 'ip:' + ip;
+}
+
+/**
+ * SC-MOD-001 rate-limit check. Returns { allowed, remaining, resetMs }
+ * where:
+ *   - allowed: true if this request fits inside the window
+ *   - remaining: number of requests left in the current window
+ *   - resetMs: ms until the oldest timestamp in the window expires
+ * The bucket is updated (oldest expiry shifted) on every call so the
+ * sliding-window behavior is correct.
+ */
+function checkRateLimit(req) {
+  if (config.coordinator.rateLimitDisabled) {
+    return { allowed: true, remaining: Infinity, resetMs: 0 };
+  }
+  const max = config.coordinator.rateLimitMax;
+  const windowMs = config.coordinator.rateLimitWindowMs;
+  const key = _rateLimitKey(req);
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  let timestamps = _rateLimitBuckets.get(key) || [];
+  // Drop expired entries from the front of the list. The list is
+  // small (bounded by `max`) so this is O(max) worst case.
+  let drop = 0;
+  while (drop < timestamps.length && timestamps[drop] <= cutoff) drop++;
+  if (drop > 0) timestamps = timestamps.slice(drop);
+  if (timestamps.length >= max) {
+    _rateLimitBuckets.set(key, timestamps);
+    const oldest = timestamps[0];
+    return {
+      allowed: false,
+      remaining: 0,
+      resetMs: Math.max(0, oldest + windowMs - now),
+    };
+  }
+  timestamps.push(now);
+  _rateLimitBuckets.set(key, timestamps);
+  _rateLimitPrune();
+  const oldest = timestamps[0];
+  return {
+    allowed: true,
+    remaining: max - timestamps.length,
+    resetMs: Math.max(0, oldest + windowMs - now),
+  };
+}
+
+// Test-only helper: reset the rate-limit store between tests. Not
+// exported from the module's public surface.
+function _resetRateLimitBucketsForTests() {
+  _rateLimitBuckets.clear();
 }
 
 /**
@@ -118,10 +269,54 @@ export async function startServer(opts = {}) {
   const coordinateFn = opts.coordinateFn || coordinate;
 
   const server = http.createServer(async (req, res) => {
-    // Per-request id for log correlation
-    const requestId = req.headers['x-request-id'] || randomUUID();
+    // Per-request id for log correlation.
+    // SC-HIGH-002 (security audit 2026-06-25): accept client-supplied
+    // x-request-id ONLY if it parses as a UUID v4 — otherwise generate
+    // a fresh one. Prevents log poisoning via header injection (e.g.
+    // '\n[FAKE] admin action' landing in aware_conversations.request_id
+    // and structured log lines).
+    const headerId = req.headers['x-request-id'];
+    const requestId = isValidUuidV4(headerId) ? headerId : randomUUID();
     res.setHeader('x-request-id', requestId);
     try {
+      // SC-CRITICAL-002: auth gate.
+      // Public routes (/health, /version) skip the check so orchestrators
+      // can probe liveness. /coordinate + /budget/status require
+      // `Authorization: Bearer <AWARE_COORDINATOR_TOKEN>` matching
+      // config.coordinator.authToken (constant-time compare).
+      const routeKey = `${req.method} ${req.url}`;
+      if (!PUBLIC_ROUTES.has(routeKey) && !isAuthorizedCoordinatorRequest(req)) {
+        // Generic 401 — don't leak whether the token was malformed,
+        // missing, or wrong. Body shape matches the existing
+        // error envelope (request_id for log correlation).
+        return sendJson(res, 401, {
+          error: 'unauthorized',
+          kind: 'auth',
+          request_id: requestId,
+        });
+      }
+      // SC-MOD-001: rate limit /coordinate only (skip /health,
+      // /version, /budget/status — those are cheap liveness/introspection
+      // probes that orchestrators may poll). Keyed by token-fingerprint
+      // (auth on) or client IP (auth off, e.g. local-dev). Standard
+      // X-RateLimit-* headers surface the budget for callers that care.
+      if (req.method === 'POST' && req.url === '/coordinate') {
+        const rl = checkRateLimit(req);
+        res.setHeader('X-RateLimit-Limit', String(config.coordinator.rateLimitMax));
+        res.setHeader('X-RateLimit-Remaining', String(rl.remaining));
+        res.setHeader('X-RateLimit-Reset', String(Math.ceil(rl.resetMs / 1000)));
+        if (!rl.allowed) {
+          res.setHeader('Retry-After', String(Math.ceil(rl.resetMs / 1000)));
+          return sendJson(res, 429, {
+            error: 'rate limit exceeded',
+            kind: 'rate_limited',
+            limit: config.coordinator.rateLimitMax,
+            window_ms: config.coordinator.rateLimitWindowMs,
+            retry_after_ms: rl.resetMs,
+            request_id: requestId,
+          });
+        }
+      }
       // Routing
       if (req.method === 'GET' && req.url === '/health') {
         return handleHealth(req, res, router, requestId);

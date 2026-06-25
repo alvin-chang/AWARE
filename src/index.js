@@ -2,16 +2,28 @@
 const NodeDiscovery = require('./node-discovery');
 const ElectionManager = require('./election');
 const APIGateway = require('./api');
+const { resolveSecretKey } = require('./engine-secret.js');
 
 class AWAREEngine {
   constructor(config = {}) {
+    // SC-CRITICAL-001: SECRET_KEY must
+    // be supplied via config or env, and must be ≥32 chars. Mirrors the
+    // v2 fail-secure pattern (identity-provider-v2.js: "FATAL: ... requires
+    // config.secretKey. No default value allowed.") and the v1
+    // auth.js:6-12 pattern. The previous `|| 'default_secret'` fallback
+    // was a fail-open path: a fresh deployment with no env vars ran with
+    // a publicly-known signing key, allowing forged JWTs.
+    const suppliedSecret = resolveSecretKey({
+      configSecretKey: config.secretKey,
+      envSecretKey: process.env.SECRET_KEY,
+    });
     this.config = {
       nodeId: config.nodeId,
       discoveryPort: config.discoveryPort || 41234,
       broadcastPort: config.broadcastPort || 41235,
       apiPort: config.apiPort || process.env.API_PORT || 3000,
       nodes: config.nodes || [], // Other nodes in the cluster
-      secretKey: config.secretKey || process.env.SECRET_KEY || 'default_secret',
+      secretKey: suppliedSecret,
       ...config
     };
     
