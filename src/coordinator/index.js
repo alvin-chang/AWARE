@@ -68,6 +68,21 @@ function resolveHeavyThinkPath(opts = {}) {
  *   envelope for observability.
  */
 export async function coordinate({ problem, task_type, context, K, client, sessionId, agentId, pairsDir, pluginConfig }) {
+  // MR-HIGH-001 / MR-HIGH-002: Input-side prompt-injection defense.
+  // The user-supplied `problem` is forwarded to the model with no
+  // message-role separation at the heavy-think boundary. As a partial
+  // defense, reject problem strings that contain well-known injection
+  // patterns before they reach the model. This is a coarse rule-based
+  // filter; full system-prompt isolation requires heavy-think-side
+  // changes (tracked separately).
+  if (typeof problem === 'string' && detectPromptInjection(problem)) {
+    const err = new Error('problem rejected by injection filter');
+    err.code = 'invalid_input';
+    err.category = 'prompt_injection_suspected';
+    err.pattern = 'rule_based_v1';
+    throw err;
+  }
+
   // Validate the pluginConfig shape (silent on failure — we don't want
   // a misconfigured caller to break the coordinator's request path).
   // The validator returns { ok, value, errors? }; `value` is the
@@ -93,6 +108,32 @@ export async function coordinate({ problem, task_type, context, K, client, sessi
     pluginConfig: pcValidation.value,
     pluginConfigValidation: pcValidation,
   });
+}
+
+// MR-HIGH-001: rule-based prompt-injection detection. Conservative —
+// matches a small set of high-confidence patterns. False positives are
+// possible; the caller can inspect `category: 'prompt_injection_suspected'`
+// to decide whether to retry with sanitized input.
+const PROMPT_INJECTION_PATTERNS = [
+  /\bignore (?:all )?previous (?:instructions|prompts|rules)\b/i,
+  /\bdisregard (?:all )?(?:prior|previous|above) (?:instructions|prompts|rules)\b/i,
+  /\byou are now\b/i,
+  /\bforget everything\b/i,
+  /\bact as (?:a|an|the)\b/i,
+  /\bpretend (?:to be|you are)\b/i,
+  /\bjailbreak\b/i,
+  /\bDAN\b/,
+  /\bsystem\s*prompt\s*[:=]/i,
+  /<\|im_start\|>/i,
+  /<\|im_end\|>/i,
+];
+
+function detectPromptInjection(text) {
+  if (typeof text !== 'string' || text.length > 100_000) return false;
+  for (const re of PROMPT_INJECTION_PATTERNS) {
+    if (re.test(text)) return true;
+  }
+  return false;
 }
 
 /**
@@ -134,7 +175,7 @@ export async function buildDefaultRouter(opts = {}) {
     minimax = {
       name: 'minimax',
       generate: async () => {
-        throw new Error('minimax API client: <redacted-credential-name> is not set; cannot generate');
+        throw new Error('minimax API client: LLM_API_KEY is not set; cannot generate');
       },
     };
   }

@@ -14,8 +14,18 @@
 import { getPool } from './index.js';
 
 // ─── Truncation helpers ─────────────────────────────────────────────
+//
+// MAX_PROBLEM_CHARS lifted from 1000 to 100000 to match
+// src/coordinator/http-server.js's prompt accept cap. Prompts larger
+// than 100000 chars are rejected at the HTTP boundary, so storing the
+// full text in the audit log keeps the log faithful to the request
+// (closes SC-MOD-003: prompt storage asymmetry that could hide
+// prompt-injection payloads in the truncated tail).
+//
+// MAX_TRACE_CHARS kept at 8000 — reasoning traces are bounded by the
+// router/refiner and 8k is more than enough for typical outputs.
 
-const MAX_PROBLEM_CHARS = 1000;
+const MAX_PROBLEM_CHARS = 100000;
 const MAX_TRACE_CHARS = 8000;
 
 function truncate(text, max) {

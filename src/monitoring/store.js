@@ -3,6 +3,7 @@
 // Phase 1.3: Behavioural Baseline & Anomaly Detection
 
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'monitoring');
@@ -91,7 +92,7 @@ function storeMetric(metric) {
   const all = readJson(METRICS_FILE, { metrics: [] });
   all.metrics.push({
     ...metric,
-    id: `${metric.agentId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    id: `${metric.agentId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
   });
   
   // Keep only last 30 days of metrics
@@ -110,7 +111,7 @@ function storeMetrics(metrics) {
   const all = readJson(METRICS_FILE, { metrics: [] });
   const entries = metrics.map(m => ({
     ...m,
-    id: `${m.agentId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    id: `${m.agentId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
   }));
   all.metrics.push(...entries);
   
@@ -199,7 +200,7 @@ function storeAnomaly(anomaly) {
   const all = readJson(ANOMALIES_FILE, { anomalies: [] });
   all.anomalies.push({
     ...anomaly,
-    id: `anomaly-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    id: `anomaly-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
   });
   
   // Keep only last 90 days of anomalies
@@ -246,7 +247,7 @@ function storeFingerprint(fingerprint) {
   const all = readJson(FINGERPRINTS_FILE, { fingerprints: [] });
   all.fingerprints.push({
     ...fingerprint,
-    id: `fp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    id: `fp-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
   });
   
   // Keep only last 1000 fingerprints per agent

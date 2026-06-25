@@ -408,7 +408,8 @@ function weightedRandomSelect(candidates) {
   const total = candidates.reduce((s, c) => s + c.probability, 0);
   if (total <= 0) return null;
   
-  let r = Math.random() * total;
+  // SC-HIGH-005: routing jitter; not a security primitive.
+  let r = crypto.randomInt(0, total);
   for (const c of candidates) {
     r -= c.probability;
     if (r <= 0) return c.agentId;

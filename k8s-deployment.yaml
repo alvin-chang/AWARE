@@ -2,7 +2,11 @@
 # This configuration can be used to deploy AWARE to a Kubernetes cluster
 
 ---
-# Backend Service
+# Backend Service — SC-CRITICAL-006:
+# type changed from LoadBalancer to ClusterIP. LoadBalancer exposed the
+# v1 backend API directly to the public internet depending on the cluster
+# config. The frontend (and any external callers) should reach the backend
+# through an Ingress that terminates TLS and enforces auth at the edge.
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,7 +20,7 @@ spec:
     - protocol: TCP
       port: 3000
       targetPort: 3000
-  type: LoadBalancer
+  type: ClusterIP
 
 ---
 # Backend Deployment
@@ -69,7 +73,8 @@ spec:
           periodSeconds: 5
 
 ---
-# Frontend Service
+# Frontend Service — SC-CRITICAL-006: LoadBalancer → ClusterIP. The
+# frontend is now served via Ingress (TLS terminated at the edge).
 apiVersion: v1
 kind: Service
 metadata:
@@ -83,7 +88,7 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 80
-  type: LoadBalancer
+  type: ClusterIP
 
 ---
 # Frontend Deployment
@@ -118,6 +123,53 @@ metadata:
   name: aware-secrets
 type: Opaque
 data:
-  # This should be replaced with an actual base64 encoded secret key
-  # Example: echo -n 'your-actual-secret-key' | base64
-  secret-key: eW91cl9zZWNyZXRfa2V5X2hlcmU=  # Replace with actual encoded value
+  # SC-CRITICAL-006: the previous
+  # placeholder secret value `eW91cl9zZWNyZXRfa2V5X2hlcmU=` decoded to
+  # 'your_secret_key_here' (a trivially-forgeable JWT signing key).
+  # The committed manifest must NOT carry a real or guessable secret.
+  # Provision the real secret via kubectl, NOT via this file:
+  #
+  #   kubectl create secret generic aware-secrets \
+  #     --from-literal=secret-key="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+  #
+  # Then leave this data: block empty in the committed manifest (or
+  # delete the Secret stanza entirely and have the Deployment reference
+  # an externally-provisioned secret). Operators who provision via
+  # sealed-secrets / external-secrets / vault are also fine.
+  # secret-key: <set via kubectl, not in this committed manifest>
+---
+# SC-CRITICAL-006: NetworkPolicy
+# default-deny + per-service allowlist. Without NetworkPolicy, every
+# pod in the namespace can talk to every other pod (Kubernetes
+# default). A compromised pod gets free lateral movement. The
+# default-deny below blocks all ingress + egress; the explicit
+# allowlist below re-allows only the specific frontend→backend path
+# the system needs. Add more allowlists as new services come online.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aware-default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aware-allow-frontend-to-backend
+spec:
+  podSelector:
+    matchLabels:
+      app: aware-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: aware-frontend
+      ports:
+        - protocol: TCP
+          port: 3000

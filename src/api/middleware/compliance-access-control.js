@@ -83,11 +83,12 @@ function checkPermission(role, permission) {
  */
 function createComplianceAccessControl(requiredPermission) {
   return function complianceAccessControl(req, res, next) {
-    // Get role from authenticated user
-    // In production, this would come from JWT/session
-    const userRole = req.user?.complianceRole ||
-                     req.headers['x-compliance-role'] ||
-                     'executive'; // Default role for demo
+    // SC-HIGH-008: Role MUST come from the authenticated principal
+    // (req.user.complianceRole, populated by the upstream JWT/session
+    // middleware in src/api/middleware/auth.js). Never trust
+    // x-compliance-role — it is a request header and trivially
+    // spoofable. Default to the lowest-privilege role, not the highest.
+    const userRole = req.user?.complianceRole || 'auditor';
 
     const userAgentId = req.user?.agentId || 'anonymous';
 

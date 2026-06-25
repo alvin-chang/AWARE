@@ -224,7 +224,7 @@ test('config: snapshot() shape is stable', (t) => {
     'budget', 'coordinator', 'db', 'gateway', 'heavyThink', 'model', 'prmCache', 'trainer', 'warnings',
   ]);
   assert.deepEqual(Object.keys(snap.coordinator).sort(), [
-    'host', 'killSwitch', 'loraReloaderEnabled', 'loraReloaderModelName',
+    'authTokenLength', 'authTokenSet', 'host', 'killSwitch', 'loraReloaderEnabled', 'loraReloaderModelName',
     'loraReloaderPollIntervalMs', 'loraReloaderTimeoutMs', 'pairsDir',
     'port', 'requestCostCapUsd', 'requestTimeoutMs',
   ]);
@@ -255,7 +255,7 @@ test('config: heavy-think path defaults to dev-layout sibling', (t) => {
   const config = require('../../../src/config/index.cjs');
   t.after(() => { clearV2Env(); });
 
-  // The default resolves to /Users/alfie/src/heavy-think/src/index.js
+  // The default resolves to [REDACTED-PATH]
   // (or wherever heavy-think lives on the dev host).
   assert.match(config.heavyThink.path, /heavy-think[\\\/]src[\\\/]index\.js$/);
 });

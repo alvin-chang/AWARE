@@ -2,6 +2,7 @@
 // Phase 1.4: Kill Switch — integrated with StateMachine for unified log management
 
 const EventEmitter = require('events');
+const crypto = require('crypto');
 
 class ElectionManager extends EventEmitter {
   constructor(nodeId, config = {}) {
@@ -72,7 +73,7 @@ class ElectionManager extends EventEmitter {
     
     // Random timeout within configured range
     const [min, max] = this.electionTimeoutRange;
-    const timeout = Math.floor(Math.random() * (max - min + 1)) + min;
+    const timeout = crypto.randomInt(min, max + 1);
     
     this.electionTimeout = setTimeout(() => {
       if (this.state !== 'leader') {
@@ -177,7 +178,7 @@ class ElectionManager extends EventEmitter {
         this.startElectionTimer();
         
         resolve({ granted: true, term: this.currentTerm });
-      }, Math.random() * this.requestVoteTimeout);
+      }, crypto.randomInt(0, this.requestVoteTimeout));
     });
   }
 

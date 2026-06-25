@@ -38,6 +38,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 import config from '../config/index.cjs';
 import { getPool } from '../db/index.js';
@@ -138,7 +139,7 @@ export class TrainerPoller {
     // a real token never leaks.
     if (!config.trainer.modalTokenId || !config.trainer.modalTokenSecret) {
       this.deps.logger.warn(
-        'AWARE_TRAINER_ENABLED=1 but <redacted-credential-name> or <redacted-credential-name> is unset; ' +
+        'AWARE_TRAINER_ENABLED=1 but MODAL_TOKEN_ID or MODAL_TOKEN_SECRET is unset; ' +
         'trainer will start but every job submission will fail. ' +
         'Set both env vars in ACTIVE-CREDENTIALS.env to enable real runs.'
       );
@@ -232,7 +233,7 @@ export class TrainerPoller {
     }
 
     // 3. Submit a new training run
-    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const runId = `run-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     await this._submitNewRun(runId, counts);
   }
 

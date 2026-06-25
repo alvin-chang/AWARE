@@ -143,14 +143,32 @@ test('gateway generates a request-id when none is provided', async (t) => {
   assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 });
 
-test('gateway echoes inbound X-Request-Id', async (t) => {
+test('gateway echoes inbound X-Request-Id when it is a valid UUID v4', async (t) => {
   const { server, baseUrl } = await startGateway();
   t.after(() => closeServer(server));
-  const inbound = 'req-test-12345';
+  // SC-HIGH-002: only UUID v4 is echoed back; anything else (e.g. log-poisoning
+  // payloads containing newlines or escape codes) is replaced with a fresh UUID.
+  const inbound = '12345678-1234-4234-8234-1234567890ab';
   const res = await fetch(`${baseUrl}/version`, {
     headers: { 'x-request-id': inbound },
   });
   assert.equal(res.headers.get('x-request-id'), inbound);
+});
+
+test('gateway replaces non-UUID x-request-id with a fresh UUID (SC-HIGH-002)', async (t) => {
+  const { server, baseUrl } = await startGateway();
+  t.after(() => closeServer(server));
+  // Non-UUID strings (regardless of length or content) must be replaced
+  // with a fresh UUID. This covers the log-poisoning class of attacks
+  // where a malicious upstream injects arbitrary content into the
+  // x-request-id header.
+  const malicious = 'req-test-12345 [FAKE] admin action';
+  const res = await fetch(`${baseUrl}/version`, {
+    headers: { 'x-request-id': malicious },
+  });
+  const echoed = res.headers.get('x-request-id');
+  assert.notEqual(echoed, malicious, 'non-UUID header must not be echoed');
+  assert.match(echoed, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
 
 // Helper: HTTP POST request using node:http, returns { status, headers, body }.
@@ -230,7 +248,9 @@ test('gateway proxies /coordinate to upstream with method+body+request-id', asyn
   const { server, baseUrl } = await startGateway();
   t.after(() => closeServer(server));
 
-  const inbound = 'req-coordinate-test';
+  // SC-HIGH-002: use a UUID v4 so the gateway echoes the inbound id;
+  // a non-UUID would be replaced with a freshly-generated UUID.
+  const inbound = '12345678-1234-4234-8234-1234567890ab';
   const res = await postJson(`${baseUrl}/coordinate`,
     { problem: 'hello', task_type: 'simple' },
     { 'x-request-id': inbound });

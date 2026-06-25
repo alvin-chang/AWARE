@@ -3,6 +3,10 @@ const AWAREEngine = require('../../src/index');
 const NodeDiscovery = require('../../src/node-discovery');
 const ElectionManager = require('../../src/election/ElectionManager');
 
+// SC-CRITICAL-001: the AWAREEngine
+// constructor requires SECRET_KEY ≥32 chars. Test secret below.
+const TEST_SECRET_KEY='***'.repeat(48);
+
 describe('Multi-Node Integration', () => {
   let engine1, engine2, engine3;
   let port1 = 42001, port2 = 42002, port3 = 42003;
@@ -15,7 +19,7 @@ describe('Multi-Node Integration', () => {
       discoveryPort: port1,
       broadcastPort: port1 + 1000,
       apiPort: apiPort1,
-      secretKey: 'test_secret',
+      secretKey: TEST_SECRET_KEY,
       nodes: ['node-1', 'node-2', 'node-3']
     });
     
@@ -24,7 +28,7 @@ describe('Multi-Node Integration', () => {
       discoveryPort: port2,
       broadcastPort: port2 + 1000,
       apiPort: apiPort2,
-      secretKey: 'test_secret',
+      secretKey: TEST_SECRET_KEY,
       nodes: ['node-1', 'node-2', 'node-3']
     });
     
@@ -33,7 +37,7 @@ describe('Multi-Node Integration', () => {
       discoveryPort: port3,
       broadcastPort: port3 + 1000,
       apiPort: apiPort3,
-      secretKey: 'test_secret',
+      secretKey: TEST_SECRET_KEY,
       nodes: ['node-1', 'node-2', 'node-3']
     });
     
@@ -105,6 +109,14 @@ describe('Multi-Node Integration', () => {
     // All nodes should report the same leader
     expect(leader1).toBe(leader2);
     expect(leader1).toBe(leader3);
+  });
+
+  // SC-CRITICAL-001 regression
+  test('SC-CRITICAL-001: throws when secretKey is missing', () => {
+    expect(() => new AWAREEngine({ nodeId: 'x' })).toThrow(/SECRET_KEY is required/);
+  });
+  test('SC-CRITICAL-001: throws when secretKey < 32 chars', () => {
+    expect(() => new AWAREEngine({ nodeId: 'x', secretKey: 'short' })).toThrow(/at least 32 characters/);
   });
 });
 

@@ -25,6 +25,22 @@ const crypto = require('crypto');
 
 const FIXTURE_SALT = 'fdf2b9326322f1f96ed1f24fc4a4b399fb13dc65b38b9a5bdaf3f94abf0be62b';
 
+// SC-CRITICAL-005: refuse to run in
+// production. The seed hashes are dev-only fixtures with predictable
+// passwords (admin/user) — anyone reading the repo can compute them.
+// Running this in production would create a real account with a known
+// password. Fail-fast before any file write.
+if (process.env.NODE_ENV === 'production') {
+  // SC-CRITICAL-005: the seed hashes
+  // are committed in source with predictable passwords (admin/user).
+  // Running this in production would create real accounts with known
+  // passwords. Refuse before any file write.
+  console.error('FATAL: seed-dev-users.js cannot run in NODE_ENV=production. (SC-CRITICAL-005)');
+  console.error('The seed users have predictable passwords (admin/user) committed in source.');
+  console.error('Use a real provisioning flow in production (see docs/adr/ADR-042).');
+  process.exit(1);
+}
+
 function hashPassword(password, salt) {
   return crypto.createHash('sha512')
     .update(password + ':' + salt)

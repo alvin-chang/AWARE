@@ -119,14 +119,21 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Request id: use inbound X-Request-Id if present, else generate one.
-// Propagated to the coordinator so a single request can be traced
-// end-to-end through gateway -> coordinator -> router -> model client.
+// Request id: use inbound X-Request-Id if it parses as a UUID v4,
+// else generate one. Propagated to the coordinator so a single request
+// can be traced end-to-end through gateway -> coordinator -> router -> model client.
+// SC-HIGH-002 (security audit 2026-06-25): the previous length-only check
+// still allowed arbitrary strings through, which the coordinator's
+// db/logger.js then wrote into aware_conversations.request_id and log
+// lines — a log-poisoning vector. UUID v4 contains only hex + dashes,
+// so header content can't smuggle newlines, escape codes, or terminal-control bytes.
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuidV4(s) {
+  return typeof s === 'string' && UUID_V4_RE.test(s);
+}
 app.use((req, res, next) => {
   const inbound = req.header('x-request-id');
-  const id = (typeof inbound === 'string' && inbound.length > 0 && inbound.length < 200)
-    ? inbound
-    : randomUUID();
+  const id = isValidUuidV4(inbound) ? inbound : randomUUID();
   req.id = id;
   res.setHeader('x-request-id', id);
   next();

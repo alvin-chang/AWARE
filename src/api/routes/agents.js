@@ -127,8 +127,13 @@ router.get('/agentId/:agentId',
 );
 
 // POST /api/agents - Register a new agent (onboarding)
+// SC-HIGH-007: requireAdmin gate — only compliance-admin /
+// compliance-officer may register new agents. Without this, any
+// authenticated user could mint a new agent identity with elevated
+// capabilities (clearance, trustScore) and operate as that identity.
 router.post('/',
   agentRateLimit, // M-02: Rate limiting
+  requireAdmin,
   [
     body('agentId').isString().notEmpty().withMessage('agentId is required'),
     body('name').isString().notEmpty().withMessage('name is required'),
@@ -181,7 +186,12 @@ router.post('/',
 );
 
 // PUT /api/agents/:id - Update agent
+// SC-HIGH-007: requireAdmin gate — only compliance-admin may change
+// another agent's clearance, trustScore, or capabilities. Without this,
+// any authenticated user could escalate the privilege of any agent
+// (including themselves) by updating its fields.
 router.put('/:id',
+  requireAdmin,
   param('id').isUUID(),
   validate,
   (req, res) => {

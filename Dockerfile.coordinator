@@ -2,10 +2,9 @@
 # Per ADR-020 Decision 1: persistent coordinator session + lightweight task workers
 #
 # Heavy-think source is cloned from the canonical remote at build time,
-# not mounted from the host. The canonical remote is the local Gitea at
-# http://localhost:4001/alvin/heavy-think (pinned by tag), so changes to
-# ~/src/heavy-think/ on the host don't silently change what ships in the
-# image. See ADR-042.
+# not mounted from the host. The canonical remote is your internal git
+# server (pinned by tag), so changes to the local working copy don't
+# silently change what ships in the image. See ADR-042.
 #
 # Build:
 #   DOCKER_BUILDKIT=1 docker compose \
@@ -13,8 +12,10 @@
 #     -p aware-2 \
 #     up -d --build
 #
-# The compose file passes HEAVY_THINK_TAG=v0.2.1 + HEAVY_THINK_REPO
-# as build args. The build stage below clones from Gitea at that tag.
+# The compose file passes HEAVY_THINK_TAG=v0.2.2 + HEAVY_THINK_REPO
+# as build args. The build stage below clones from your git server at
+# that tag. Override HEAVY_THINK_REPO at build time to point at your
+# own internal repository.
 #
 # Production alternative: publish heavy-think to a public registry
 # (GitHub or npm) and `npm install heavy-think@<version>` in the build.
@@ -23,22 +24,28 @@
 # ─── Stage 1: build ───────────────────────────────────────────────
 FROM node:22-alpine AS build
 
-# git is needed to clone heavy-think from Gitea. alpine's git package is
-# ~5MB. We could use alpine/git:2.45 as a separate stage to keep the
-# cache layer clean, but the colima/docker.io mirror on this host only
-# has a subset of alpine/git tags; installing in the main stage is more
+# git is needed to clone heavy-think from your git server. alpine's
+# git package is ~5MB. We could use alpine/git:2.45 as a separate stage
+# to keep the cache layer clean, but some image mirrors only have a
+# subset of alpine/git tags; installing in the main stage is more
 # portable.
 RUN apk add --no-cache git
 
 WORKDIR /build
 
 # Pin heavy-think version (declared by compose, also overridable from CLI).
-# The Dockerfile clones the source at exactly this tag from Gitea.
+# The Dockerfile clones the source at exactly this tag from your git server.
+# Operators MUST pass HEAVY_THINK_REPO at build time (e.g. via docker-compose
+# `build.args` or `docker build --build-arg HEAVY_THINK_REPO=...`). No
+# default is provided — pointing at a host-specific git server by default
+# would leak operator topology into published images.
 ARG HEAVY_THINK_TAG=v0.2.2
-ARG HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+# HEAVY_THINK_REPO has no default; the build will fail with a clear
+# "HEAVY_THINK_REPO not set" error if the operator forgets to pass it.
+ARG HEAVY_THINK_REPO
 
-# Clone heavy-think from Gitea at the pinned tag. The tag, not the
-# working copy at ~/src/heavy-think, is the source of truth. See ADR-042.
+# Clone heavy-think from your git server at the pinned tag. The tag,
+# not the local working copy, is the source of truth. See ADR-042.
 RUN git clone --depth 1 --branch ${HEAVY_THINK_TAG} ${HEAVY_THINK_REPO} /build/heavy-think && \
     rm -rf /build/heavy-think/.git
 
@@ -116,7 +123,12 @@ USER aware
 EXPOSE 8080
 
 # T0-T4 enforcement env defaults — overridable at runtime
-ENV COORDINATOR_HOST=0.0.0.0 \
+# SC-CRITICAL-007: COORDINATOR_HOST defaults to 127.0.0.1 (loopback only)
+# so the coordinator is only reachable from within its container's network
+# namespace or via an explicit Docker network. Operators exposing the
+# coordinator publicly MUST set COORDINATOR_HOST=0.0.0.0 explicitly and
+# place an authenticating reverse proxy in front.
+ENV COORDINATOR_HOST=127.0.0.1 \
     COORDINATOR_PORT=8080 \
     AWARE_REQUEST_TIMEOUT_MS=120000 \
     AWARE_REQUEST_COST_CAP_USD=1.0 \

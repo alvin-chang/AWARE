@@ -3,6 +3,7 @@
 // Phase 1.2: Per-Agent Sandbox Policies
 
 const { AgentState } = require('../api/models/Agent');
+const crypto = require('crypto');
 
 /**
  * Policy action types
@@ -180,7 +181,7 @@ function parseFrequency(frequency) {
  */
 function generatePolicyId() {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
+  const random = crypto.randomBytes(3).toString('hex');
   return `pol_${timestamp}_${random}`;
 }
 

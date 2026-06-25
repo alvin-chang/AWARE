@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 /**
  * ADR-009: Phase 2.1 — Pheromone Router Integration
  * 
@@ -136,7 +137,7 @@ function recordCompletion(params) {
 // ============================================================================
 
 function generateTaskId() {
-  return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `task-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
 /**

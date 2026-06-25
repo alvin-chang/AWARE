@@ -18,6 +18,7 @@
 'use strict';
 
 const store = require('./store');
+const crypto = require('crypto');
 
 // ============================================================================
 // Constants
@@ -227,7 +228,7 @@ function generateAlert(agentId, anomalyResult, trustResult, context = {}) {
   const severity = classifySeverity(anomalyResult.anomalyScore, trustResult.trustScore);
   
   const alert = {
-    alertId: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    alertId: `alert_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
     agentId,
     severity,
     anomalyScore: anomalyResult.anomalyScore,
