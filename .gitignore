@@ -65,11 +65,6 @@ temp.*
 
 # Optional eslint cache
 .eslintcache
-*.lock
-package-lock.json
-
-*.lock
-package-lock.json
 __pycache__/
 
 # Security audit harness output (regeneratable, contains local scan results)
@@ -82,3 +77,19 @@ security-audit-trivy.json
 # Generated seed data (see scripts/seed-dev-*.js for source)
 /src/data/users.json
 /src/data/agents.json
+
+# Operational runtime data (cron logs, probe summaries, eval results)
+/data/
+/eval-results/
+
+# Backup files (e.g. training/run.py.bak from refactors)
+*.bak
+*.orig
+*.rej
+
+# Private audit working notes (per-integration handoff docs)
+SECURITY-FINDINGS-INTEGRATION-*.md
+SENTINEL-FINDINGS-INTEGRATION-*.md
+
+# package-lock.json is intentionally NOT shipped (see v2.3.0 release notes)
+package-lock.json
