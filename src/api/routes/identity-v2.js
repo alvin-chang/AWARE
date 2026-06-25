@@ -10,6 +10,7 @@ const SessionManager = require('../../agents/session-manager');
 const AttestationService = require('../../agents/attestation-service');
 const RevocationCache = require('../../agents/revocation-cache');
 const { authenticateToken } = require('../middleware/auth');
+const { resolveSecretKey } = require('../../engine-secret');
 
 // Initialize services (singleton pattern for shared state)
 let identityProvider = null;
@@ -18,12 +19,37 @@ let attestationService = null;
 let revocationCache = null;
 
 /**
+ * Initialize services with configuration.
+ *
+ * SC-MOD-014 (security audit 2026-06-25): the previous
+ * `config.secretKey || process.env.SECRET_KEY` fallback chain silently
+ * accepted short / absent secrets. identity-v2 needs the same
+ * fail-closed + length-validated path as src/api/middleware/auth.js
+ * and src/index.js, otherwise an operator who forgets to set
+ * SECRET_KEY in production can sign JWTs with a guessable key.
+ *
+ * Production → fail fast if SECRET_KEY is missing or shorter than
+ * 32 chars. Dev/test → fall back to a clearly-marked dev default.
+ */
+function resolveIdentityV2SecretKey(configSecretKey, envSecretKey) {
+  return resolveSecretKey({
+    configSecretKey,
+    envSecretKey,
+    minLength: 32,
+  });
+}
+
+/**
  * Initialize services with configuration
  */
 function initializeServices(config = {}) {
   if (!identityProvider) {
+    const secretKey = resolveIdentityV2SecretKey(
+      config.secretKey,
+      process.env.SECRET_KEY,
+    );
     identityProvider = new IdentityProviderV2({
-      secretKey: config.secretKey || process.env.SECRET_KEY,
+      secretKey,
       issuer: config.issuer || 'aware-ca',
       trustDomain: config.trustDomain || process.env.AWARE_TRUST_DOMAIN || 'aware-prod',
       environment: config.environment || process.env.NODE_ENV || 'production',

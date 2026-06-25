@@ -12,13 +12,13 @@
 #     -p aware-2 \
 #     up -d --build
 #
-# Heavy-think source is cloned from the local Gitea
-# (http://localhost:4001/alvin/heavy-think, pinned at HEAVY_THINK_TAG=v0.2.2)
-# inside the Dockerfile's Stage 0 (alpine/git). The build does NOT mount
-# ~/src/heavy-think/ from the host — the canonical source is the Gitea
-# remote. To bump heavy-think: tag the new commit in
-# ~/src/heavy-think, push to Gitea (git push gitea v0.2.2), update
-# HEAVY_THINK_TAG in this file, re-build. See ADR-042.
+# Heavy-think source is cloned from your internal git server
+# (pinned at HEAVY_THINK_TAG=v0.2.2) inside the Dockerfile's Stage 0
+# (alpine/git). The build does NOT mount the local working copy from
+# the host — the canonical source is the git remote you specify via
+# HEAVY_THINK_REPO at build time. To bump heavy-think: tag the new
+# commit in your repo, update HEAVY_THINK_TAG in this file, re-build.
+# See ADR-042.
 #
 # Tear down:
 #   docker compose -f docker-compose.coordinator.yml -p aware-2 down
@@ -62,10 +62,10 @@ volumes:
   #   docker volume rm aware-2-preference-pairs
   # Note (2026-06-14): the host bind mount to /data/awareness-pairs
   # also doesn't work in this Docker Desktop environment — bind mounts
-  # from <HOME>/ into containers silently fail to populate.
+  # from [REDACTED-PATH] into containers silently fail to populate.
   # The trainer (aware-2-trainer) reads via aware-2-pairs-data named
   # volume, so the host doesn't need direct access. See
-  # <repo-root>/docs/sop/sop-phase-2-4-data-flywheel.md
+  # [REDACTED-PATH]
   # (added in this slice) for the full bind-mount investigation +
   # named-volume fallback rationale.
   aware-2-pairs-data:
@@ -84,7 +84,7 @@ services:
   # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
   # so the bring-up script's default 4-service stack works without it.
   # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
-  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # Picks up LLM_API_KEY env var name (was MINIMAX_API_KEY in 0.2.0
   # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
   # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   gateway:
@@ -119,26 +119,35 @@ services:
   # The Phase 1 deliverable. Built from Dockerfile.coordinator.
   # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
   # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
-  # Picks up <redacted-credential-name> env var name (was <redacted-credential-name> in 0.2.0
+  # Picks up LLM_API_KEY env var name (was MINIMAX_API_KEY in 0.2.0
   # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
   # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   coordinator:
     build:
       context: .
       dockerfile: Dockerfile.coordinator
-      # host network so the build stage can reach http://localhost:4001
-      # (Gitea on the host's loopback). Without this, BuildKit's build
+      # host network so the build stage can reach your git server if it
+      # lives on the host's loopback. Without this, BuildKit's build
       # container has its own network namespace and can't see the host.
+      # Remove this if your git server is reachable on a routable address.
       network: host
       args:
         - HEAVY_THINK_TAG=v0.2.2
-        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
-    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
+        # Override at the command line, in your .env, or in a CI secret.
+        # Example: HEAVY_THINK_REPO=https://git.internal/heavy-think.git
+        - HEAVY_THINK_REPO=${HEAVY_THINK_REPO:?HEAVY_THINK_REPO must be set (SC-CRITICAL-007/008, privacy scrub 2026-06-25)}
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-internal-git
     container_name: aware-2-coordinator
     ports:
       - "18081:8080"
     environment:
-      - COORDINATOR_HOST=0.0.0.0
+      # SC-CRITICAL-007: bind coordinator to 127.0.0.1 inside the container.
+      # The 18081:8080 port mapping above exposes 8080 on the host; with
+      # 127.0.0.1 binding the coordinator still accepts connections from
+      # other containers on the aware-2 network but is NOT reachable from
+      # host processes that aren't on the published port's path. Operators
+      # who intentionally want raw host access should override via env.
+      - COORDINATOR_HOST=${COORDINATOR_HOST:-127.0.0.1}
       - COORDINATOR_PORT=8080
       # 2026-06-23: AWARE_MODE=online (was hybrid). Ollama sidecar
       # removed; coordinator now runs on MiniMax only. See ADR-020
@@ -150,25 +159,25 @@ services:
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
       # 2026-06-23: API key wiring. The canonical env var is
-      # <redacted-credential-name> (matches the host credential store + heavy-think
-      # source). We also pass through <redacted-credential-name> for backward compat
+      # MINIMAX_API_KEY (matches the host credential store + heavy-think
+      # source). We also pass through LLM_API_KEY for backward compat
       # with operators still using the legacy name — the config module
-      # reads <redacted-credential-name> first and falls back to <redacted-credential-name> with
+      # reads MINIMAX_API_KEY first and falls back to LLM_API_KEY with
       # a soft deprecation warning. The compose `env_file:` block
       # references the host's ACTIVE-CREDENTIALS.env file
       # (path is operator-specific, defaults to
-      # <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env on this host),
+      # ~/.openclaw/credentials/ACTIVE-CREDENTIALS.env on this host),
       # Operators should either (a) symlink `<host-secret-dir>` to
       # `.openclaw/credentials`, or (b) source ACTIVE-CREDENTIALS.env
       # into their shell before invoking docker compose.
       # See ADR-042.
-      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       # Legacy env var — supported as a deprecated alias. Operators who
-      # still set <redacted-credential-name> instead of <redacted-credential-name> should source
+      # still set LLM_API_KEY instead of MINIMAX_API_KEY should source
       # it into the host shell (or set it here directly). Empty by
       # default; config.model.minimaxKey resolves canonical first then
-      # falls back to <redacted-credential-name> with a soft deprecation warning.
-      - <redacted-credential-name>=${<redacted-credential-name>:-}
+      # falls back to LLM_API_KEY with a soft deprecation warning.
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - MINIMAX_API_HOST=${MINIMAX_API_HOST:-}
       # 2026-06-23: OLLAMA_URL removed — no Ollama sidecar. If the
       # env var is set in the host (e.g. from a stale .env), it's
@@ -199,7 +208,7 @@ services:
       # never seen any live data — the live writes were landing in the
       # image's ephemeral dir, not the bind-mounted host dir. Phase 2.4
       # swaps to a named volume (aware-2-pairs-data) that the trainer
-      # reads via the same mount; host bind mounts from <HOME>/
+      # reads via the same mount; host bind mounts from [REDACTED-PATH]
       # into containers silently fail to populate in this Docker Desktop
       # environment, so the named volume is the only working path.
       - AWARE_PAIRS_DIR=/data/awareness-pairs
@@ -208,10 +217,16 @@ services:
       # bring-up script sources this from AWARE_DB_PWD or falls back to
       # the dev-only default below.
       - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+      # 2026-06-25: SC-CRITICAL-002. Bearer token
+      # required for /coordinate + /budget/status. Operator sets this in the
+      # env_file or shell before compose up. Fail-closed at boot in
+      # NODE_ENV=production if unset or shorter than 32 chars (config.validate()).
+      # The gateway must mirror this token in its outbound Authorization header.
+      - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
     # The upstream LLM API key is intentionally NOT hardcoded. The
     # compose file reads the env var from the canonical credential
     # store on this host:
-    #   <canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env
+    #   ~/.openclaw/credentials/ACTIVE-CREDENTIALS.env
     # This is a real file (mode 0600) that already contains
     # the upstream LLM key plus a few dozen other agent secrets. It
     # is the source of truth for the whole multi-agent stack, so
@@ -232,7 +247,7 @@ services:
     volumes:
       # Named volume for preference-pair output. Phase 1 used a bind
       # mount from <host-config>/metaclaw/preference-pairs but bind mounts
-      # from <HOME>/ into containers silently fail to populate
+      # from [REDACTED-PATH] into containers silently fail to populate
       # in this Docker Desktop environment. The named volume lives at
       # /var/lib/docker/volumes/aware-2-pairs-data/_data; the trainer
       # (aware-2-trainer) reads via the same named volume mount. The
@@ -373,7 +388,7 @@ services:
   #   default 5-service bring-up (gateway/coordinator/ollama/postgres/redis)
   #   is unaffected.
   # - AWARE_TRAINER_ENABLED defaults to 0 (kill switch off). Setting
-  #   it to 1 + having <redacted-credential-name>/SECRET set is the explicit opt-in.
+  #   it to 1 + having MODAL_TOKEN_ID/SECRET set is the explicit opt-in.
   trainer:
     build:
       context: .
@@ -381,11 +396,11 @@ services:
       network: host
       args:
         - HEAVY_THINK_TAG=v0.2.2
-        - HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
-    # 2026-06-23: bumped to 0.4.4-phase4-heavy-think-from-gitea. Heavy-think
-    # is now cloned from the local Gitea in the Dockerfile, not mounted
-    # from the host. See ADR-042.
-    image: aware-coordinator:0.4.5-phase4-heavy-think-from-gitea
+        - HEAVY_THINK_REPO=${HEAVY_THINK_REPO:?HEAVY_THINK_REPO must be set (SC-CRITICAL-007/008, privacy scrub 2026-06-25)}
+    # 2026-06-25: bumped to 0.4.5-phase4-heavy-think-from-internal-git.
+    # Heavy-think is now cloned from your internal git server in the
+    # Dockerfile, not mounted from the host. See ADR-042.
+    image: aware-coordinator:0.4.5-phase4-heavy-think-from-internal-git
     container_name: aware-2-trainer
     profiles: ["training"]
     command: ["node", "src/trainer/index.js"]
@@ -412,6 +427,12 @@ services:
       - AWARE_DB_USER=${POSTGRES_USER:-aware}
       - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
       - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+      # 2026-06-25: SC-CRITICAL-002. Bearer token
+      # required for /coordinate + /budget/status. Operator sets this in the
+      # env_file or shell before compose up. Fail-closed at boot in
+      # NODE_ENV=production if unset or shorter than 32 chars (config.validate()).
+      # The gateway must mirror this token in its outbound Authorization header.
+      - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
     env_file:
       - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
         required: false
