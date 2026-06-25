@@ -25,6 +25,42 @@ import { logConversationFireAndForget } from '../db/logger.js';
 import { runMigrations } from '../db/index.js';
 import { checkBudget, getBudgetStatus, isEnabled as isBudgetEnabled } from '../budget/watchdog.js';
 import { makeLoraReloader } from './lora-reloader.js';
+import { createRequire } from 'node:module';
+
+// C-step finding #16 (AR-HIGH-001 partial — v2 surface): the hash-chained
+// decision logger is the canonical compliance audit trail. Without a
+// write hook here, the audit HTTP API on the gateway would surface an
+// empty chain.
+//
+// decision-logger.js is CJS and `src/coordinator/http-server.js` is ESM,
+// so we bridge via `createRequire` rather than `await import()` — the
+// latter puts the CJS module.exports under `.default` and would force
+// an awkward destructure. `createRequire` is the canonical Node ESM↔CJS
+// bridge and lets us treat the audit module like a normal dependency.
+//
+// The module is loaded lazily so the coordinator can still boot in
+// unit tests without /data/audit present (the logger opens a file on load).
+const _decisionLoggerRequire = createRequire(import.meta.url);
+function getDecisionLogger() {
+  return _decisionLoggerRequire('../audit/decision-logger.js');
+}
+
+async function logDecisionFireAndForget(decision) {
+  let logDecision;
+  try {
+    ({ logDecision } = getDecisionLogger());
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[aware-coordinator] decision-logger unavailable, audit chain disabled:', err.message);
+    return;
+  }
+  try {
+    await logDecision(decision);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[aware-coordinator] logDecision failed (best-effort):', err.message);
+  }
+}
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB — coordinator inputs are prompts, not file uploads
 
@@ -670,7 +706,48 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
 
   // Success path
   log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, result });
+
+  // C-step finding #16: append to the hash-chained audit chain so the
+  // gateway's audit HTTP API surfaces real decisions. Fire-and-forget
+  // so the audit write never blocks the response. The chain record
+  // captures the decision metadata (actor, action, outcome) but NOT the
+  // full prompt text — the prompt is already in db/logger.js
+  // (aware_conversations); the chain is the audit-trail summary.
+  logDecisionFireAndForget({
+    decisionId: requestId,
+    parentDecisionId: null,  // root of a chain per request; future cross-request linking is out of scope
+    timestamp: new Date().toISOString(),
+    actor: {
+      agentId: body.agentId || 'unknown',
+      trustScore: 1.0,
+    },
+    action: {
+      type: 'coordinate',
+      target: 'aware-coordinator',
+      reason: task_type_reason(body.task_type),
+    },
+    context: {
+      taskType: body.task_type || 'standard',
+      K: body.K || null,
+      sessionId: body.sessionId || null,
+    },
+    outcome: {
+      success: !!(result && result.ok !== false),
+      latencyMs: Date.now() - startMs,
+      errorMessage: result && result.ok === false ? (result.error && result.error.message) || 'coordinate returned ok=false' : null,
+    },
+  });
+
   return sendJson(res, 200, { ...(result || {}), request_id: requestId });
+}
+
+function task_type_reason(task_type) {
+  switch (task_type) {
+    case 'standard': return 'standard reasoning task';
+    case 'compliance': return 'compliance reasoning task';
+    case 'analysis': return 'analysis task';
+    default: return `${task_type || 'standard'} reasoning task`;
+  }
 }
 
 /**

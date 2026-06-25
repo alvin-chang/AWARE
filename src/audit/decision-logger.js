@@ -126,10 +126,21 @@ let lastHash = GENESIS_HASH;
 
 /**
  * Ensure audit directory exists.
+ *
+ * Wrapped in try/catch so a read-only filesystem (test environments,
+ * misconfigured deploys) doesn't crash the audit module on require.
+ * The error is logged once at module load; subsequent operations
+ * that need the directory (logDecision, getChain, etc.) will surface
+ * their own errors at use time.
  */
 function ensureAuditDir() {
-  if (!fs.existsSync(AUDIT_DIR)) {
-    fs.mkdirSync(AUDIT_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(AUDIT_DIR)) {
+      fs.mkdirSync(AUDIT_DIR, { recursive: true });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[decision-logger] AUDIT_DIR (${AUDIT_DIR}) not writable: ${err.code || err.message}`);
   }
 }
 
@@ -138,7 +149,7 @@ function ensureAuditDir() {
  */
 function loadIndex() {
   ensureAuditDir();
-  
+
   if (!fs.existsSync(AUDIT_INDEX_FILE)) {
     return;
   }
@@ -320,20 +331,41 @@ async function logDecision(decision) {
  */
 async function getChain(decisionId) {
   const chain = [];
-  
+
+  // Cold-index fallback (C-step finding #16 follow-up): if the in-memory
+  // index is empty (e.g., fresh deploy, index file missing, audit module
+  // freshly required without a prior logDecision call), build a transient
+  // index from the JSONL log file so /api/audit/* works on first hit.
+  // This is more expensive than the index lookup but only triggers when
+  // the persistent index is cold — production deployments warm the
+  // index automatically as new decisions are appended.
+  if (index.size === 0 && fs.existsSync(AUDIT_LOG_FILE)) {
+    try {
+      const lines = fs.readFileSync(AUDIT_LOG_FILE, 'utf8').trim().split('\n');
+      for (const line of lines) {
+        if (!line) continue;
+        const rec = JSON.parse(line);
+        index.set(rec.decisionId, rec.hash);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[decision-logger] cold-index rebuild failed: ${err.message}`);
+    }
+  }
+
   let currentId = decisionId;
-  
+
   while (currentId !== null) {
     const hash = indexLookup(currentId);
     if (!hash) {
       throw new Error(`Decision ${currentId} not found in index`);
     }
-    
+
     const record = readFromLog(hash);
     if (!record) {
       throw new Error(`Decision ${currentId} not found in log`);
     }
-    
+
     chain.unshift(record);  // Prepend (building root-first)
     currentId = record.parentDecisionId;
   }
@@ -437,11 +469,30 @@ async function exportChain(fromId, toId, format = 'json') {
       return chain.map(r =>
         `CEF:0|AWARE|Audit|1.0|${r.action.type}|${r.decisionId}|${r.outcome.success ? 'Info' : 'Warn'}|${r.actor.agentId}`
       ).join('\n');
-      
+
     default:
       throw new Error(`Unsupported format: ${format}`);
   }
 }
+
+// ============================================================================
+// Bootstrap (C-step finding #16 follow-up)
+// ============================================================================
+//
+// CRITICAL: load the on-disk index on module require so callers don't need
+// to remember to call loadIndex() themselves. Without this, a fresh process
+// that requires decision-logger.js sees an empty in-memory `index` Map and
+// getChain() throws "not found in index" — even though the JSONL on disk
+// has the records. The previous behavior silently failed the first time
+// getChain was called; this was a latent bug that the audit HTTP API
+// (mounted on the v2 gateway) made visible because every /api/audit/*
+// request was the "first call" from the gateway's perspective.
+//
+// loadIndex() is safe to call repeatedly and no-ops when the index file
+// is missing (it just creates an empty index). Errors during load are
+// logged but don't throw — the module stays usable, just with a cold
+// index (callers will see "not found" until they re-load).
+loadIndex();
 
 // ============================================================================
 // Module Exports
@@ -450,21 +501,21 @@ async function exportChain(fromId, toId, format = 'json') {
 module.exports = {
   // Constants
   GENESIS_HASH,
-  
+
   // Core functions
   logDecision,
   getChain,
   getChainBetween,
   verifyChain,
   exportChain,
-  
+
   // Utilities
   generateUUID,
   canonicalSerialize,
   computeRecordHash,
   loadIndex,
   ensureAuditDir,
-  
+
   // Index operations
   getLastHash,
   indexLookup,
