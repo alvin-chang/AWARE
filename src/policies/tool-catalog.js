@@ -98,7 +98,7 @@ const DEFAULT_TOOLS = {
     requiresApproval: false,
     allowedDataTiers: ['PUBLIC', 'INTERNAL', 'CONFIDENTIAL'],
     rateLimit: '500/hour',
-    pathRestrictions: ['<host-config>/workspace-coder/', '~/src/AWARE/']
+    pathRestrictions: ['<host-config>/workspace-coder/', './']
   },
   'file:write': {
     riskLevel: ToolRiskLevel.CRITICAL,
@@ -107,7 +107,7 @@ const DEFAULT_TOOLS = {
     requiresApproval: true,
     allowedDataTiers: ['INTERNAL'],
     rateLimit: '50/hour',
-    pathRestrictions: ['~/src/AWARE/', '<host-config>/workspace-coder/']
+    pathRestrictions: ['./', '<host-config>/workspace-coder/']
   },
   'file:delete': {
     riskLevel: ToolRiskLevel.CRITICAL,
@@ -116,7 +116,7 @@ const DEFAULT_TOOLS = {
     requiresApproval: true,
     allowedDataTiers: ['INTERNAL'],
     rateLimit: '5/hour',
-    pathRestrictions: ['~/src/AWARE/', '<host-config>/workspace-coder/']
+    pathRestrictions: ['./', '<host-config>/workspace-coder/']
   },
   'exec:run': {
     riskLevel: ToolRiskLevel.CRITICAL,

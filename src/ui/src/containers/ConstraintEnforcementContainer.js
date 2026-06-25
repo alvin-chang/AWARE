@@ -5,11 +5,11 @@ import ConstraintEnforcementView from '../components/ConstraintEnforcementView';
 import { constraintAPI } from '../services/api';
 
 const mockAgents = [
-  { id: 'agent-001', name: 'Scout', status: 'active', trustScore: 92, constraintLevel: 'T2', capabilities: ['research'] },
-  { id: 'agent-002', name: 'Archimedes', status: 'active', trustScore: 88, constraintLevel: 'T2', capabilities: ['design'] },
-  { id: 'agent-003', name: 'Pixel', status: 'suspended', trustScore: 45, constraintLevel: 'T4', capabilities: ['ui_design'] },
-  { id: 'agent-004', name: 'Forge', status: 'active', trustScore: 85, constraintLevel: 'T2', capabilities: ['coding'] },
-  { id: 'agent-005', name: 'Quinn', status: 'active', trustScore: 78, constraintLevel: 'T3', capabilities: ['testing'] },
+  { id: 'agent-001', name: 'Researcher', status: 'active', trustScore: 92, constraintLevel: 'T2', capabilities: ['research'] },
+  { id: 'agent-002', name: 'Architect', status: 'active', trustScore: 88, constraintLevel: 'T2', capabilities: ['design'] },
+  { id: 'agent-003', name: 'Designer', status: 'suspended', trustScore: 45, constraintLevel: 'T4', capabilities: ['ui_design'] },
+  { id: 'agent-004', name: 'Coder', status: 'active', trustScore: 85, constraintLevel: 'T2', capabilities: ['coding'] },
+  { id: 'agent-005', name: 'Tester', status: 'active', trustScore: 78, constraintLevel: 'T3', capabilities: ['testing'] },
 ];
 
 const mockConstraints = [

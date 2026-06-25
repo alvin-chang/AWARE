@@ -1,8 +1,8 @@
 # ADR-027 — <runtime> Agent Traffic as AWARE 2.0 Data Source
 
-**Status:** **ACCEPTED — Path 1 selected by operator (Alvin) 2026-06-22.** Single-character confirmation "1" on the orchestrator's three-path question. Archimedes review still invited; commit canonicalizes the decision but does not lock in implementation steps that are out of scope for this ADR.
+**Status:** **ACCEPTED — Path 1 selected by operator (Alvin) 2026-06-22.** Single-character confirmation "1" on the three-path question. Architect review still invited; commit canonicalizes the decision but does not lock in implementation steps that are out of scope for this ADR.
 **Date:** 2026-06-22 (drafted 2026-06-22 13:00 BST; accepted 2026-06-22 13:50 BST)
-**Author:** Orchestrator (Alfie) draft on behalf of operator (Alvin) — for Archimedes (Architect) review.
+**Author:** the coordinating agent draft on behalf of operator (Alvin) — for Architect (Architect) review.
 **Build phase:** A1 (continuing)
 **Path selected:** **Path 1 — override ADR-024.** Continuous OC-traffic flywheel is restored. The three preconditions in ADR-024 §Decision become quality gates (not enablement gates): the trainer may fire continuously, but each candidate pair is filtered through `outcome-filter.js` and the existing 100-pair minimum still applies as a "warmth" check on the poller cadence.
 **Renamed from:** `ADR-025-oc-traffic-as-data-source.md` (2026-06-22) — the original filename collided with the ADR-024 §Open Questions #1 expectation that ADR-025 would be about "production chat model deployment strategy." The new ADR-025 covers that; this ADR-027 covers the OC-traffic-as-data-source question (which corresponds to ADR-024 §Open Questions #4).
@@ -55,7 +55,7 @@ This interpretation is what ADR-024 §Open Questions #4 *kind of* anticipates: *
 | <runtime> `extensions/heavyskill/` working tree | **Deleted** in working tree, uncommitted; live install is at a separate path | `git -C <HOME>/src/<runtime> status` |
 | OC repo divergence from origin | `main` is 10916 ahead, 65 behind — mid-refactor, not a stable editing surface | `git status` |
 | OC working tree clean to touch? | **No** — divergent, heavyskill extension deletion pending, doc churn | `git diff --stat` |
-| `~/src/heavyskill-plugin/` | Functional repo, branch `main`, last commit `adf8518` ("test: add strategy integration tests + fix baseStreamFn await bug"), v5 PRM scaffold landed (`948d3bd`), v4 source reconciliation landed (`f14ee60`) | `git log` |
+| `<heavyskill-plugin-source>/` | Functional repo, branch `main`, last commit `adf8518` ("test: add strategy integration tests + fix baseStreamFn await bug"), v5 PRM scaffold landed (`948d3bd`), v4 source reconciliation landed (`f14ee60`) | `git log` |
 | 5-service compose stack | Code-complete, **never run**, trainer at `AWARE_TRAINER_ENABLED=0` | `docker-compose.coordinator.yml:312` |
 | Trainer | Smoke-tested 2026-06-13, run `run-1781341473932-cl85ug`, status `ok` | <internal-doc> §"D5 run attempt" |
 | `aware_conversations` table | Empty (the only writer is gated on non-passthrough pair_path return; OC shim was passthrough until `2fda655`) | <internal-doc> |
@@ -75,7 +75,7 @@ Three concrete resolution paths the operator can pick from. Each has a distinct 
 - **What changes**: AWARE 2.0 has a continuous flywheel sourced from OC agent traffic. The three preconditions in ADR-024 are replaced with a single condition: the loop is wired and observed producing data.
 - **Cost**: Higher compute, higher risk. Continuous loop means every OC agent call writes to `aware_conversations`; trainer fires automatically when threshold met; LoRA updates automatically. Failure modes compound.
 - **Risk**: The 2,265-restart-loop failure mode of the trainer (which is why `AWARE_TRAINER_ENABLED=0` exists) was never root-caused per ADR-024. Re-enabling on a continuous loop re-exposes that risk at higher throughput.
-- **Who needs to act**: Operator (Alvin) explicitly approves ADR-024 → Superseded. Archimedes (Architect) drafts revised decision record. Orchestrator (Alfie) implements the loop, monitors it, and surfaces regressions.
+- **Who needs to act**: Operator (Alvin) explicitly approves ADR-024 → Superseded. Architect (Architect) drafts revised decision record. the coordinating agent implements the loop, monitors it, and surfaces regressions.
 
 ### Path 2 — Bring up stack within ADR-024 (Bounded loop, OC traffic as source)
 
@@ -83,15 +83,15 @@ Three concrete resolution paths the operator can pick from. Each has a distinct 
 - **What changes**: AWARE 2.0's 5-service compose stack runs (gateway/coordinator/UI/db/trainer); OC agent calls feed `aware_conversations` when ≥100 pairs accumulate; trainer fires on the existing poller; LoRA updates on demand (not continuously). The three preconditions in ADR-024 stand, with this ADR satisfying precondition 2.
 - **Cost**: Lower compute, lower risk. Loop is bounded by the existing `AWARE_TRAINER_MIN_PAIRS_PER_RUN=100` threshold and the existing quarterly cadence per ADR-024 §"Compliance cadence."
 - **Risk**: If OC traffic doesn't accumulate real pairs (e.g. agents don't differentiate "chosen" from "rejected" enough, or pair schema doesn't capture signal), the loop is dormant indefinitely. Same risk as the HeavySkill pair writer today.
-- **Who needs to act**: Operator (Alvin) approves ADR-025 as the OC-traffic = precondition-2 follow-on. Archimedes signs off on schema (chosen/rejected differentiation; PRM extraction or removal; verification pass non-trivial — per ADR-024 §"Precondition 2"). Orchestrator brings up stack, wires OC traffic source, monitors pair accumulation.
+- **Who needs to act**: Operator (Alvin) approves ADR-025 as the OC-traffic = precondition-2 follow-on. Architect signs off on schema (chosen/rejected differentiation; PRM extraction or removal; verification pass non-trivial — per ADR-024 §"Precondition 2"). Stack is brought up, wires OC traffic source, monitors pair accumulation.
 
 ### Path 3 — Stand up stack, defer flywheel design (Defer ADR-025)
 
 - **Status of ADR-025**: Deferred (this draft kept on file as a record of the operator's (B) signal; resolution postponed).
-- **What changes**: 5-service compose stack runs with trainer off (per ADR-024). Pair store stays empty. OC traffic integration deferred — no `aware_conversations` writes from OC. Model improvements happen only via AZR batch / MetaClaw batch / hand-curated batch per ADR-024 §"Open Questions #1."
+- **What changes**: 5-service compose stack runs with trainer off (per ADR-024). Pair store stays empty. OC traffic integration deferred — no `aware_conversations` writes from OC. Model improvements happen only via AZR batch / <meta-rl-pipeline> batch / hand-curated batch per ADR-024 §"Open Questions #1."
 - **Cost**: Lowest. No new architecture decisions. Operator gets the stack running and visible; can experiment with what's already wired (PRM cache, awareness-pairs store reads, coordinator API).
-- **Risk**: Stack runs without producing data. If pair store stays empty for the quarterly review cadence, ADR-024 §"Compliance cadence" triggers a "trigger one as part of the cadence" — but with what pairs? (AZR is unimplemented; MetaClaw is unimplemented; hand-curated batch is operator burden.)
-- **Who needs to act**: Operator picks (B2/Path 3) over (B1/Path 1) and (B3/Path 2). Orchestrator brings up stack, surfaces the empty-pair-store situation honestly on the next quarterly review.
+- **Risk**: Stack runs without producing data. If pair store stays empty for the quarterly review cadence, ADR-024 §"Compliance cadence" triggers a "trigger one as part of the cadence" — but with what pairs? (AZR is unimplemented; <meta-rl-pipeline> is unimplemented; hand-curated batch is operator burden.)
+- **Who needs to act**: Operator picks (B2/Path 3) over (B1/Path 1) and (B3/Path 2). Stack is brought up, surfaces the empty-pair-store situation honestly on the next quarterly review.
 
 ---
 
@@ -104,7 +104,7 @@ Three concrete resolution paths the operator can pick from. Each has a distinct 
 3. It reuses existing infrastructure (`AWARE_TRAINER_MIN_PAIRS_PER_RUN=100` threshold, quarterly cadence, the trainer smoke-tested 2026-06-13) rather than introducing new continuous-loop machinery.
 4. Path 1 has the 2,265-restart-loop risk unaddressed. Path 3 doesn't actually integrate OC traffic at all (defeats the spirit of (B)).
 
-But the cost of Path 2 is real: the HeavySkill pair writer today emits garbage (ADR-024 §"Context #3"). Making it emit *real* pairs (chosen/rejected differentiated by content; PRM scores from real extraction or removed; verification pass non-trivial) is non-trivial work that needs a schema design and an Archimedes sign-off. That schema design is the actual unblock for this ADR to be implementable, not the ADR itself.
+But the cost of Path 2 is real: the HeavySkill pair writer today emits garbage (ADR-024 §"Context #3"). Making it emit *real* pairs (chosen/rejected differentiated by content; PRM scores from real extraction or removed; verification pass non-trivial) is non-trivial work that needs a schema design and an Architect sign-off. That schema design is the actual unblock for this ADR to be implementable, not the ADR itself.
 
 ---
 
@@ -112,7 +112,7 @@ But the cost of Path 2 is real: the HeavySkill pair writer today emits garbage (
 
 - Bring up the 5-service compose stack (changes host port bindings, adds Postgres + Redis + Ollama + Trainer processes; visible to other agents; touches gateway config indirectly via awareness-pairs wiring).
 - Touch the <runtime> `extensions/heavyskill/` working tree (it's mid-refactor, 10916 commits ahead of origin, not mine to touch).
-- Modify `~/src/heavyskill-plugin/` (separate repo, separate working tree, not part of this integration scope).
+- Modify `<heavyskill-plugin-source>/` (separate repo, separate working tree, not part of this integration scope).
 - Add new <runtime> plugin entries for AWARE 2.0 coordinator / PRM cache / DPO trainer / awareness-pairs (each is a new plugin manifest; each requires gateway restart; per AGENTS.md this is the high-impact collaboration class).
 
 ---
@@ -125,4 +125,4 @@ But the cost of Path 2 is real: the HeavySkill pair writer today emits garbage (
 
 ---
 
-*Drafted by orchestrator (Alfie) on behalf of operator reversal/continuation signal 2026-06-22. **Accepted 2026-06-22 13:50 BST via operator single-character confirmation "1" on the three-path question (Path 1 / Path 2 / Path 3). Path 1 = override ADR-024, restore continuous OC-traffic flywheel. Implementation steps remain subject to the AGENTS.md high-impact-collaboration rule (gateway restart, new plugin entries, all-agents config changes must be collaborated first). Archimedes review invited.*
+*Drafted by the coordinating agent (Alfie) on operator reversal/continuation signal 2026-06-22. **Accepted 2026-06-22 13:50 BST via operator single-character confirmation "1" on the three-path question (Path 1 / Path 2 / Path 3). Path 1 = override ADR-024, restore continuous OC-traffic flywheel. Implementation steps remain subject to the AGENTS.md high-impact-collaboration rule (gateway restart, new plugin entries, all-agents config changes must be collaborated first). Architect review invited.*

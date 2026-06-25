@@ -1,9 +1,9 @@
 # ADR-013: Phase 3.1 — Agent Identity & Authentication Framework
 
 **Status:** APPROVED (Critor, 2026-04-01 14:00 BST) ✅  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-01  
-**Research inputs:** Phase 1.1 (Agent Identity Layer); Scout Audit (C-01, C-02, C-03); ADR-010 (Trust Score); EVOLUTION-BRIEF.md Section on NHI  
+**Research inputs:** Phase 1.1 (Agent Identity Layer); Researcher Audit (C-01, C-02, C-03); ADR-010 (Trust Score); EVOLUTION-BRIEF.md Section on NHI  
 **Depends on:** Phase 1.1 (Agent Identity Layer)  
 **Phase:** 3.1 (P0 — blocking)  
 
@@ -17,7 +17,7 @@ Phase 1.1 established the Agent Identity Layer with:
 - `IdentityProvider` (JWT issuance for agents)
 - `AgentProtocol` (UDP discovery with HMAC signing)
 
-Scout's audit revealed critical gaps:
+Researcher's audit revealed critical gaps:
 - **C-01:** Hardcoded JWT secret fallback in `auth.js` (still valid)
 - **C-02:** Agent heartbeat auth missing
 - **C-03:** Heartbeat fails open without policy engine
@@ -86,7 +86,7 @@ Implement a comprehensive **Agent Identity & Authentication Framework** that pro
   "iss": "aware-ca",
   "type": "agent",
   "agentId": "agent-001",
-  "name": "Forge",
+  "name": "Coder",
   "agentType": "coder",
   "capabilities": ["coding", "review"],
   "clearance": "L2",
@@ -103,7 +103,7 @@ Implement a comprehensive **Agent Identity & Authentication Framework** that pro
   "iss": "aware-ca",
   "type": "agent",
   "agentId": "agent-001",
-  "name": "Forge",
+  "name": "Coder",
   "agentType": "coder",
   "agentVersion": "1.4.2",
   "trustDomain": "aware-prod",
@@ -399,7 +399,7 @@ Revocation status is cached in etcd with TTL for fast lookups:
 
 ## C-01 Fix: Hardcoded Secret
 
-**Problem (from Scout's audit):** `auth.js` has hardcoded fallback `'default_secret_for_dev'`
+**Problem (from Researcher's audit):** `auth.js` has hardcoded fallback `'default_secret_for_dev'`
 
 **Fix:**
 ```javascript
@@ -555,7 +555,7 @@ async function getHeartbeatStatus(agentId) {
 
 ## Status
 
-**DRAFT** — Ready for Critor review and Scout research on attestation standards.
+**DRAFT** — Ready for Critor review and Researcher research on attestation standards.
 
 ---
 

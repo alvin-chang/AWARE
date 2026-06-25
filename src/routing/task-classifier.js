@@ -5,7 +5,7 @@
  * Classifies incoming tasks into TaskCategory for pheromone routing.
  * 
  * @module routing/task-classifier
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

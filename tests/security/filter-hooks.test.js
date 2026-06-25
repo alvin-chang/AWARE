@@ -130,7 +130,7 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
   test('BLOCKS LAN IP 192.168.x.x in STATUS.md', () => {
     const tmp = makeFixtureRepo({
       docsAuditsContent: null,
-      statusMdContent: 'Gitea is at http://192.168.1.198:4001/alvin/aware\n',
+      statusMdContent: 'Gitea is at http://192.168.99.99:4001/example/aware\n',
       usersJsonTracked: false,
       usersTemplateContent: null,
     });
@@ -143,7 +143,7 @@ describe('Layer 1: pre-commit-check.sh content rules', () => {
   test('BLOCKS LAN IP 10.x.x.x in STATUS.md', () => {
     const tmp = makeFixtureRepo({
       docsAuditsContent: null,
-      statusMdContent: 'Internal: http://10.0.1.50:8080\n',
+      statusMdContent: 'Internal: http://10.99.99.99:8080\n',
       usersJsonTracked: false,
       usersTemplateContent: null,
     });

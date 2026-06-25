@@ -1,7 +1,7 @@
 # ADR-018: Phase 3.3 — Decision-Chain Traceability
 
 **Status:** APPROVED (2026-04-02 10:21 UTC)  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-02  
 **Research inputs:** EVOLUTION-BRIEF.md Section 3.3; CSA AI Control Matrix (Audit & Accountability); NIST AI RMF GOVERN 1.7; ISO 27001 A.12.4; DORA Art. 12  
 **Depends on:** ADR-013 (Agent Identity), ADR-015 (Tool Access Control), ADR-016 (Compliance Mapping)  
@@ -18,7 +18,7 @@ AWARE's routing and policy enforcement generate critical security decisions:
 
 **Regulatory requirement:** End-to-end audit trail reconstructing the full decision chain for post-incident investigation and compliance reporting.
 
-**Current gap:** Decisions are logged individually but not linked into a tamper-evident chain. Investigators cannot trace: user request → orchestrator → agent routing → tool calls → output.
+**Current gap:** Decisions are logged individually but not linked into a tamper-evident chain. Investigators cannot trace: user request → agent routing → tool calls → output.
 
 ---
 
@@ -412,7 +412,7 @@ Each injection point must have an integration test that:
 
 ## Approval
 
-**Critic review:** PENDING
+**Reviewer review:** PENDING
 
 **Implementation:** NOT STARTED
 

@@ -5,7 +5,7 @@
 -- The schema is intentionally narrow: metadata about the request, not
 -- the full conversation. The full refined trace is stored truncated
 -- to 8000 chars; the full content lives in the preference-pair JSONL
--- at <host-config>/metaclaw/preference-pairs/ (separate write by
+-- at <process-rl-pipeline-output>/preference-pairs/ (separate write by
 -- heavy-think).
 --
 -- All columns are nullable except: request_id, ts, ok, problem.

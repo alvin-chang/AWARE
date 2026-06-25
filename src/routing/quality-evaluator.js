@@ -5,7 +5,7 @@
  * Per ADR-011 F-1 fix: specified algorithm using weighted combination.
  * 
  * @module routing/quality-evaluator
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

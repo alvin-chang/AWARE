@@ -5,7 +5,7 @@
  * Per ADR-018 §Tamper-Evident Chaining.
  * 
  * @module audit/decision-logger
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

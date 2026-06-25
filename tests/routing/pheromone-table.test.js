@@ -10,7 +10,7 @@
  * T6: Evaporation reduces RESEARCH trails by ~5% per hour (decay=0.05)
  * T7: Task with no keywords classified as GENERAL
  * 
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

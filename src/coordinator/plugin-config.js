@@ -15,7 +15,7 @@
 //     composing their own resolver on top of `resolveKFromPluginConfig`.
 //
 // What this module does NOT do:
-//   - Read OC config from disk. The OC shim (in `~/src/<runtime>/`)
+//   - Read OC config from disk. The OC shim (in `<runtime-source>/`)
 //     is the only place that reads `<runtime>.json`. The coordinator
 //     receives pluginConfig as a wire payload and treats it as
 //     untrusted input.

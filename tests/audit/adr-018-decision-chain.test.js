@@ -1,7 +1,7 @@
 /**
  * ADR-018: Phase 3.3 — Decision-Chain Traceability Tests
  * 
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

@@ -55,7 +55,7 @@ class EvidenceCollector extends EventEmitter {
         collector: 'agent-registry-collector',
         data: {
           totalAgents: 6,
-          agents: ['Forge', 'Scout', 'Quinn', 'Critic', 'Archimedes', 'Chronicler'],
+          agents: ['Coder', 'Researcher', 'Tester', 'Reviewer', 'Architect', 'Chronicler'],
           lastRegistration: new Date().toISOString()
         },
         timestamp: Date.now()

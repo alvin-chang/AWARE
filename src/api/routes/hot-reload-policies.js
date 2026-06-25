@@ -5,7 +5,7 @@
  * Per ADR-012 §API Endpoints.
  * 
  * @module api/routes/hot-reload-policies
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

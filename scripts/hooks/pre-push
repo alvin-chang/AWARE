@@ -3,7 +3,7 @@
 # (see docs/security/filter-architecture.md).
 #
 # Hard-blocks `git push` if the changes being pushed would re-introduce
-# any of the privacy patterns the 2026-06-23 Sentinel audit flagged.
+# any of the privacy patterns the 2026-06-23 audit flagged.
 #
 # Differences from Layer 1 (pre-commit):
 #   - Scans the *full diff* being pushed (not just staged content)

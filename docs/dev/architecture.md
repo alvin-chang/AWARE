@@ -38,7 +38,7 @@ For the "what is AWARE" question, see the v1 brief in
 │  problem, response, model_used, cost_total_usd, ok, error, etc.     │
 │  When the model returns a paired response (chosen + rejected),     │
 │  the row carries a pair_path pointing at the JSONL file in          │
-│  <host-config>/metaclaw/preference-pairs/.                            │
+│  <host-config>/meta-rl-pipeline/preference-pairs/.                            │
 │                                                                      │
 │  Key functions:                                                      │
 │    logConversation(args)              — async, awaited              │
@@ -76,7 +76,7 @@ For the "what is AWARE" question, see the v1 brief in
 │  rates both attempts. Pairs become preference data.                 │
 │                                                                      │
 │  (Code for Stage 4 lives in the heavy-think sibling repo:           │
-│   ~/src/heavy-think/. The AWARE-side glue is in                    │
+│   <heavy-think-source>/. The AWARE-side glue is in                    │
 │   src/coordinator/heavyskill-integration.js via awareHeavyThink.)  │
 └──────────┬───────────────────────────────────────────────────────────┘
            │
@@ -276,9 +276,9 @@ Without the deploy, `fromName` throws "function not found."
 
 ## Why heavy-think is a sibling repo
 
-`~/src/heavy-think/` is its own repo with its own version control,
+`<heavy-think-source>/` is its own repo with its own version control,
 test suite, and release cadence. AWARE depends on it via a file path
-(`AWARE_HEAVY_THINK_PATH`, default `~/src/heavy-think/src/index.js`).
+(`AWARE_HEAVY_THINK_PATH`, default `<heavy-think-source>/src/index.js`).
 This decoupling lets heavy-think iterate independently of AWARE's v2
 release schedule.
 

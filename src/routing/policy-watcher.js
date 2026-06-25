@@ -5,7 +5,7 @@
  * Per ADR-012 §Hot-Reload Watcher.
  * 
  * @module routing/policy-watcher
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

@@ -2,7 +2,7 @@
 
 **Status:** APPROVED (Critor, 2026-04-01 20:39 BST) ✅  
 **Fixes applied:** F-2 (NaN/Infinity weight validation), F-5 (ALPHA/BETA explicitly defined), F-6 (heuristicSum=0 guard)  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.2; ADR-009 Phase 2.1 (Pheromone Specialists)  
 **Depends on:** ADR-009 (Phase 2.1 Pheromone Specialists)  

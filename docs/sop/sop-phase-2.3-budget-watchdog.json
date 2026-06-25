@@ -5,9 +5,9 @@
   "status": "active",
   "author": "Alfie <alfie@localhost>",
   "created": "2026-06-12T12:30:00+00:00",
-  "role": "orchestrator",
+  "role": "coordinator",
   "task_type": "standard",
-  "applies_to_role": "orchestrator",
+  "applies_to_role": "coordinator",
   "goal": "Enforce a rolling 30-day LLM cost budget on the AWARE coordinator. Tiered semantics: soft warn at 80% (X-Budget-Tier header on every response), hard stop at 100% (return 402 to /coordinate, expose /budget/status endpoint, coordinator process stays up). Cost source = Postgres aggregate on aware_conversations.cost_total_usd (single source of truth, no double-bookkeeping).",
   "preconditions": [
     "Working directory: <HOME>/src/AWARE",
@@ -143,7 +143,7 @@
       "name": "Push to Gitea origin",
       "kind": "git",
       "commands": [
-        "set -a; source <host-config>/workspace-orchestrator/gitea-alfie.env; set +a",
+        "set -a; source <host-config>/workspace-coordinator/gitea-alfie.env; set +a",
         "git push origin feature/aware-2.0"
       ],
       "expected": "Push succeeds; remote feature/aware-2.0 at new commit"

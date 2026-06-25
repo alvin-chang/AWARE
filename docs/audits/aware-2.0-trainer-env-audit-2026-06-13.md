@@ -265,21 +265,21 @@ run attempts.
 
 ```yaml
 env_file:
-  - path: ${HOME}/<canonical-credential-store>/ACTIVE-CREDENTIALS.env
+  - path: ${HOME}/<credential-store>/credentials.env
     required: false
 ```
 
 **What happened this turn:** Running `docker compose ... config`
 to inspect the trainer's resolved environment printed the
-**entire contents of `ACTIVE-CREDENTIALS.env`** as the trainer
+**entire contents of `<credential-store-file>`** as the trainer
 service's `environment` block. This includes:
 
-- The full set of credentials defined in `<canonical-credential-store>/ACTIVE-CREDENTIALS.env` (operator-rotate per standing rule)
+- The full set of credentials defined in `<credential-store>/credentials.env` (operator-rotate per standing rule)
 
 **Third credential leak of the session.** The first two were
 `~/.modal.toml` directly; this one is a side effect of
 `docker compose config` resolving env_file references. The fix
-is the same as before: rotate the entire `ACTIVE-CREDENTIALS.env`
+is the same as before: rotate the entire `<credential-store-file>`
 file. Per standing rule, I am not auto-rotating.
 
 **Recommendation:** Add a `docker compose config | grep -E
@@ -333,7 +333,7 @@ should be a Phase 5 R-ticket.
 | MEDIUM-4 | medium | training/app.py | `_REPO_ROOT=/opt/aware` resolves to non-existent path in Modal image; documented graceful-degradation, no fix needed |
 | LOW-5 | low | AZR corpus | cross-container data handoff untested; out of scope for D5 |
 | LOW-6 | low | aware-up | compose_cmd bug fixed this turn (separate from trainer audit) |
-| LOW-7 | low | env_file | `docker compose config` leaks the entire ACTIVE-CREDENTIALS.env (third leak this session) |
+| LOW-7 | low | env_file | `docker compose config` leaks the entire <credential-store-file> (third leak this session) |
 | INFO-8 | info | image arch | aarch64; not an issue for D5 |
 | INFO-9 | info | tests | 307/307 + 81.61% branches pass; per-file trainer coverage below threshold |
 
@@ -405,7 +405,7 @@ surfaces.
 
 **LOW-5: still out of D5 scope** (AZR cross-container handoff)
 
-**LOW-7: still pending operator action** — three credential leaks this session; standing rule says operator rotates, agent reports. Recommend rotating the entire `<canonical-credential-store>/ACTIVE-CREDENTIALS.env`.
+**LOW-7: still pending operator action** — three credential leaks this session; standing rule says operator rotates, agent reports. Recommend rotating the entire `<credential-store>/credentials.env`.
 
 **INFO-8/9: unchanged** (aarch64 image; 307/307 tests + 81.61% branches)
 

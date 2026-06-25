@@ -19,7 +19,7 @@
 //     degraded backend doesn't get hammered on every request.
 //
 // What this module does NOT do (out of scope for Phase 1 router):
-//   - Token accounting / budget tracking (lives in metaclaw budget watchdog)
+//   - Token accounting / budget tracking (lives in process-RL pipeline budget watchdog)
 //   - PRM scoring (lives in heavy-think's prm.js)
 //   - Heavy reasoning orchestration (lives in heavy-think's index.js)
 

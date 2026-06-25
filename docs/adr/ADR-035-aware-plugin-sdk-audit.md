@@ -1,15 +1,15 @@
-# ADR-035 — `~/src/aware-plugin/` v0.1.0: SDK Contract Audit + Rewrite Plan
+# ADR-035 — `<aware-plugin-source>/` v0.1.0: SDK Contract Audit + Rewrite Plan
 
-**Status:** Proposed (drafted 2026-06-22 15:40 BST by Orchestrator Alfie)
+**Status:** Proposed (drafted 2026-06-22 15:40 BST by the coordinating agent)
 **Date:** 2026-06-22
-**Author:** Orchestrator (Alfie) on behalf of operator (Alvin)
-**Relates to:** ADR-034 (OC-side integration architecture), ADR-022 (HeavySkill v2 plugin), `~/src/aware-plugin/` v0.1.0 (commit `b8ee74d`)
+**Author:** the coordinating agent on behalf of operator (Alvin)
+**Relates to:** ADR-034 (OC-side integration architecture), ADR-022 (HeavySkill v2 plugin), `<aware-plugin-source>/` v0.1.0 (commit `b8ee74d`)
 
 ---
 
 ## Why this ADR exists
 
-In the prior turn I built and committed `~/src/aware-plugin/` v0.1.0 (commit `b8ee74d`) implementing ADR-034. The plugin:
+In the prior turn I built and committed `<aware-plugin-source>/` v0.1.0 (commit `b8ee74d`) implementing ADR-034. The plugin:
 
 - Built a tool surface (`aware-coordinate`)
 - Built a hook surface (`wrapHeavyskillInferenceStream`)
@@ -111,7 +111,7 @@ The factory `definePluginEntry` is from the SDK. The plugin entry function takes
 ### Phase A: Move file structure to match HeavySkill conventions
 
 ```
-~/src/aware-plugin/
+<aware-plugin-source>/
 ├── <runtime>.plugin.json     (updated — uses <runtime> SDK as peer dep)
 ├── package.json             (updated — adds <runtime> as devDep)
 ├── src/
@@ -144,7 +144,7 @@ The tool handler signature is `execute(args, ctx) → Promise<result>`. My exist
 
 ### Phase D: Verify against the actual SDK
 
-The plugin should be installable as `pnpm install ~/src/aware-plugin` from `<HOME>/src/<runtime>` and the gateway should load it cleanly. I can verify by reading the type definitions from the SDK directly (already done in this audit) and by adding integration tests using a stub `api` object that matches the real `<runtime>PluginApi` shape.
+The plugin should be installable as `pnpm install <aware-plugin-source>` from `<HOME>/src/<runtime>` and the gateway should load it cleanly. I can verify by reading the type definitions from the SDK directly (already done in this audit) and by adding integration tests using a stub `api` object that matches the real `<runtime>PluginApi` shape.
 
 ### Phase E: Update tests + commit
 
@@ -208,6 +208,6 @@ Reasoning:
 
 ---
 
-*Drafted by Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive 2026-06-22 15:40 BST. Status: Proposed. The plugin v0.1.0 is acknowledged as not-OC-compatible. Rewrite plan is documented. Implementation awaits operator direction (continue with rewrite, or pause for Archimedes review of the v0.1.0 design first).*
+*Drafted by the coordinating agent on behalf of operator (Alvin) "Continue" directive 2026-06-22 15:40 BST. Status: Proposed. The plugin v0.1.0 is acknowledged as not-OC-compatible. Rewrite plan is documented. Implementation awaits operator direction (continue with rewrite, or pause for Architect review of the v0.1.0 design first).*
 
 *This is the second time in this session that an audit found a hallucinated detail (first was the `prm+content` verification method, now this). I should be more careful about verifying integration contracts before committing. Lesson logged.*

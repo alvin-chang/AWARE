@@ -1,14 +1,14 @@
 # AWARE Privacy Filter — 4-Layer Architecture
 
-**Privacy filter (post 2026-06-23 Sentinel audit).**
-**Author:** Forge (Coder), Phase A2.
-**Status:** Active (Layers 1, 2 client-side; Layer 3 install pending Herald).
+**Privacy filter (post 2026-06-23 the auditor audit).**
+**Author:** Coder (Coder), Phase A2.
+**Status:** Active (Layers 1, 2 client-side; Layer 3 install pending the release agent).
 
 ---
 
 ## Why this exists
 
-Sentinel's 2026-06-23 private-data sweep of `github.com/GoodCISO/aware`
+the auditor's 2026-06-23 private-data sweep of `github.com/GoodCISO/aware`
 (audit `audit-goodciso-aware-private-data-2026-06-23.md`) found **no real
 secrets** but **3 anti-patterns** on the public repo:
 
@@ -29,7 +29,7 @@ or push to the repo.
 |---|---|---|---|---|
 | **1. pre-commit** | `git commit` (staged content) | Client `.git/hooks/pre-commit` → `scripts/hooks/pre-commit` | Yes — `git commit --no-verify` | Coder (this commit) |
 | **2. pre-push** | `git push` (full diff of all changed refs + working tree) | Client `.git/hooks/pre-push` → `scripts/hooks/pre-push` | Yes — `git push --no-verify` | Coder (this commit) |
-| **3. pre-receive (gitea)** | `git push` arrives on gitea server | Gitea bare repo `custom_hooks/pre-receive` → `scripts/hooks/pre-receive` | **No** (gitea admin only) | Herald (install) |
+| **3. pre-receive (gitea)** | `git push` arrives on gitea server | Gitea bare repo `custom_hooks/pre-receive` → `scripts/hooks/pre-receive` | **No** (gitea admin only) | the release agent (install) |
 | **4. CI guard** | Every PR + every push to main | `.github/workflows/lint-private-data.yml` (existing, A1) **+** `.gitea/workflows/lint-private-data.yml` (new, A2) | No (CI environment) | Coder (this commit) |
 
 Each layer is a **defence in depth** measure. The order is intentional:
@@ -120,7 +120,7 @@ bypass it without gitea admin rights.
 host at `<bare-repo>.git/custom_hooks/pre-receive`.
 
 **Install instructions:** `docs/security/gitea-pre-receive-install.md`
-(Herald owns the install; this doc explains the steps).
+(the release agent owns the install; this doc explains the steps).
 
 **What it checks:**
 
@@ -145,9 +145,9 @@ error.
 | `git push --no-verify` to skip Layer 2 | Pushed content still scanned by Layer 3 |
 | `rm .git/hooks/*` on dev machine | Pushed content still scanned by Layer 3 |
 | Push via raw `git+ssh` to the bare repo (bypassing gitea) | NOT caught by Layer 3 (bypasses gitea entirely) — mitigation is to disable direct SSH access to bare repos for non-gitea users. Out of scope for this filter doc. |
-| Gitea admin modifies the hook to do nothing | Sentinel's weekly scan re-runs `/tmp/scan_aware.py`; if banned patterns reappear in any ref, the hook is broken or missing. |
+| Gitea admin modifies the hook to do nothing | the auditor's weekly scan re-runs `/tmp/scan_aware.py`; if banned patterns reappear in any ref, the hook is broken or missing. |
 
-**Recovery if broken:** Herald can temporarily disable the hook by
+**Recovery if broken:** the release agent can temporarily disable the hook by
 renaming `pre-receive` → `pre-receive.disabled` in the bare repo. This
 unblocks pushes. Re-enable as soon as fixed.
 
@@ -174,8 +174,8 @@ redundant — if github is down or a contributor forks to gitea only, the
 local gitea CI still catches patterns. If gitea Actions isn't enabled
 on the local instance, (b) is a no-op; (a) is the primary check.
 
-**Why not just (c) a Herald cron?** The cron is a good **detection**
-mechanism (Sentinel's weekly scan), but not a **prevention** mechanism
+**Why not just (c) a the release agent cron?** The cron is a good **detection**
+mechanism (the auditor's weekly scan), but not a **prevention** mechanism
 like (a) and (b) are. Pre-merge is cheaper than post-merge revert.
 
 ## What all 4 layers check (the union)
@@ -223,7 +223,7 @@ positive that the maintainers want to allow):
 |---|---|
 | 1 (pre-commit) | `bash scripts/install-hooks.sh --uninstall` (removes the symlink). Edit the rule in `scripts/pre-commit-check.sh` or `.gitleaks.toml`. Re-run `bash scripts/install-hooks.sh` to reinstall. |
 | 2 (pre-push) | Same as Layer 1. |
-| 3 (pre-receive) | Herald SSHes into the gitea container and renames `custom_hooks/pre-receive` → `custom_hooks/pre-receive.disabled`. Edit the rule in `scripts/hooks/pre-receive` in the working copy. Re-copy the fixed script into the container. |
+| 3 (pre-receive) | the release agent SSHes into the gitea container and renames `custom_hooks/pre-receive` → `custom_hooks/pre-receive.disabled`. Edit the rule in `scripts/hooks/pre-receive` in the working copy. Re-copy the fixed script into the container. |
 | 4 (CI) | Fix the rule in `.gitleaks.toml` / `.github/workflows/lint-private-data.yml` / `.gitea/workflows/lint-private-data.yml`. Push the fix. |
 
 ## Why the 4 layers are worth the cost
@@ -231,7 +231,7 @@ positive that the maintainers want to allow):
 The 2026-06-23 audit caught the pattern **after** it shipped to
 public github. The cost of a single re-do (filter-repo + force-push +
 D coordination + E verification) is roughly 4-8 hours of human time
-across Herald, Forge, and Alvin, plus the security risk of leaving the
+across the release agent, Coder, and Alvin, plus the security risk of leaving the
 pattern in any ref for the duration of the rewrite.
 
 The 4-layer filter runs on every commit, every push, every PR, and
@@ -249,7 +249,7 @@ cleaning up after a single re-emergence.
   equivalent) could require review from `@goodciso/security` on any
   change to `docs/security/` or `scripts/hooks/`.
 - **Branch protection** — `chore/aware-*` and `docs/security-*`
-  branches should require review from Forge + Herald before merge to
+  branches should require review from Coder + the release agent before merge to
   `main`. (Today they don't.)
 - **Secret scanning on github** — github has built-in secret scanning
   (separate from gitleaks). Turning it on would catch patterns that
@@ -261,7 +261,7 @@ work" section, not in this A2 spec.
 ## Related docs
 
 - `docs/security/history-rewrites.md` — context for the filter rollout
-- `docs/security/gitea-pre-receive-install.md` — Herald's install guide
+- `docs/security/gitea-pre-receive-install.md` — the release agent's install guide
 - `scripts/pre-commit-check.sh` — Layer 1 content rules (A1)
 - `scripts/hooks/pre-commit` — Layer 1 wrapper (A2)
 - `scripts/hooks/pre-push` — Layer 2 (A2)
@@ -273,4 +273,4 @@ work" section, not in this A2 spec.
 - `.github/workflows/lint-private-data.yml` — Layer 4(a) (A1)
 - `.gitea/workflows/lint-private-data.yml` — Layer 4(b) (A2)
 - `audit-goodciso-aware-private-data-2026-06-23.md` — the source audit
-  (Sentinel, 2026-06-23)
+  (the auditor, 2026-06-23)

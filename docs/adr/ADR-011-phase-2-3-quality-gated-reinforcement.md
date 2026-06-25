@@ -5,7 +5,7 @@
 - F-1: Specified quality_score calculation algorithm (weighted multi-factor model)
 - F-2: Defined blast_radius_estimate computation (references ADR-010 estimateBlastRadius)
 - F-3: Added blast-radius-matrix to POLICY_SCHEMAS (in ADR-012)  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-01  
 **Research inputs:** EVOLUTION-BRIEF.md Section 2.3; ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic)  
 **Depends on:** ADR-009 (Phase 2.1 Pheromone Specialists), ADR-010 (Phase 2.2 Security-Weighted Heuristic)  
@@ -126,7 +126,7 @@ function computeQualityScore(
 
 Quality is assessed from multiple perspectives:
 
-1. **Explicit confirmation**: Task orchestrator confirms success/failure
+1. **Explicit confirmation**: The agent confirms success/failure
 2. **Output validation**: Expected output matches actual output (for deterministic tasks)
 3. **Human feedback**: Admin or stakeholder rating (for subjective tasks)
 4. **Automated metrics**: Precision/recall, error rates, etc.
@@ -329,7 +329,7 @@ routing:
 
 ## Status
 
-**DRAFT** — Ready for Critor review and Quinn integration testing.
+**DRAFT** — Ready for Critor review and Tester integration testing.
 
 ---
 

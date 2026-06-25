@@ -32,7 +32,7 @@ describe('IdentityProviderV2', () => {
     it('should create a session for an active agent', () => {
       const mockAgent = {
         agentId: 'agent:coder:instance-001',
-        name: 'Forge',
+        name: 'Coder',
         type: 'coder',
         version: '1.0.0',
         state: AgentState.ACTIVE,
@@ -85,7 +85,7 @@ describe('IdentityProviderV2', () => {
     it('should verify a valid session token', () => {
       const mockAgent = {
         agentId: 'agent:coder:instance-001',
-        name: 'Forge',
+        name: 'Coder',
         type: 'coder',
         version: '1.0.0',
         state: AgentState.ACTIVE,
@@ -123,7 +123,7 @@ describe('IdentityProviderV2', () => {
     it('should allow access to permitted tools', () => {
       const mockAgent = {
         agentId: 'agent:coder:instance-001',
-        name: 'Forge',
+        name: 'Coder',
         type: 'coder',
         version: '1.0.0',
         state: AgentState.ACTIVE,
@@ -148,7 +148,7 @@ describe('IdentityProviderV2', () => {
     it('should deny access to prohibited tools', () => {
       const mockAgent = {
         agentId: 'agent:coder:instance-001',
-        name: 'Forge',
+        name: 'Coder',
         type: 'coder',
         version: '1.0.0',
         state: AgentState.ACTIVE,

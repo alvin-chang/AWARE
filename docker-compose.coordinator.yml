@@ -94,7 +94,7 @@ services:
   # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
   # so the bring-up script's default 4-service stack works without it.
   # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
-  # Picks up LLM_API_KEY env var name (was MINIMAX_API_KEY in 0.2.0
+  # Picks up LLM_API_KEY env var name (was PROVIDER_API_KEY in 0.2.0
   # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
   # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   gateway:
@@ -143,7 +143,7 @@ services:
   # The Phase 1 deliverable. Built from Dockerfile.coordinator.
   # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
   # 2026-06-23: rebuilt as 0.4.0-phase4-complete-ollama-removed.
-  # Picks up LLM_API_KEY env var name (was MINIMAX_API_KEY in 0.2.0
+  # Picks up LLM_API_KEY env var name (was PROVIDER_API_KEY in 0.2.0
   # image), plus ADR-029 Repair 1 trainer-config defaults (filterRule
   # min_score_gap, filterMinGap 0.20). See ADR-020 amendment.
   coordinator:
@@ -186,26 +186,18 @@ services:
       - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
       - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
       # 2026-06-23: API key wiring. The canonical env var is
-      # MINIMAX_API_KEY (matches the host credential store + heavy-think
-      # source). We also pass through LLM_API_KEY for backward compat
-      # with operators still using the legacy name — the config module
-      # reads MINIMAX_API_KEY first and falls back to LLM_API_KEY with
-      # a soft deprecation warning. The compose `env_file:` block
-      # references the host's ACTIVE-CREDENTIALS.env file
-      # (path is operator-specific, defaults to
-      # ~/.openclaw/credentials/ACTIVE-CREDENTIALS.env on this host),
-      # Operators should either (a) symlink `<host-secret-dir>` to
-      # `.openclaw/credentials`, or (b) source ACTIVE-CREDENTIALS.env
-      # into their shell before invoking docker compose.
+      # PROVIDER_API_KEY. We also pass through LLM_API_KEY for
+      # backward compat with operators still using the legacy name —
+      # the config module reads PROVIDER_API_KEY first and falls back
+      # to LLM_API_KEY with a soft deprecation warning. The compose
+      # `env_file:` block references the host's credential-store file
+      # (path is operator-specific; see <host-secret-dir>/env.example),
+      # Operators should either (a) symlink `<host-secret-dir>` to the
+      # canonical location, or (b) source the credentials file into
+      # their shell before invoking docker compose.
       # See ADR-042.
-      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
-      # Legacy env var — supported as a deprecated alias. Operators who
-      # still set LLM_API_KEY instead of MINIMAX_API_KEY should source
-      # it into the host shell (or set it here directly). Empty by
-      # default; config.model.minimaxKey resolves canonical first then
-      # falls back to LLM_API_KEY with a soft deprecation warning.
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - MINIMAX_API_HOST=${MINIMAX_API_HOST:-}
+      - PROVIDER_API_HOST=${PROVIDER_API_HOST:-}
       # 2026-06-23: OLLAMA_URL removed — no Ollama sidecar. If the
       # env var is set in the host (e.g. from a stale .env), it's
       # ignored by the coordinator because the Ollama client is no
@@ -261,29 +253,21 @@ services:
       # baseline). See scripts/audit-retention-cleanup.js + docs/sop/audit-retention.md
       - AWARE_AUDIT_RETENTION_DAYS=${AWARE_AUDIT_RETENTION_DAYS:-2555}
     # The upstream LLM API key is intentionally NOT hardcoded. The
-    # compose file reads the env var from the canonical credential
-    # store on this host:
-    #   ~/.openclaw/credentials/ACTIVE-CREDENTIALS.env
-    # This is a real file (mode 0600) that already contains
-    # the upstream LLM key plus a few dozen other agent secrets. It
-    # is the source of truth for the whole multi-agent stack, so
-    # wiring the AWARE coordinator to read from it means:
-    #   - one place to rotate the key
-    #   - no key duplication in the AWARE repo
-    #   - gitignore handles the secret file by virtue of being
-    #     outside the repo
-    # If the file is absent (e.g. a CI runner or a fresh dev box
-    # that has never logged into the multi-agent system), the
+    # compose file reads the env var from a credential-store file
+    # whose path is operator-supplied via the `AWARE_CREDENTIALS_FILE`
+    # env var (default: `<host-secret-dir>/credentials.env`).
+    # Operators set up the credential store as part of install. If the
+    # file is absent (e.g. a CI runner or a fresh dev box), the
     # coordinator boots in offline-only-disabled mode: with
-    # AWARE_MODE=online (the new default), there is no offline
-    # fallback, so /coordinate returns 503 until the key is provided.
+    # AWARE_MODE=online (the default), there is no offline fallback,
+    # so /coordinate returns 503 until the key is provided.
     # Required: false makes this a soft dependency.
     env_file:
-      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
+      - path: ${AWARE_CREDENTIALS_FILE:-<host-secret-dir>/credentials.env}
         required: false
     volumes:
       # Named volume for preference-pair output. Phase 1 used a bind
-      # mount from <host-config>/metaclaw/preference-pairs but bind mounts
+      # mount from <host-config>/meta-rl-pipeline/preference-pairs but bind mounts
       # from <host-config>/ into containers silently fail to populate.
       # The named volume lives at
       # /var/lib/docker/volumes/aware-2-pairs-data/_data; the trainer
@@ -422,7 +406,7 @@ services:
   # active weight checkpoint.
   #
   # SECURITY:
-  # - The Modal token is read from ACTIVE-CREDENTIALS.env at runtime;
+  # - The Modal token is read from <credential-store-file> at runtime;
   #   it is NOT in this compose file. The env_file reference below
   #   uses `required: false` so a host without the credential store
   #   still brings the trainer up (in disabled-by-config state).
@@ -476,7 +460,7 @@ services:
       # The gateway must mirror this token in its outbound Authorization header.
       - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
     env_file:
-      - path: ${HOME}/.openclaw/credentials/ACTIVE-CREDENTIALS.env
+      - path: ${AWARE_CREDENTIALS_FILE:-<credential-store>/credentials.env}
         required: false
     volumes:
       # The trainer's data dir is where it stages DPO dataset JSONLs

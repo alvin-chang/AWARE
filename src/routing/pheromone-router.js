@@ -6,7 +6,7 @@ const crypto = require('crypto');
  * AMRO-S soft-max probabilistic agent selection.
  * 
  * @module routing/pheromone-router
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

@@ -1,12 +1,12 @@
 # AWARE 2.0 Production Rollout Plan
 
 **Status:** Active (added 2026-06-25, C-step finding #20)
-**Owner:** Operator (Alvin) + Forge (execution)
+**Owner:** Operator (Alvin) + Coder (execution)
 **Related:** v2.5.0 release, `docker-compose.coordinator.yml`, `scripts/bring-up-coordinator.sh`
 
 ## Why
 
-Sentinel C-step audit (2026-06-25) closed every code-fixable finding, but
+the auditor C-step audit (2026-06-25) closed every code-fixable finding, but
 flagged three operator-owned items for production cutover:
 
 - **#18** — runtime bring-up evidence (real `/coordinate` call end-to-end)
@@ -16,19 +16,19 @@ flagged three operator-owned items for production cutover:
 
 Items 18/19 require **runtime evidence** in staging before cutover. This
 SOP is the production rollout plan (item 20) that operators follow during
-cutover. Runtime evidence items are owned by Forge; see "Pre-cutover gates"
+cutover. Runtime evidence items are owned by Coder; see "Pre-cutover gates"
 below for the handoff contract.
 
-## Pre-cutover gates (Forge-owned evidence items 18/19)
+## Pre-cutover gates (Coder-owned evidence items 18/19)
 
 Before running any production cutover, the operator must have on hand:
 
 | Gate | Source | Required artifact |
 |---|---|---|
-| Real `/coordinate` HTTP call in staging with a live MiniMax key | Forge | Transcript of `curl -X POST /coordinate` request + 200 response + non-empty `attempts[]` array |
-| Real `/api/audit/chain` HTTP query in staging | Forge | `GET /api/audit/chain` returning `200 OK` with `entries: [...]` |
-| Decision-log hash-chain integrity verified post-call | Forge | `GET /api/audit/verify` returning `{ ok: true, valid: true }` |
-| Audit retention dry-run in staging | Forge | `npm run audit:retention:cleanup -- --dry-run` exiting 0 |
+| Real `/coordinate` HTTP call in staging with a live MiniMax key | Coder | Transcript of `curl -X POST /coordinate` request + 200 response + non-empty `attempts[]` array |
+| Real `/api/audit/chain` HTTP query in staging | Coder | `GET /api/audit/chain` returning `200 OK` with `entries: [...]` |
+| Decision-log hash-chain integrity verified post-call | Coder | `GET /api/audit/verify` returning `{ ok: true, valid: true }` |
+| Audit retention dry-run in staging | Coder | `npm run audit:retention:cleanup -- --dry-run` exiting 0 |
 
 The transcript is recorded in `evidence/v2.5.0-staging-bringup-<date>.md`
 under the operator-controlled evidence directory. The transcript must
@@ -36,8 +36,8 @@ include the exact curl command, the raw response body, and a one-line
 summary of what was verified.
 
 If any of the four gates above is missing, **DO NOT proceed to cutover**.
-The pre-cutover gates exist precisely because Sentinel's read-only
-charter could not produce runtime evidence — that handoff to Forge is
+The pre-cutover gates exist precisely because the auditor's read-only
+charter could not produce runtime evidence — that handoff to Coder is
 load-bearing.
 
 ## Cutover sequence
@@ -98,11 +98,11 @@ curl -sS http://127.0.0.1:3000/health
 # Expected: {"ok":true}
 ```
 
-### Stage 5 — Runtime evidence gates (Forge's domain)
+### Stage 5 — Runtime evidence gates (Coder's domain)
 
 Run the four gates from "Pre-cutover gates" above. Save transcripts to
 `evidence/v2.5.0-staging-bringup-<date>.md`. If any gate fails, the
-rollout is paused until Forge investigates.
+rollout is paused until Coder investigates.
 
 ## CORS allowlist (cutover hardening)
 
@@ -142,13 +142,13 @@ repo; all are read from environment at runtime.
 |---|---|---|---|
 | `AWARE_COORDINATOR_TOKEN` | Every 90 days | Operator | Coordinator refuses `/coordinate` (fail-closed) |
 | `AWARE_POSTGRES_PASSWORD` | Every 180 days | Operator | Postgres won't start; coordinator can't connect |
-| `MINIMAX_API_KEY` | Per provider policy | Operator | Coordinator runs offline-only (mode=offline); no online reasoning |
+| `PROVIDER_API_KEY` | Per provider policy | Operator | Coordinator runs offline-only (mode=offline); no online reasoning |
 | `AWARE_AUDIT_RETENTION_DAYS` | Per compliance policy | Operator | Default 2555 (7 years) if unset |
 
 **Rotation procedure:**
 
 1. Generate the new value via the canonical secret manager (e.g., `openssl rand -hex 32` for tokens, password manager for DB credentials).
-2. Update the operator's secrets store at `~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env` (path is operator-dependent).
+2. Update the operator's secrets store at `<credential-store>/credentials.env` (path is operator-dependent).
 3. Restart affected services:
 
    ```bash
@@ -163,7 +163,7 @@ repo; all are read from environment at runtime.
 
    ```bash
    # Coordinator token test
-   NEW_TOKEN=$(grep AWARE_COORDINATOR_TOKEN ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env | cut -d= -f2)
+   NEW_TOKEN=$(grep AWARE_COORDINATOR_TOKEN <credential-store>/credentials.env | cut -d= -f2)
    curl -sS -X POST http://127.0.0.1:18081/coordinate \
      -H "Authorization: Bearer $NEW_TOKEN" \
      -H "Content-Type: application/json" \
@@ -257,7 +257,7 @@ Print this out and tick boxes:
 - [ ] Stage 2: Both images built; image SHAs recorded
 - [ ] Stage 3: All four services `healthy`
 - [ ] Stage 4: Smoke tests all return expected values
-- [ ] Stage 5: All four Forge-owned runtime evidence gates passed; transcripts in `evidence/v2.5.0-staging-bringup-<date>.md`
+- [ ] Stage 5: All four Coder-owned runtime evidence gates passed; transcripts in `evidence/v2.5.0-staging-bringup-<date>.md`
 - [ ] CORS allowlist set to production origins; verified via OPTIONS preflight
 - [ ] Secret rotation cadence confirmed in ops calendar
 - [ ] Kill-switch drill completed; entry in `evidence/kill-switch-drills.log`
@@ -265,4 +265,4 @@ Print this out and tick boxes:
 - [ ] Rollback plan: `git checkout v2.4.0 && docker compose -f docker-compose.coordinator.yml -p aware-2 --profile full up -d`
 
 If any box is unchecked at end-of-day, the cutover is paused until the
-operator and Forge resolve the gap. There is no "rush it" override.
+operator and Coder resolve the gap. There is no "rush it" override.

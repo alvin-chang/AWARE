@@ -1,15 +1,15 @@
 # ADR-014: Phase 3.1 — Behavioural Anomaly Detection & Baseline
 
-**Status:** APPROVED (Critic, 2026-04-01 21:10 BST) ✅  
-**Author:** Archimedes  
+**Status:** APPROVED (Reviewer, 2026-04-01 21:10 BST) ✅  
+**Author:** Architect  
 **Date:** 2026-04-01  
-**Research inputs:** Phase 1.3 (Behavioural Baseline); ADR-010 (Trust Score); ADR-013 (Identity Framework); Scout Audit findings  
+**Research inputs:** Phase 1.3 (Behavioural Baseline); ADR-010 (Trust Score); ADR-013 (Identity Framework); Researcher Audit findings  
 **Depends on:** ADR-010 (Trust Score integration), ADR-013 (Identity Framework)  
 **Phase:** 3.1 (P0 — blocking for trust_score integration)  
 
 ---
 
-## Critic Review Findings (2026-04-01 18:39 BST)
+## Reviewer Review Findings (2026-04-01 18:39 BST)
 
 **VERDICT: REVISIONS NEEDED — 3 CRITICAL issues resolved**
 
@@ -493,7 +493,7 @@ async function applyAnomalyPenalty(agentId, anomalyScore) {
 
 ## Status
 
-**DRAFT** — Ready for Critor review and Scout research on anomaly detection methodologies.
+**DRAFT** — Ready for Critor review and Researcher research on anomaly detection methodologies.
 
 ---
 

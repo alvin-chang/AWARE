@@ -5,9 +5,9 @@
 - F-1: Fixed evaporatePheromones() to use table.agents and table.transitions (not table.trails)
 - F-2: Implemented computeHeuristic() stub using ADR-010 approved weights
 - F-3: Defined ALPHA=1.0 and BETA=1.0 constants per ADR-010  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-03-31  
-**Research inputs:** Scout (commit `bba2ce6`), AMRO-S paper (arXiv:2603.12933)  
+**Research inputs:** Researcher (commit `bba2ce6`), AMRO-S paper (arXiv:2603.12933)  
 **Depends on:** ADR-003 / Phase 1b (Policy Engine + Per-Agent Sandboxes)  
 
 ---
@@ -483,7 +483,7 @@ AMRO-S Section 3.2 proposes task-specific specialists but does not specify:
 
 ---
 
-## Open Questions (5 items from Scout's research)
+## Open Questions (5 items from Researcher's research)
 
 These must be resolved before or during Phase 2.1 implementation:
 

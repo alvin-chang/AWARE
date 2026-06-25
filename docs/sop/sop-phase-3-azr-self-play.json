@@ -5,9 +5,9 @@
   "status": "active",
   "author": "Alfie <alfie@localhost>",
   "created": "2026-06-12T15:30:00+00:00",
-  "role": "orchestrator",
+  "role": "coordinator",
   "task_type": "standard",
-  "applies_to_role": "orchestrator",
+  "applies_to_role": "coordinator",
   "goal": "Close the AWARE 2.0 learning loop. The trainer service watches for new preference pairs in Postgres, submits DPO fine-tuning jobs to Modal (A100-80GB + training-optimizer 4-bit QLoRA on Qwen 2.5 7B), polls for completion, and atomically swaps the active weight checkpoint. Phase 3 produces the first self-improving model. Architecture decisions: A1 (single source of truth = Postgres-aware_conversations), B3 (env-var kill switch, default off), C2 (token read from canonical credential store, NEVER in repo).",
   "preconditions": [
     "Working directory: <HOME>/src/AWARE",
@@ -17,12 +17,12 @@
     "Phase 2.3 budget watchdog shipped — aware_budget_windows migration + src/budget/watchdog.js",
     "ADR-020 Phase 1+2+3 deliverables on disk (Dockerfile.training, training/run.py, src/trainer/index.js, config/modal-training.json, azr/executor.py, db/migrations/004_training_runs.sql)",
     "All 208/208 v2 unit tests pass (was 135 at Phase 2.0; +73 = 8 budget + 8 budget interaction + 8 PRM-cache edge cases + 8 config trainer + 14 trainer poller + 27 misc; the breakdown doesn't matter, the count does)",
-    "Modal account + $3K credit + <redacted-credential-name> + <redacted-credential-name> in ACTIVE-CREDENTIALS.env (RUNTIME GATE — not needed to write the code, IS needed to actually run a training job)"
+    "Modal account + $3K credit + <redacted-credential-name> + <redacted-credential-name> in <credential-store-file> (RUNTIME GATE — not needed to write the code, IS needed to actually run a training job)"
   ],
   "architecture_decisions": {
     "dataset_source": "A1 (Postgres aggregate on aware_conversations; pairs are produced by heavy-think's toDpoDataset and tracked in conversations.cost_total_usd)",
     "kill_semantics": "B3 (env-var kill switch AWARE_TRAINER_ENABLED=0 default; re-read on every poll tick, no caching)",
-    "credential_location": "C2 (Modal token read from process.env.<redacted-credential-name>/SECRET at runtime; never in repo, image, or compose file; canonical credential store = ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env)",
+    "credential_location": "C2 (Modal token read from process.env.<redacted-credential-name>/SECRET at runtime; never in repo, image, or compose file; canonical credential store = <credential-store>/credentials.env)",
     "training_runtime": "D1 (training-optimizer 4-bit QLoRA on Qwen 2.5 7B base, single A100-80GB on Modal, 60 GPU hours per run ≈ $150)",
     "checkpoint_swap": "E1 (atomic symlink: create tmp symlink, then rename(2) over the active symlink; survives concurrent readers)"
   },
@@ -45,7 +45,7 @@
     "training_run_py": "training/run.py — DPO training job entry point that runs INSIDE the Modal container. CLI: --config, --dataset, --output-dir, --run-id, --gen-azr-corpus, --azr-corpus-size, --smoke-test. Lazy imports for transformers/unsloth so CLI works without GPU. AZR self-play proposer/solver/test-extractor inlined. Emits JSON-line progress to stdout, parsed by the trainer service. Exit codes: 0=ok, 1=generic, 2=config, 3=dataset, 4=model load, 5=training OOM, 6=checkpoint save.",
     "trainer_poller": "src/trainer/index.js — Node-based aware-trainer service. Polls Postgres for new preference pairs, submits Modal jobs, polls for completion, downloads checkpoint, atomic symlink swap. Kill switch re-read on every tick. Token never logged, never serialized. 14 unit tests in test/unit/trainer/index.test.js (DI'd modal client + pg pool, drives _tick() deterministically).",
     "training_runs_migration": "db/migrations/004_training_runs.sql — aware_training_runs table (run_id, status, n_pairs, modal_job_id, base_model, hyperparameters, duration, cost, checkpoint_dir, exit_code, error_message). Partial index on status='running' for fast polling. Authoritative record of what runs have happened and their state.",
-    "compose_trainer_service": "docker-compose.coordinator.yml — 8th service 'trainer' behind the `training` profile. AWARE_TRAINER_ENABLED=0 default. env_file ACTIVE-CREDENTIALS.env with required:false. Modal token never in compose. New volume: aware-2-trainer-data.",
+    "compose_trainer_service": "docker-compose.coordinator.yml — 8th service 'trainer' behind the `training` profile. AWARE_TRAINER_ENABLED=0 default. env_file <credential-store-file> with required:false. Modal token never in compose. New volume: aware-2-trainer-data.",
     "bring_up_smoke_tests": "scripts/bring-up-coordinator.sh — +3 smoke tests for Phase 3: (a) aware_training_runs table exists (migration 004 applied), (b) modal-training.json has all required fields, (c) trainer container boot log present (when --profile training is enabled)."
   },
   "execution_steps": [
@@ -209,9 +209,9 @@
   ],
   "verification": {
     "code_level": "208/208 Node tests + 31/32 Python tests (1 Linux-only skip) + 13 bring-up smoke tests + 3 new Phase 3 smoke tests. The trainer service is fully implemented and tested via DI'd dependencies. No Modal access required for any test.",
-    "runtime_level": "To actually run a DPO training job: (1) provision Modal account, (2) set <redacted-credential-name> + <redacted-credential-name> in ACTIVE-CREDENTIALS.env, (3) set AWARE_TRAINER_ENABLED=1 in the trainer service's compose env, (4) bring up with --profile training, (5) wait for AWARE_TRAINER_MIN_PAIRS_PER_RUN (default 100) preference pairs to accumulate, (6) trainer submits the first job. Runtime cost: ~$150 per training run on A100-80GB, ~$3K total Modal budget per ADR-020."
+    "runtime_level": "To actually run a DPO training job: (1) provision Modal account, (2) set <redacted-credential-name> + <redacted-credential-name> in <credential-store-file>, (3) set AWARE_TRAINER_ENABLED=1 in the trainer service's compose env, (4) bring up with --profile training, (5) wait for AWARE_TRAINER_MIN_PAIRS_PER_RUN (default 100) preference pairs to accumulate, (6) trainer submits the first job. Runtime cost: ~$150 per training run on A100-80GB, ~$3K total Modal budget per ADR-020."
   },
-  "secrets_handling": "Modal token is the only new credential. It is read at trainer boot from process.env.<redacted-credential-name> / <redacted-credential-name> (set by the operator's ACTIVE-CREDENTIALS.env on the host, never in the repo). The token is NEVER logged, NEVER serialized, NEVER included in compose YAML. config.snapshot() redacts both fields as '<redacted length=N>'. Standing memory rule: 'Credential location, not value' is honored — I write process.env references, the operator sets the value.",
+  "secrets_handling": "Modal token is the only new credential. It is read at trainer boot from process.env.<redacted-credential-name> / <redacted-credential-name> (set by the operator's <credential-store-file> on the host, never in the repo). The token is NEVER logged, NEVER serialized, NEVER included in compose YAML. config.snapshot() redacts both fields as '<redacted length=N>'. Standing memory rule: 'Credential location, not value' is honored — I write process.env references, the operator sets the value.",
   "out_of_scope": [
     "Phase 4 — Training Pipeline Integration (training data filter + combined DPO + eval). Depends on Phase 3 having a real trained model.",
     "Phase 5 — N.O.M.A.D. portability (install.sh, .env.example full template, Redis memory service, T0-T4 enforcement on workers). Independent of Phase 3.",

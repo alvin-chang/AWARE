@@ -3,7 +3,7 @@
 # (see docs/security/filter-architecture.md).
 #
 # Hard-blocks any commit that would re-introduce the anti-patterns
-# the 2026-06-23 Sentinel audit flagged in GoodCISO/aware:
+# the 2026-06-23 audit flagged in GoodCISO/aware:
 #   1. Host-specific paths in docs/audits/*.md
 #   2. LAN IPs and secrets paths in STATUS.md
 #   3. src/data/users.json + src/data/agents.json shape (not the templates)

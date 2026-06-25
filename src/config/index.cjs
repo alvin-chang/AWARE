@@ -259,7 +259,7 @@ const config = {
     // no index to consult (lenient policy keeps all records).
     get azrCorpusPath() { return str('AWARE_TRAINER_AZR_CORPUS_PATH', ''); },
     // Modal auth — read from the canonical credential store
-    // (ACTIVE-CREDENTIALS.env) at runtime. NEVER in the repo.
+    // (<credential-store-file>) at runtime. NEVER in the repo.
     get modalTokenId() { return str('MODAL_TOKEN_ID', undefined); },
     get modalTokenSecret() { return str('MODAL_TOKEN_SECRET', undefined); },
   },

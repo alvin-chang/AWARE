@@ -1,7 +1,7 @@
 // src/trainer/outcome-filter.js — Phase 4 deliverable 1 (ADR-020 618-627)
 //
 // Filters preference-pair records before they're packaged into a DPO
-// training dataset. The "outcome filter" gates MetaClaw pairs against
+// training dataset. The "outcome filter" gates process-RL pipeline pairs against
 // AZR pass/fail signals — the goal is to keep only pairs whose
 // verification outcome is consistent with the preference signal.
 //
@@ -27,21 +27,21 @@
 //                        options.allowedTaskTypes. Useful for keeping
 //                        only math/reasoning pairs and dropping
 //                        chitchat.
-//   - "azr_result"     — drop MetaClaw records whose (task_type,
+//   - "azr_result"     — drop process-RL pipeline records whose (task_type,
 //                        content_hash) does NOT have a passing
 //                        AZR result in options.azrIndex. The index is
 //                        a Map<content_hash, {passed, runId, ...}>
 //                        pre-loaded by the trainer from
 //                        aware_azr_results. Implements ADR-020
 //                        Decision 2: "AZR outcome filter gates
-//                        MetaClaw process training." Records without
+//                        process-RL pipeline process training." Records without
 //                        any AZR result (no entry in the index) are
 //                        KEPT (we don't drop on missing data; the
 //                        index starts empty and grows as the first
 //                        Modal run completes). Records WITH an entry
 //                        that did NOT pass are DROPPED (hard
 //                        negative). This is the strict reading of
-//                        "AZR pass/fail gates MetaClaw".
+//                        "AZR pass/fail gates process-RL pipeline".
 //
 // The output is intentionally a separate function from toDpoDataset:
 // toDpoDataset() handles the *intrinsic* quality of a pair (PRM score
@@ -240,9 +240,9 @@ function _applyRule(rule, rec, options) {
     }
 
     case 'azr_result': {
-      // Phase 4 deliverable 1: gate MetaClaw pairs on AZR pass/fail.
+      // Phase 4 deliverable 1: gate process-RL pipeline pairs on AZR pass/fail.
       //
-      // ADR-020 Decision 2 reading: "AZR pass/fail gates MetaClaw
+      // ADR-020 Decision 2 reading: "AZR pass/fail gates process-RL pipeline
       // process training." The filter's job is to remove pairs that
       // the AZR verifier has explicitly REJECTED, not to require
       // every pair to have been verified. Implementation policy

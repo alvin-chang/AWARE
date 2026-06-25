@@ -1,14 +1,14 @@
 # History Rewrites — GoodCISO/aware
 
 **Status:** Draft for review (2026-06-24 06:30 BST)
-**Author:** Herald (PR coordinator), on behalf of Sentinel (auditor)
+**Author:** the release agent (PR coordinator), on behalf of the auditor (auditor)
 **Target path in repo:** `docs/security/history-rewrites.md`
 
 ---
 
 ## Why this document exists
 
-On **2026-06-23**, Sentinel ran an automated private-data sweep of `github.com/GoodCISO/aware` covering **40 refs** (2 main branches, 18 PR heads, 1 tag, 14 local Gitea branches, 5 working branches). The audit (`audit-goodciso-aware-private-data-2026-06-23.md` in `<canonical-credential-store>/workspace-auditor/reports/`) found **3 P1/P2 anti-patterns** and **3 P3 history-only issues**.
+On **2026-06-23**, the auditor ran an automated private-data sweep of `github.com/GoodCISO/aware` covering **40 refs** (2 main branches, 18 PR heads, 1 tag, 14 local Gitea branches, 5 working branches). The audit (`audit-goodciso-aware-private-data-2026-06-23.md` in `<canonical-credential-store>/workspace-auditor/reports/`) found **3 P1/P2 anti-patterns** and **3 P3 history-only issues**.
 
 **No real secrets were exposed.** The audit confirmed: emails are `@example.com` (RFC 2606 reserved TLD), agent names are `Test Agent`, hashes are SHA-512 of known fixtures, and instance IDs are sequential low-entropy strings. The data risk is **near-zero** even in cached or archived copies.
 
@@ -33,13 +33,13 @@ The risk that drove the rewrite is **the anti-pattern itself**: the next contrib
 
 | Phase | Action | Owner | Date |
 |---|---|---|---|
-| **A1** | Source replacement (`*.json.template` + seeders) + `.gitleaks.toml` additions + 3 lint CI checks | Forge | TBD |
-| **A2** | Filter infrastructure: pre-commit, pre-push, pre-receive on local Gitea, CI guard | Forge | After A1 lands on `main` |
-| **B** | `git filter-repo` in `/tmp/aware-mirror` (mirror clone of local Gitea) | Herald coordinates, executes on Alvin's pre-surface ack | After A2 live |
-| **C** | Push mirror to Gitea + force-push per ref | Herald at keyboard for local Gitea; **Alvin at keyboard for the public `github.com/GoodCISO/aware` push** | After Phase D |
-| **D** | GitHub deprecation notice (README banner + pinned issue) + this document committed before Phase C | Herald | Before Phase C |
-| **E** | Verification: raw GitHub fetch + Sentinel scan re-run + filter smoke-test | Herald | After Phase C |
-| **Deferred** | GitHub-side filter: branch protection, GH Actions secret-scan, signed commits, CODEOWNERS | Sentinel + Herald spec separately | After Phase E |
+| **A1** | Source replacement (`*.json.template` + seeders) + `.gitleaks.toml` additions + 3 lint CI checks | Coder | TBD |
+| **A2** | Filter infrastructure: pre-commit, pre-push, pre-receive on local Gitea, CI guard | Coder | After A1 lands on `main` |
+| **B** | `git filter-repo` in `/tmp/aware-mirror` (mirror clone of local Gitea) | the release agent coordinates, executes on Alvin's pre-surface ack | After A2 live |
+| **C** | Push mirror to Gitea + force-push per ref | the release agent at keyboard for local Gitea; **Alvin at keyboard for the public `github.com/GoodCISO/aware` push** | After Phase D |
+| **D** | GitHub deprecation notice (README banner + pinned issue) + this document committed before Phase C | the release agent | Before Phase C |
+| **E** | Verification: raw GitHub fetch + the auditor scan re-run + filter smoke-test | the release agent | After Phase C |
+| **Deferred** | GitHub-side filter: branch protection, GH Actions secret-scan, signed commits, CODEOWNERS | the auditor + the release agent spec separately | After Phase E |
 
 ---
 
@@ -58,7 +58,7 @@ curl -sS https://raw.githubusercontent.com/GoodCISO/aware/main/src/data/agents.j
 curl -sS https://raw.githubusercontent.com/GoodCISO/aware/main/docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md | head -20
 # Expected: <repo-root>/, no <repo-root>/
 
-# 4. Re-run Sentinel's scan
+# 4. Re-run the auditor's scan
 python3 /tmp/scan_aware.py
 # Expected: 0 P1/P2 findings, only allowlisted P3 matches
 ```
@@ -69,18 +69,18 @@ python3 /tmp/scan_aware.py
 
 - **Cached and archived copies.** Wayback Machine, Google cache, AI training crawlers, and any pre-rewrite GitHub clones retain the old history. The hashes were fixtures, so data risk is near-zero, but the pattern's existence on public web archives cannot be retroactively undone.
 - **Anyone who cloned before the rewrite.** Local clones with the old SHAs can still `git checkout <old-sha> -- src/data/users.json` and see the fixture hashes. The fix is forward-going (the filter blocks new commits with the same pattern).
-- **Forks.** Per Sentinel's audit, no known forks exist on `github.com/GoodCISO/aware`. If a fork surfaces post-rewrite, notify Herald/Sentinel for coordination.
+- **Forks.** Per the auditor's audit, no known forks exist on `github.com/GoodCISO/aware`. If a fork surfaces post-rewrite, notify the release agent/the auditor for coordination.
 
 ---
 
 ## Forward-going protection
 
-The 4-layer privacy filter (per Sentinel's spec, implemented in Phase A2) prevents the anti-pattern from regenerating:
+The 4-layer privacy filter (per the auditor's spec, implemented in Phase A2) prevents the anti-pattern from regenerating:
 
 1. **Pre-commit hook** (any clone): gitleaks + custom Python checker for the 3 P1/P2 patterns + LAN IPs + host paths. Hard-blocks commit.
 2. **Pre-push hook** (before push to Gitea): full re-scan, hard-blocks push.
 3. **Pre-receive hook on local Gitea** (server-side, can't be bypassed): same checks, no override. This is the load-bearing gate.
-4. **CI guard on every push**: re-runs scan post-receive, posts findings to the pusher via Gitea API. Does not auto-revert (Herald/Sentinel decide).
+4. **CI guard on every push**: re-runs scan post-receive, posts findings to the pusher via Gitea API. Does not auto-revert (the release agent/the auditor decide).
 
 Allowlist for known-good fixtures (test JWT mocks, mock LAN IPs in test files, genesis hash `0000…` for decision-chain traceability) is documented in `.gitleaks.toml`. False-positive additions require a written rationale.
 
@@ -91,16 +91,16 @@ Allowlist for known-good fixtures (test JWT mocks, mock LAN IPs in test files, g
 1. **Patterns outlive values.** The hashes were fixtures (no data risk), but the file shape trained every future contributor that "this is how we ship seed data." A real-data leak using the same structure would have been GitHub-secret-scanning-invisible because it would look identical to the legitimate pattern.
 2. **Source replacement must precede history rewrite.** Without moving the seed-data generation to `scripts/seed-dev-*.js`, the next `npm run seed:dev` would have re-committed the same pattern, defeating the cleanup.
 3. **Document the discontinuity in-tree, not out-of-tree.** `docs/security/history-rewrites.md` lives in the repo so future contributors see it during onboarding, not in an external audit report that lives in `<canonical-credential-store>/`.
-4. **Local Gitea force-push is also destructive.** Even though not internet-exposed, a 40-ref history rewrite affects anyone using the local mirror. Per Herald's standing delegation scope (msg 4529), destructive ops require explicit authorization — not just "Herald solo on a standing basis."
+4. **Local Gitea force-push is also destructive.** Even though not internet-exposed, a 40-ref history rewrite affects anyone using the local mirror. Per the release agent's standing delegation scope (msg 4529), destructive ops require explicit authorization — not just "the release agent solo on a standing basis."
 
 ---
 
 ## Pointers
 
 - **Audit report:** `<canonical-credential-store>/workspace-auditor/reports/audit-goodciso-aware-private-data-2026-06-23.md`
-- **Sentinel's spec:** runId `3a1bc4dc` (Telegram, 2026-06-23 22:18 BST)
-- **Herald's 2 amendments:** local Gitea force-push 1-key ack gate + Forge spawn question (Telegram, 2026-06-23 22:58 BST)
+- **the auditor's spec:** runId `3a1bc4dc` (Telegram, 2026-06-23 22:18 BST)
+- **the release agent's 2 amendments:** local Gitea force-push 1-key ack gate + Coder spawn question (Telegram, 2026-06-23 22:58 BST)
 - **Alvin's authorization:** pending 06:30 BST pre-surface on 2026-06-24
 - **APTS tracking:** SE-3, SC-7, HO-4 stay OPEN until Phase E verifies
 
-— Herald 📢
+— the release agent 📢

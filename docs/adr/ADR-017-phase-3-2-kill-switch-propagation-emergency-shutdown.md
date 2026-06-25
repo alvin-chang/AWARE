@@ -1,10 +1,10 @@
 # ADR-017: Phase 3.2 — Kill Switch Propagation & Emergency Shutdown
 
-**Status:** APPROVED (Critic, 2026-04-01 22:38 BST)
-**Critic review:** APPROVED — F-1 (ack write verification) and F-2 (override authority matrix) resolved  
-**Author:** Archimedes  
+**Status:** APPROVED (Reviewer, 2026-04-01 22:38 BST)
+**Reviewer review:** APPROVED — F-1 (ack write verification) and F-2 (override authority matrix) resolved  
+**Author:** Architect  
 **Date:** 2026-04-01  
-**Research inputs:** Phase 1.4 (Kill Switch); Scout Audit findings (C-01, C-02, C-03); ADR-013 (Identity); ADR-014 (Behavioural); ADR-015 (Tool Control)  
+**Research inputs:** Phase 1.4 (Kill Switch); Researcher Audit findings (C-01, C-02, C-03); ADR-013 (Identity); ADR-014 (Behavioural); ADR-015 (Tool Control)  
 **Depends on:** Phase 1.4 (Kill Switch architecture), ADR-013, ADR-014, ADR-015  
 **Phase:** 3.2 (P1)  
 
@@ -589,7 +589,7 @@ const GLOBAL_KILL_CANCEL_AUTHORITY = {
 
 ## Status
 
-**REVISIONS NEEDED** — F-1 (acknowledgment write verification) and F-2 (GLOBAL kill cancel authority matrix) fixed. Ready for Critic re-review.
+**REVISIONS NEEDED** — F-1 (acknowledgment write verification) and F-2 (GLOBAL kill cancel authority matrix) fixed. Ready for Reviewer re-review.
 
 ---
 

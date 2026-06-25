@@ -2,7 +2,7 @@
 
 **Status:** Approved
 **Date:** 2026-06-15
-**Author:** Alfie (Orchestrator)
+**Author:** the AWARE maintainers
 **Supersedes:** Original HeavySkill v1 design (K-PRM-refine-DPO), withdrawn 2026-06-15
 **Build phase:** A1 (HeavySkill shipping surface)
 
@@ -14,7 +14,7 @@ The first HeavySkill prototype (`384466b6c2`, "refactor(heavyskill): delegate K-
 
 1. **It ignored the paper.** arXiv:2605.02396 specifies K-parallel + Summarize (two stages, single model, training-free). The v1 design added three pieces of machinery (PRM, refinement, preference pairs) that the paper does not require.
 2. **It crossed the plugin boundary.** v1 read from `api.config.agents.defaults.heavySkill`, which is core-owned. The OC zod schema is `.strict()`-validated; adding a plugin-specific key to the core schema is forbidden by `extensions/AGENTS.md` ("Do not normalize 'plugin-owned' into 'core-owned' by scattering direct reads of `plugins.entries.<id>.config` through unrelated core paths.").
-3. **It wrote DPO preference pairs on every call.** This would have generated a lot of noise in `<host-config>/metaclaw/` for no benefit — the paper is training-free, so the pairs were going into a void.
+3. **It wrote DPO preference pairs on every call.** This would have generated a lot of noise in `<host-config>/meta-rl-pipeline/` for no benefit — the paper is training-free, so the pairs were going into a void.
 
 ## Decision
 
@@ -67,7 +67,7 @@ The first matching surface wins. The wrap hook consults all four on every LLM ca
 
 ### Code Layout
 
-- **`~/src/heavyskill-plugin/`** — standalone npm package, paper-faithful. Owns `runtime-api.js` (consumed by the OC shim). Can be installed as a third-party plugin to any OC-compatible host.
+- **`<heavyskill-plugin-source>/`** — standalone npm package, paper-faithful. Owns `runtime-api.js` (consumed by the OC shim). Can be installed as a third-party plugin to any OC-compatible host.
   - `src/heavy-skill.js` — the K+1-call algorithm
   - `src/activation.js` — 4-surface resolver
   - `src/runtime-state.js` — per-process `Map` for S3
@@ -75,7 +75,7 @@ The first matching surface wins. The wrap hook consults all four on every LLM ca
   - `src/wrap.ts` — the wrap hook consumed by the OC shim
   - `dist/runtime-api.js` — built artifact (the OC shim imports from here)
   - 53/53 unit tests pass
-- **`~/src/<runtime>/extensions/heavyskill/`** — the OC shim. Reads `api.pluginConfig`, registers provider + CLI + auto-enable probe.
+- **`<runtime-source>/extensions/heavyskill/`** — the OC shim. Reads `api.pluginConfig`, registers provider + CLI + auto-enable probe.
   - `index.ts` — entry point
   - `<runtime>.plugin.json` — manifest with configSchema
   - `dist/` + `dist-runtime/` — compiled artifacts (both must be in sync)
@@ -112,6 +112,6 @@ The two layers are decoupled: heavy-think can be developed and tested standalone
 ## Commits
 
 - OC `495e3f5743` — heavyskill v2 paper-faithful, plugin-local config namespace
-- OC `206166db9f` (parent) — refactor: extract K-parallel core to `~/src/heavyskill-plugin/`
+- OC `206166db9f` (parent) — refactor: extract K-parallel core to `<heavyskill-plugin-source>/`
 - heavyskill-plugin `6f233d2` — fix: read plugin config from `plugins.entries.heavyskill.config` namespace
 - heavyskill-plugin `b1a5cc6` (parent) — feat: paper-faithful K+S activation, 4 surfaces, single-model

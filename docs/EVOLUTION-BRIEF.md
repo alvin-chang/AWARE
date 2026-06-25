@@ -140,7 +140,7 @@ A March 2026 paper validates this direction:
 - Deny-by-default: agents can only call tools explicitly permitted by policy
 
 ### 3.3 Decision-Chain Traceability
-- End-to-end audit trail: user request → orchestrator → agent routing → tool calls → output
+- End-to-end audit trail: user request → agent routing → tool calls → output
 - Pheromone-based routing decisions are inherently interpretable (AMRO-S validation)
 - Compliance-ready export: JSON, SIEM-compatible formats
 - Tamper-evident logging (append-only, hash-chained)

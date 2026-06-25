@@ -43,7 +43,7 @@ Controls are marked:
 | DORA | ICT Risk Management | Art. 5 | General ICT risk management requirements |
 | DORA | ICT Third Party Risk | Art. 9 | ICT third-party risk management |
 
-**Implementation Evidence (Phase 1 → Archimedes + Coder):**
+**Implementation Evidence (Phase 1 → Architect + Coder):**
 - `src/agents/registry.js` — agent onboarding/deregistration endpoints
 - `src/agents/identity-provider.js` — NHI JWT issuance and rotation
 - Extended `src/discovery/` — agent-specific metadata fields
@@ -73,7 +73,7 @@ Controls are marked:
 | DORA | ICT Risk Management | Art. 5 | Data security policies |
 | DORA | ICT Risk Management | Art. 9 | ICT third-party risk |
 
-**Implementation Evidence (Phase 1 → Archimedes + Coder):**
+**Implementation Evidence (Phase 1 → Architect + Coder):**
 - `src/policies/engine.js` — policy evaluation (permit/deny)
 - `src/policies/store.js` — declarative YAML/JSON policy persistence
 - `src/policies/sandbox.js` — resource quotas per agent
@@ -102,7 +102,7 @@ Controls are marked:
 | ISO 27001 | Business Continuity | A.12.6.2 | Information security alerts and advisories |
 | DORA | ICT Incident Management | Art. 10 | Detection and classification of ICT-related incidents |
 
-**Implementation Evidence (Phase 1 → Archimedes + Coder):**
+**Implementation Evidence (Phase 1 → Architect + Coder):**
 - `src/agents/behavioural-monitor.js` — per-agent metric baselines
 - `src/agents/anomaly-detector.js` — statistical deviation detection
 - `src/agents/decision-fingerprint.js` — output hash for drift/injection detection
@@ -131,7 +131,7 @@ Controls are marked:
 | DORA | ICT Incident Management | Art. 17 | Learning and evolving after incidents |
 | DORA | ICT Risk Management | Art. 5 | Business continuity and disaster recovery |
 
-**Implementation Evidence (Phase 1 → Archimedes + Coder):**
+**Implementation Evidence (Phase 1 → Architect + Coder):**
 - Extended `src/election/heartbeat.js` — revocation broadcast payload
 - `src/agents/revocation-service.js` — Raft-propagated kill-switch
 - Audit log entries — timestamp, trigger reason, initiator for every revocation
@@ -161,7 +161,7 @@ Controls are marked:
 | ISO 27001 | Access Control | A.9.4.1 | Information access restriction |
 | DORA | ICT Risk Management | Art. 5 | Risk assessment and mitigation |
 
-**Implementation Evidence (Phase 2 → Archimedes + Coder):**
+**Implementation Evidence (Phase 2 → Architect + Coder):**
 - `src/routing/pheromone-table.js` — pheromone persistence per task category
 - `src/routing/pheromone-specialist.js` — task-category isolation
 - `src/routing/heuristic-calculator.js` — security-weighted heuristic function
@@ -188,7 +188,7 @@ Controls are marked:
 | ISO 27001 | Software Development | A.14.2.5 | Security testing in development |
 | DORA | ICT Risk Management | Art. 11 | Security of payment services |
 
-**Implementation Evidence (Phase 2 → Archimedes + Coder):**
+**Implementation Evidence (Phase 2 → Architect + Coder):**
 - `src/routing/quality-validator.js` — accuracy + security gate
 - `src/routing/reinforcement.js` — positive reinforcement + negative penalty
 
@@ -213,7 +213,7 @@ Controls are marked:
 | ISO 27001 | Communications Security | A.12.4.2 | Protection of information system audit logs |
 | DORA | ICT Risk Management | Art. 12 | ICT processes and mechanisms |
 
-**Implementation Evidence (Phase 2 → Archimedes + Coder):**
+**Implementation Evidence (Phase 2 → Architect + Coder):**
 - `src/routing/audit-logger.js` — full pheromone trail logging
 - Dashboard extension — pheromone heatmap visualisation
 - SIEM-compatible JSON export
@@ -535,4 +535,4 @@ This document is updated to reflect Phase 1–4 completion (2026-04-02) and the 
 
 ---
 
-*Document updated by Chronicler (Scribe), 2026-04-02. Phase 1–4 compliance evidence now populated. All ADRs (010–019) approved. Threat-framework coverage (OWASP LLM Top 10 v1.1) added by Forge (Coder), 2026-06-22, pending Archimedes + Critic review.*
+*Document updated by Chronicler (Scribe), 2026-04-02. Phase 1–4 compliance evidence now populated. All ADRs (010–019) approved. Threat-framework coverage (OWASP LLM Top 10 v1.1) added by Coder (Coder), 2026-06-22, pending Architect + Reviewer review.*

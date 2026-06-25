@@ -5,7 +5,7 @@
  * Per ADR-011 §Security Gate Specification.
  * 
  * @module routing/policy-checker
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

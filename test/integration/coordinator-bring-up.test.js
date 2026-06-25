@@ -22,7 +22,7 @@
 //   - docker + colima up
 //   - HEAVY_THINK_REPO pointing at a working git remote (default: local
 //     Gitea at http://git.internal/heavy-think.git, tag v0.2.2)
-//   - LLM_API_KEY (or MINIMAX_API_KEY) for the live LLM call
+//   - LLM_API_KEY (or PROVIDER_API_KEY) for the live LLM call
 //   - AWARE_COORDINATOR_TOKEN (>=32 chars)
 //   - Port 38181 free on the host (colima SSH holds 18081 + 28181)
 

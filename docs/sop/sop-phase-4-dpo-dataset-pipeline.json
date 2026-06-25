@@ -6,16 +6,16 @@
   "status": "active",
   "author": "Alfie <alfie@localhost>",
   "created": "2026-06-12T17:15:00+00:00",
-  "role": "orchestrator",
+  "role": "coordinator",
   "task_type": "standard",
-  "applies_to_role": "orchestrator",
+  "applies_to_role": "coordinator",
   "goal": "Close the placeholder-JSONL gap in the trainer's _submitNewRun. The trainer previously wrote an empty file to datasetPath and submitted it to Modal — which would have trained on an empty dataset. This slice replaces that with a real end-to-end pipeline: SELECT unconsumed pair_path values from aware_conversations → read each unique heavy-think JSONL file → apply outcome filter → run toDpoDataset → write the DPO JSONL → submit to Modal (or record 'cancelled' if the filter drops everything). This is the left half of Phase 4 (ADR-020 618-627 deliverable 1 + 2 collapsed into one self-contained code path).",
   "preconditions": [
     "Working directory: <HOME>/src/AWARE",
     "Branch: feature/aware-2.0 (clean working tree at 6f15240 or later)",
     "Phase 3 trainer shipped — src/trainer/index.js has the TrainerPoller class, deps.modalClient + deps.pool, _submitNewRun, _recordRunStart, _recordRunRunning, _recordRunCompleted, _recordRunFailed",
     "Phase 2.1 conversation logger shipped — aware_conversations table exists with pair_path column",
-    "Heavy-think library exists at ~/src/heavy-think/ and exports toDpoDataset (resolvable via config.heavyThink.path which defaults to the dev-layout sibling)",
+    "Heavy-think library exists at <heavy-think-source>/ and exports toDpoDataset (resolvable via config.heavyThink.path which defaults to the dev-layout sibling)",
     "All 235/235 v2 unit tests pass (post-R2 baseline)"
   ],
   "architecture_decisions": {
@@ -23,7 +23,7 @@
     "filter_layer_separation": "Two distinct filter layers: (1) outcome-filter.js handles the *meta* question of whether a pair should be in the training corpus at all (AZR pass/fail, task_type filter, future embedding-similarity). (2) heavy-think's toDpoDataset() handles the *intrinsic* quality of a pair (PRM score gap, dedup by content hash). The two compose: outcome-filter first, then toDpoDataset. Both have the same minScoreGap default (0.05) so the operator's mental model is consistent.",
     "default_rule": "noop (keep everything). Phase 4 first slice ships with no real AZR data in production — the first AZR corpus comes from the first Modal training run via training/run.py:gen_azr_corpus(). Until then, the outcome filter should be a no-op so we don't lose pairs to an uninformed filter. The operator flips AWARE_TRAINER_FILTER_RULE once they have enough corpus + a real filter strategy.",
     "empty_dataset_handling": "When the filter drops every pair (or no new pair_path values exist), record a 'cancelled' run in aware_training_runs (not 'failed' — the run never started) and skip the Modal submit. Never burn GPU credit on an empty dataset. The 'cancelled' status surfaces in the existing aware_training_runs table without a schema change.",
-    "no_new_migration": "The existing aware_conversations schema (Phase 2.1) is sufficient. The pair_path column already exists; the JSONL files at <host-config>/metaclaw/preference-pairs/YYYY-MM-DD.jsonl are the canonical content source. No new table needed for this slice. The AZR results table (for the next slice) will be a new migration."
+    "no_new_migration": "The existing aware_conversations schema (Phase 2.1) is sufficient. The pair_path column already exists; the JSONL files at <host-config>/meta-rl-pipeline/preference-pairs/YYYY-MM-DD.jsonl are the canonical content source. No new table needed for this slice. The AZR results table (for the next slice) will be a new migration."
   },
   "config_shape": {
     "filterRule": "AWARE_TRAINER_FILTER_RULE (default 'noop'; one of noop, min_score_gap, tag_match)",

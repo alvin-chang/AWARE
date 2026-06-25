@@ -57,7 +57,7 @@ console.log(JSON.stringify(config.snapshot(), null, 2));
 |------------------|------------------------|--------|--------------------------------------------------|-----------------------------|
 | `mode`           | `AWARE_MODE`           | string | `hybrid`                                         | Enum: `online`/`hybrid`/`offline` |
 | `minimaxKey`     | `<redacted-credential-name>`      | string | (none)                                           | **Secret** — redacted in snapshot as `<unset>` or `<redacted length=N>` |
-| `minimaxHost`    | `MINIMAX_API_HOST`     | string | (none)                                           | Optional MiniMax API host override |
+| `minimaxHost`    | `LLM_API_HOST`         | string | (none)                                           | Optional LLM API host override (see `src/config/index.cjs:164` for the canonical env var name) |
 | `ollamaUrl`      | `OLLAMA_URL`           | string | `http://127.0.0.1:11434`                         | Local Ollama instance       |
 
 ### `config.heavyThink` — read by `src/coordinator/index.js`

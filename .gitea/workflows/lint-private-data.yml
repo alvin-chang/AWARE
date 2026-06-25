@@ -6,8 +6,8 @@
 #
 # NOTE: gitea Actions must be ENABLED in the gitea container config
 # (gitea/conf/app.ini [actions] section + a runner registered). Today
-# the local gitea at http://localhost:4001 does NOT have Actions
-# enabled — this file is dormant until Herald flips the switch.
+# the local gitea at http://<internal-git-host>:4001 does NOT have Actions
+# enabled — this file is dormant until the release agent flips the switch.
 # When Actions is enabled, this workflow auto-fires.
 #
 # For now, the primary CI guard is .github/workflows/lint-private-data.yml

@@ -5,7 +5,7 @@
  * in AWARE's AMRO-S probabilistic selection formula.
  * 
  * @module routing/heuristic-calculator
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

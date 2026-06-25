@@ -57,7 +57,7 @@ log "docker $(docker --version)"
 # (or whatever the canonical store contains) interpolated into
 # the compose env at up-time. The values never appear in this
 # script's stdout (we log names, not values).
-CREDS_FILE="${HOME}/.<host-secret-dir>/ACTIVE-CREDENTIALS.env"
+CREDS_FILE="${HOME}/.<host-secret-dir>/<credential-store-file>"
 if [[ -f "$CREDS_FILE" ]]; then
   log "sourcing $CREDS_FILE"
   set -a
@@ -91,7 +91,7 @@ docker compose -f "$COMPOSE_FILE" -p "$PROJECT" config >/dev/null \
 
 # 3. Build the coordinator + gateway images. The Dockerfile's Stage 0
 #   clones heavy-think from the local Gitea at HEAVY_THINK_TAG (see
-#   ADR-042), so the host's ~/src/heavy-think/ working copy is NOT the
+#   ADR-042), so the host's <heavy-think-source>/ working copy is NOT the
 #   source of truth. No drift check needed here.
 log "building coordinator + gateway images (this may take a few minutes on first run)"
 DOCKER_BUILDKIT=1 docker compose \

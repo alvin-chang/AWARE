@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Status:** Active (operational fix)
-**Author:** Orchestrator (Alfie)
+**Author:** the coordinating agent
 **Supersedes:** (none)
 **Refs:** ADR-020 (HeavySkill integration), ADR-038 (PRM temp=0), ADR-040 (auto-interception), ADR-041 (hook scope + audit)
 
@@ -13,7 +13,7 @@ came back up on 2026-06-23 with Ollama removed:
 
 ### Bug A — heavy-think source was silently a stub
 
-The local `~/src/heavy-think/src/` tree was a stub. `src/index.js` was 11
+The local `<heavy-think-source>/src/` tree was a stub. `src/index.js` was 11
 lines and exported `heavy_think` as `{ run: async () => ... }`. Every other
 file (`parallel.js`, `prm.js`, `refine.js`, `verify.js`, `config.js`,
 `preference-pair.js`) was also a stub — but `src/dpo-format.js` was
@@ -29,7 +29,7 @@ const result = await heavyThink({ problem, K, ... });
 
 So it expected `heavy_think` to be a **callable function**, not an object
 with a `.run` method. The image build copied the stub source from the
-build-context (`~/src/heavy-think/`) verbatim, so the broken shape
+build-context (`<heavy-think-source>/`) verbatim, so the broken shape
 shipped into the container. Result on `/coordinate`:
 
 ```
@@ -43,8 +43,8 @@ a stub scaffold but no rollback was made.
 
 ### Bug B — env-var name mismatch: <redacted-credential-name> vs <redacted-credential-name>
 
-The canonical host credential store at `<canonical-credential-store>/credentials/ACTIVE-CREDENTIALS.env`
-exports `<redacted-credential-name>` (and `MINIMAX_API_HOST`). Heavy-think's
+The canonical host credential store at `<canonical-credential-store>/credentials/<credential-store-file>`
+exports `<redacted-credential-name>` (and the optional host override; see `src/config/index.cjs` for the canonical env var name). Heavy-think's
 `src/clients/minimax.js` reads `process.env.<redacted-credential-name>` directly.
 
 But the AWARE `src/config/index.cjs:268` gates `AWARE_MODE=online` on
@@ -83,7 +83,7 @@ docker cp htrecover2:/app/heavy-think/src/parallel.js ./
 docker rm htrecover2
 ```
 
-Restore 8 files to `~/src/heavy-think/src/`, **keeping the local
+Restore 8 files to `<heavy-think-source>/src/`, **keeping the local
 `src/clients/minimax.js`** (which has ADR-038's `resolveTemperature` and
 `_fetch` injection — newer than the old image's client). Add the missing
 `src/dpo-format.js`. While restoring, also fix a one-line bug in
@@ -92,7 +92,7 @@ causing NPE on `prmConfig.system_prompt` in test (and possibly in
 production paths that omit it).
 
 Commit: `fix(heavy-think): restore real source from old image, fix scoreWithPRM NPE`
-at `~/src/heavy-think` HEAD = `99c3d4d`.
+at `<heavy-think-source>` HEAD = `99c3d4d`.
 
 **Bug B — bridge `<redacted-credential-name>` → `<redacted-credential-name>` in the bring-up
 script.**
@@ -135,7 +135,7 @@ to change `config/index.cjs` or `clients/minimax.js`, no operator burden.
 
 ## Verification
 
-1. `node --test 'test/**/*.test.js'` in `~/src/heavy-think`: **24/24 pass**
+1. `node --test 'test/**/*.test.js'` in `<heavy-think-source>`: **24/24 pass**
    (was 23/24 with stub + NPE).
 2. `node /tmp/heavy-think-smoke.mjs`: `heavy_think({K:2, ...})` returns
    `{refined_trace, confidence, attempts, verification, cost}` — full
@@ -167,7 +167,7 @@ to change `config/index.cjs` or `clients/minimax.js`, no operator burden.
 
    Would have caught Bug A immediately.
 3. **Contract test: heavy-think callable as a function.** Add to
-   `~/src/heavy-think/test/`:
+   `<heavy-think-source>/test/`:
 
    ```js
    test('heavy_think is a callable function (not an object)', () => {
@@ -179,7 +179,7 @@ to change `config/index.cjs` or `clients/minimax.js`, no operator burden.
 
 4. **Mirror heavy-think source to a remote registry.** Publish
    `heavy-think:0.2.1` to npm or push the bare mirror at
-   `~/src/heavy-think.git` to a remote (GitHub or Gitea). Replace the
+   `<heavy-think-source>` to a remote (GitHub or Gitea). Replace the
    `additional_contexts: heavy-think=../heavy-think` Dockerfile pattern
    with `npm install heavy-think@0.2.1` (ADR-020 Decision 7 already
    mentions this as the production alternative; this incident is the
@@ -193,9 +193,9 @@ been through three iterations, each making the coupling more robust:
 
 ### v1 (2026-06-23 morning): bare mirror + bring-up drift check
 
-- Tagged `~/src/heavy-think` HEAD as `v0.2.1` (annotated, at commit
+- Tagged `<heavy-think-source>` HEAD as `v0.2.1` (annotated, at commit
   `99c3d4d`).
-- Created bare mirror at `~/src/heavy-think.git` with the same tag.
+- Created bare mirror at `<heavy-think-source>` with the same tag.
 - Dockerfile still mounted `../heavy-think` (working copy) as a build
   context; the bring-up script verified HEAD == HEAVY_THINK_TAG and
   failed if drifted.
@@ -210,13 +210,13 @@ silently use whatever was on disk.
 ### v2 (2026-06-23 afternoon): Gitea-backed remote clone
 
 User: "Use the local Gitea". Gitea was already running at
-`http://localhost:4001` (port 4001, not the default 3000 — verified
+`http://<internal-git-host>:4001` (port 4001, not the default 3000 — verified
 via `docker ps`).
 
 1. Created `alvin/heavy-think` repo in Gitea (public, via REST API
    using `<canonical-credential-store>/credentials/gitea-alfie.env`).
 2. Pushed local working copy's `main` branch + `v0.2.1` tag to Gitea.
-3. Verified `git clone http://localhost:4001/alvin/heavy-think.git
+3. Verified `git clone http://<internal-git-host>:4001/alvin/heavy-think.git
    --branch v0.2.1` from a fresh `/tmp` dir produces the same
    commit `99c3d4d` with all 9 source files, 24/24 tests pass.
 4. Dockerfile now clones from Gitea inside the build stage:
@@ -224,13 +224,13 @@ via `docker ps`).
    FROM node:22-alpine AS build
    RUN apk add --no-cache git
    ARG HEAVY_THINK_TAG=v0.2.1
-   ARG HEAVY_THINK_REPO=http://localhost:4001/alvin/heavy-think.git
+   ARG HEAVY_THINK_REPO=http://<internal-git-host>:4001/alvin/heavy-think.git
    RUN git clone --depth 1 --branch ${HEAVY_THINK_TAG} \
        ${HEAVY_THINK_REPO} /build/heavy-think && \
        rm -rf /build/heavy-think/.git
    ```
 5. `docker-compose.coordinator.yml` adds `network: host` to the
-   build config so the build container can reach `localhost:4001`
+   build config so the build container can reach `<internal-git-host>:<port>`
    (colima's docker-in-docker doesn't auto-resolve host loopback
    inside build containers; `host.docker.internal` works at runtime
    but not in BuildKit build stages). `additional_contexts: heavy-think=...`
@@ -243,7 +243,7 @@ via `docker ps`).
    `/app/heavy-think/src/` has the v0.2.1 source (same line counts
    as local + Gitea).
 
-**Decoupling proof**: drifted `~/src/heavy-think/src/index.js` with
+**Decoupling proof**: drifted `<heavy-think-source>/src/index.js` with
 a "drift" marker, rebuilt via `docker compose build coordinator`,
 verified the resulting image has 0 occurrences of "drift" — the
 build pulled from Gitea, not from disk.
@@ -252,7 +252,7 @@ build pulled from Gitea, not from disk.
 
 ```bash
 # 1. Tag the new commit in the local working copy
-cd ~/src/heavy-think
+cd <heavy-think-source>
 git tag -a v0.2.2 <new-commit-sha> -m "..."
 
 # 2. Push the tag to Gitea (this is the new source of truth)
@@ -262,11 +262,11 @@ git push gitea v0.2.2
 #    (both coordinator + trainer blocks)
 
 # 4. Rebuild
-cd ~/src/AWARE && DOCKER_BUILDKIT=1 docker compose \
+cd ./ && DOCKER_BUILDKIT=1 docker compose \
   -f docker-compose.coordinator.yml build coordinator
 ```
 
-The bare mirror at `~/src/heavy-think.git/` is no longer used at
+The bare mirror at `<heavy-think-source>/` is no longer used at
 build time (kept as a local fallback). The canonical remote is now
 Gitea.
 
@@ -275,7 +275,7 @@ Gitea.
 If `0.4.1-phase4-heavy-think-restored` misbehaves:
 
 ```bash
-cd ~/src/AWARE
+cd ./
 docker compose -f docker-compose.coordinator.yml up -d \
   --force-recreate \
   -e AWARE_COORDINATOR_IMAGE=aware-coordinator:0.4.0-phase4-complete-ollama-removed \
@@ -334,10 +334,10 @@ the fact that the pipeline tests exercised `.run` directly — they
 passed on the stub, hiding the breakage from CI. Added a pretest guard
 that fails fast if `src/index.js` looks like the stub:
 
-- `~/src/heavy-think/scripts/check-not-stub.sh`: refuses to run if
+- `<heavy-think-source>/scripts/check-not-stub.sh`: refuses to run if
   `src/index.js` has fewer than 50 lines OR exports an object with a
   `.run` method.
-- `~/src/heavy-think/package.json: pretest`: runs the guard before
+- `<heavy-think-source>/package.json: pretest`: runs the guard before
   `npm test`.
 
 Verified:
@@ -352,7 +352,7 @@ Verified:
 
 Even with the pretest guard, a future regression could pass the
 guard but still break the operator-facing contract. Added
-`~/src/heavy-think/test/contract.test.js` with 3 assertions:
+`<heavy-think-source>/test/contract.test.js` with 3 assertions:
 
 - `typeof heavy_think === 'function'`
 - `typeof heavy_think.run === 'undefined'` (no object with .run)

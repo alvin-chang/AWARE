@@ -141,7 +141,7 @@ export class TrainerPoller {
       this.deps.logger.warn(
         'AWARE_TRAINER_ENABLED=1 but MODAL_TOKEN_ID or MODAL_TOKEN_SECRET is unset; ' +
         'trainer will start but every job submission will fail. ' +
-        'Set both env vars in ACTIVE-CREDENTIALS.env to enable real runs.'
+        'Set both env vars in <credential-store-file> to enable real runs.'
       );
     } else {
       this.deps.logger.info(
@@ -641,7 +641,7 @@ export class TrainerPoller {
   /**
    * Load the AZR pass-result index from the aware_azr_results table.
    *
-   * Phase 4 deliverable 1: this is the "AZR gates MetaClaw" join
+   * Phase 4 deliverable 1: this is the "AZR gates process-RL pipeline" join
    * surface. We SELECT all content_hash values that have at least
    * one row with passed=true, and return them as a Map<content_hash,
    * {passed, runId, recordedAt}>. The in-memory map is what the

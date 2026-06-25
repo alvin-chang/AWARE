@@ -181,10 +181,10 @@ Live, 2026-06-23:
 
 ## References
 
-- `~/src/aware-plugin/src/hook.js` (new in v0.4.0, ~250 lines)
-- `~/src/aware-plugin/src/tests/hook.test.js` (new in v0.4.0, 24 tests)
-- `~/src/aware-plugin/openclaw.plugin.json` (configSchema extended)
-- `~/src/aware-plugin/src/index.js` (registerHook wired into awareRegister)
+- `<aware-plugin-source>/src/hook.js` (new in v0.4.0, ~250 lines)
+- `<aware-plugin-source>/src/tests/hook.test.js` (new in v0.4.0, 24 tests)
+- `<aware-plugin-source>/openclaw.plugin.json` (configSchema extended)
+- `<aware-plugin-source>/src/index.js` (registerHook wired into awareRegister)
 - `/tmp/aware-fix-OPERATOR-NOTES.md` (separate fix for OC's runtime.ts
   sticky-active guards — without that fix, the AWARE hook could fire
   but `/tools/invoke` would still 404 because the active registry gets

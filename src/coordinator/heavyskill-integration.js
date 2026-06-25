@@ -67,7 +67,7 @@ export function __resetHeavyThinkForTest() {
 /**
  * AWARE coordinator wrapper around heavy_think.
  * Adds:
- *   - default preference-pair path under <host-config>/metaclaw/preference-pairs/
+ *   - default preference-pair path under <process-rl-pipeline-output>/preference-pairs/
  *   - daily file rotation (one JSONL per UTC day)
  *   - standard error envelope for AWARE API responses
  *   - PRM score cache injection (Phase 2.2)

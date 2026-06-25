@@ -2,7 +2,7 @@
 
 **Status:** Proposed (drafted 2026-06-22 in response to operator "Continue" directive, replacing the prior draft `ADR-025-oc-traffic-as-data-source.md` which is renamed to ADR-027 in this turn).
 **Date:** 2026-06-22
-**Author:** Orchestrator (Alfie) on behalf of operator (Alvin) — for Archimedes (Architect) review.
+**Author:** the coordinating agent on behalf of operator (Alvin) — for Architect (Architect) review.
 **Build phase:** A1 (continuing)
 **Supersedes:** Nothing. Proposes the path for ADR-024 §Open Questions #1.
 **Related:** ADR-020 §"Two-Pipeline Architecture," ADR-022 (HeavySkill v2 plugin), ADR-023 (HeavySkill not flywheel), ADR-024 (no continuous flywheel — partially reversed 2026-06-22 via ADR-027 Path 1, preconditions remain as quality gates), ADR-027 (OC traffic as data source, accepted Path 1).
@@ -24,7 +24,7 @@ This ADR answers that. The answer is shaped by **what already exists on disk (ve
 | Awareness pair writer | ACTIVE; today's file `/data/awareness-pairs/2026-06-22.jsonl` (22KB) freshly written by the smoke test | coordinator container filesystem |
 | Postgres `aware_conversations` | 10 rows; 5 with `pair_path` populated | `psql` query on `aware2` |
 | Postgres `aware_training_runs` | 7 rows (2026-06-13 only): 1 completed, 3 failed, 2 cancelled; smoke-test 5-pair artifacts | `psql` query |
-| HeavySkill (K+S) | Integrated in <runtime> via `~/src/heavyskill-plugin/`; K=4 traces verified in live gateway logs | <runtime> extension |
+| HeavySkill (K+S) | Integrated in <runtime> via `<heavyskill-plugin-source>/`; K=4 traces verified in live gateway logs | <runtime> extension |
 
 **Key insight:** The "production chat model" ADR-024 §Precondition #1 is gating on **already exists as `/coordinate`**. The decision in this ADR is therefore not "should we build it" but **"who is the consumer, what does the consumer contract look like, and what does success look like in metrics."**
 
@@ -53,8 +53,8 @@ This is "production chat model" in the sense ADR-024 §Precondition #1 means: a 
 <runtime> already has:
 - An A2A plugin that registers agents under `POST /agents/{agentId}/tasks` on the gateway (`127.0.0.1:18792`).
 - 16+ registered agents (auditor, coder, researcher, etc.).
-- An `extensions/heavyskill/` plugin (in active refactor, source moved to `~/src/heavyskill-plugin/`) that wraps K+S as an opt-in tool.
-- Live request traffic to these agents via the orchestrator cron fleet, A2A dispatch, and direct operator chat.
+- An `extensions/heavyskill/` plugin (in active refactor, source moved to `<heavyskill-plugin-source>/`) that wraps K+S as an opt-in tool.
+- Live request traffic to these agents via the cron fleet and A2A dispatch, and direct operator chat.
 
 **The integration pattern is: when an OC agent handles a "reasoning-heavy" task (per a heuristic or per agent-level opt-in), it calls `/coordinate` instead of / in addition to its base LLM call. The refined answer is injected as `refined_trace` into the agent's tool response. The pair writer records the interaction.**
 
@@ -71,7 +71,7 @@ This is the same architectural pattern as the existing HeavySkill wrap (paper-fa
 ### What is NOT in scope for this ADR
 
 - AZR self-play loop (separate; see ADR-024 §Context #5 — unimplemented, out of scope here).
-- MetaClaw dialogue capture (separate; see ADR-024 §Context #6 — unimplemented, out of scope here).
+- <meta-rl-pipeline> dialogue capture (separate; see ADR-024 §Context #6 — unimplemented, out of scope here).
 - /version endpoint wiring (covered by ADR-024 §Precondition 3; that is a separate code change, not a deployment decision).
 - Trainer re-enable (gated by ADR-024 §Preconditions 1-3; this ADR only addresses Precondition 1).
 - Marketing / SLA / SLI / SLO / monitoring — out of scope.
@@ -133,7 +133,7 @@ Content-Type: application/json
 
 ### OC agent behavior
 
-1. Agent receives task from orchestrator or user.
+1. Agent receives task from the user.
 2. Agent decides whether task is "reasoning-heavy" — heuristic: task_type is reasoning/summarization/code, OR length > 200 chars, OR user explicitly invoked `/refine` or similar.
 3. If yes, agent calls `/coordinate` with the above schema. If no, agent proceeds with direct LLM call.
 4. Agent receives response; injects `refined_trace` as the final answer; logs `request_id` + `cost` for observability.
@@ -180,7 +180,7 @@ The decision's success criterion (vs firing criterion) is: ≥1 week of producti
 - **Closes the consumer gap.** ADR-024 §Precondition 1 ("a production chat model running and serving user requests") is now answerable in concrete terms: `/coordinate` exists, OC agents are the consumer. The operator's (B) selection "bring up the stack, wire OC traffic" maps to this ADR cleanly.
 - **Pair volume threshold becomes attainable.** ADR-024 §Precondition 2 (≥100 real pairs) is one-quarter of the way (today's 5 rows are smoke-test pairs, but the wiring will start adding real pairs at the rate of one per OC agent call). At the success-metric request rate of 10/hour, the threshold crosses in ~10 hours of production traffic.
 - **Trainer re-enable path becomes mechanically clear.** When Precondition 2 holds, the operator can flip `AWARE_TRAINER_ENABLED=1` and the trainer poller will fire on the next 100-pair accumulation. No code change needed.
-- **Architecture is composable.** HeavySkill (paper-faithful K+S in `~/src/heavyskill-plugin/`) and AWARE 2.0 (`/coordinate` via coordinator) are not mutually exclusive — they can coexist. HeavySkill remains opt-in for agents that want local K+S; AWARE `/coordinate` becomes the default for agents that want cost-efficient hybrid + training signal.
+- **Architecture is composable.** HeavySkill (paper-faithful K+S in `<heavyskill-plugin-source>/`) and AWARE 2.0 (`/coordinate` via coordinator) are not mutually exclusive — they can coexist. HeavySkill remains opt-in for agents that want local K+S; AWARE `/coordinate` becomes the default for agents that want cost-efficient hybrid + training signal.
 
 ### Negative
 
@@ -206,7 +206,7 @@ The decision's success criterion (vs firing criterion) is: ≥1 week of producti
 
 ### Open implementation tasks (not blockers, but follow-on work)
 
-1. **OC agent `extensions/aware/` extension** — exposes `/coordinate` as an OC tool. Architecturally analogous to `extensions/heavyskill/`. Source would go in a new `~/src/aware-plugin/` repo (separate from <runtime> working tree, which is mid-refactor). Out of scope here; this ADR scopes the deployment, not the extension code.
+1. **OC agent `extensions/aware/` extension** — exposes `/coordinate` as an OC tool. Architecturally analogous to `extensions/heavyskill/`. Source would go in a new `<aware-plugin-source>/` repo (separate from <runtime> working tree, which is mid-refactor). Out of scope here; this ADR scopes the deployment, not the extension code.
 2. **Coordinator health probe** — add `aware-2-coordinator` availability to the recurring-jobs-watchdog. (Operator already has watchdog; one-line addition: probe `/health` on `127.0.0.1:18081`, alert on 5xx / timeout.)
 3. **Pair schema verification** — confirm that production pairs (from real OC calls) satisfy ADR-024 §Precondition 2's "non-trivial verification" clause. The smoke-test pair has `verification.method: "prm+content"`, `verification.passed: true` — looks good, but a sample of 5 production pairs should be reviewed before flipping the trainer on.
 
@@ -223,8 +223,8 @@ The decision's success criterion (vs firing criterion) is: ≥1 week of producti
 
 ## Commits
 
-This ADR itself is untracked on the filesystem. To be committed after Archimedes (Architect) review.
+This ADR itself is untracked on the filesystem. To be committed after Architect (Architect) review.
 
 ---
 
-*Drafted by Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive at 2026-06-22. Status: Proposed — pending Archimedes (Architect) review + operator confirmation. Supersedes the prior draft `ADR-025-oc-traffic-as-data-source.md`, renamed to `ADR-027-oc-traffic-as-data-source.md`.*
+*Drafted by the coordinating agent on behalf of operator (Alvin) "Continue" directive at 2026-06-22. Status: Proposed — pending Architect (Architect) review + operator confirmation. Supersedes the prior draft `ADR-025-oc-traffic-as-data-source.md`, renamed to `ADR-027-oc-traffic-as-data-source.md`.*

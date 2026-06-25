@@ -4,11 +4,11 @@ import AgentIdentityDashboard from '../components/AgentIdentityDashboard';
 import { agentAPI } from '../services/api';
 
 const mockAgents = [
-  { id: 'agent-001', name: 'Scout (Researcher)', status: 'active', trustScore: 92, capabilities: ['web_search', 'research', 'reporting'], credentials: true, lastActivity: '2026-05-21T14:30:00Z' },
-  { id: 'agent-002', name: 'Archimedes (Architect)', status: 'active', trustScore: 88, capabilities: ['design', 'specification', 'review'], credentials: true, lastActivity: '2026-05-21T14:25:00Z' },
-  { id: 'agent-003', name: 'Pixel (Designer)', status: 'suspended', trustScore: 45, capabilities: ['ui_design', 'css', 'prototyping'], credentials: false, lastActivity: '2026-05-20T09:15:00Z' },
-  { id: 'agent-004', name: 'Forge (Coder)', status: 'active', trustScore: 85, capabilities: ['coding', 'testing', 'debugging'], credentials: true, lastActivity: '2026-05-21T15:00:00Z' },
-  { id: 'agent-005', name: 'Quinn (Tester)', status: 'active', trustScore: 78, capabilities: ['testing', 'validation', 'reporting'], credentials: true, lastActivity: '2026-05-21T13:45:00Z' },
+  { id: 'agent-001', name: 'Researcher (Researcher)', status: 'active', trustScore: 92, capabilities: ['web_search', 'research', 'reporting'], credentials: true, lastActivity: '2026-05-21T14:30:00Z' },
+  { id: 'agent-002', name: 'Architect (Architect)', status: 'active', trustScore: 88, capabilities: ['design', 'specification', 'review'], credentials: true, lastActivity: '2026-05-21T14:25:00Z' },
+  { id: 'agent-003', name: 'Designer (Designer)', status: 'suspended', trustScore: 45, capabilities: ['ui_design', 'css', 'prototyping'], credentials: false, lastActivity: '2026-05-20T09:15:00Z' },
+  { id: 'agent-004', name: 'Coder (Coder)', status: 'active', trustScore: 85, capabilities: ['coding', 'testing', 'debugging'], credentials: true, lastActivity: '2026-05-21T15:00:00Z' },
+  { id: 'agent-005', name: 'Tester (Tester)', status: 'active', trustScore: 78, capabilities: ['testing', 'validation', 'reporting'], credentials: true, lastActivity: '2026-05-21T13:45:00Z' },
 ];
 
 const AgentIdentityContainer = () => {

@@ -6,9 +6,9 @@
 
 ---
 
-## 1. Sentinel audit — every finding closed
+## 1. the auditor audit — every finding closed
 
-Sentinel ran three pre-launch audit passes (B / A / C) and one pre-release P0 review (MR-HIGH-002). Every code-fixable finding has been closed on the public surface.
+the auditor ran three pre-launch audit passes (B / A / C) and one pre-release P0 review (MR-HIGH-002). Every code-fixable finding has been closed on the public surface.
 
 | Phase | ID | Severity | Subject | Closed in |
 |---|---|---|---|---|
@@ -50,17 +50,17 @@ All three neutralized to placeholders (`AWARE maintainers`, `$REPO_PARENT`). Dif
 
 ## 3. Items 18 / 19 — operator-blocked, not model-failed
 
-Items 18 and 19 in the C-step audit (`coordinator `/coordinate` live-call transcript` and `decision-chain HTTP query transcript`) require a running AWARE stack with a live `MINIMAX_API_KEY`. Both items are tagged "Operator + Forge" in the rollout SOP — Forge cannot synthesize a fake key or fabricate a Docker build transcript.
+Items 18 and 19 in the C-step audit (`coordinator `/coordinate` live-call transcript` and `decision-chain HTTP query transcript`) require a running AWARE stack with a live `PROVIDER_API_KEY`. Both items are tagged "Operator + Coder" in the rollout SOP — Coder cannot synthesize a fake key or fabricate a Docker build transcript.
 
 **What was done to unblock:**
 
 - `scripts/collect-runtime-evidence.sh` shipped in v2.5.1 — standardized evidence collector (curl probes against `/coordinate`, `/api/audit/chain`, `/api/audit/decision/<id>`, `/api/audit/verify-chain`, with sanitized output templates)
 - `docs/sop/aware-v2-rollout.md` shipped in v2.5.1 — five-stage cutover with operator checklist (CORS allowlist, secret rotation, kill-switch drill, failure-mode table)
-- A2A dispatch attempted 2026-06-25 09:22:57 BST to `agent:coder:main` (Forge) — **failed at 09:27:57 BST (300s timeout)** because Forge's session can't fabricate the key and the bring-up is bounded by the call_hermes 300s budget. This is structural, not a Forge failure.
+- A2A dispatch attempted 2026-06-25 09:22:57 BST to `agent:coder:main` (Coder) — **failed at 09:27:57 BST (300s timeout)** because Coder's session can't fabricate the key and the bring-up is bounded by the call_hermes 300s budget. This is structural, not a Coder failure.
 
 **What the operator (Alvin) needs to do to close items 18/19:**
 
-1. Provide `MINIMAX_API_KEY` (and `GITEA_TOKEN` for the heavy-think clone, or `HEAVY_THINK_REPO` pointing at a working remote).
+1. Provide `PROVIDER_API_KEY` (and `GITEA_TOKEN` for the heavy-think clone, or `HEAVY_THINK_REPO` pointing at a working remote).
 2. Run `bash scripts/collect-runtime-evidence.sh` from a checkout with the keys set.
 3. Commit the resulting `data/evidence/transcripts/` directory and reference it in v2.5.4 (or whichever patch release closes the audit).
 
@@ -79,25 +79,25 @@ Diff against v2.5.2: **+1 file, this document only**.
 
 ---
 
-## 5. Herald (PR/announcements) status
+## 5. the release agent (PR/announcements) status
 
-The Herald agent (`agent:pr`, `~/.openclaw/workspace-pr/`) was dispatched via A2A at 2026-06-25 10:33 BST with the full v2.5.0 release notes. That dispatch also ran into the 300s call_hermes timeout (the announcement draft was produced but not auto-delivered to the operator channel).
+The the release agent agent (`agent:pr`, `<canonical-config-dir>/workspace-pr/`) was dispatched via A2A at 2026-06-25 10:33 BST with the full v2.5.0 release notes. That dispatch also ran into the 300s call_hermes timeout (the announcement draft was produced but not auto-delivered to the operator channel).
 
-If a public release announcement is desired (LinkedIn post, blog post, mailing-list email), that's a separate Herald task that can be re-issued once the operator confirms the channel target.
+If a public release announcement is desired (LinkedIn post, blog post, mailing-list email), that's a separate the release agent task that can be re-issued once the operator confirms the channel target.
 
 ---
 
 ## 6. v2-GA verdict
 
-**Public surface:** ready for use. Zero privacy leaks, all Sentinel findings closed, system-prompt isolation in place, decision-log queryable via HTTP, CORS locked down.
+**Public surface:** ready for use. Zero privacy leaks, all the auditor findings closed, system-prompt isolation in place, decision-log queryable via HTTP, CORS locked down.
 
-**Operator-gated runtime evidence:** items 18/19 require live `MINIMAX_API_KEY` + Docker compose bring-up. The SOP and evidence script are shipped. The actual transcript is an operator action, not a code change.
+**Operator-gated runtime evidence:** items 18/19 require live `PROVIDER_API_KEY` + Docker compose bring-up. The SOP and evidence script are shipped. The actual transcript is an operator action, not a code change.
 
 **Recommended operator action for v2-GA closure:**
 
 ```bash
 cd /path/to/aware
-export MINIMAX_API_KEY="..."            # operator-supplied
+export PROVIDER_API_KEY="..."            # operator-supplied
 export HEAVY_THINK_REPO="..."            # any working remote
 bash scripts/collect-runtime-evidence.sh
 git add data/evidence/

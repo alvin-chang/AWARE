@@ -4,11 +4,11 @@ import KillSwitchControls from '../components/KillSwitchControls';
 import { agentAPI, killSwitchAPI } from '../services/api';
 
 const mockAgents = [
-  { id: 'agent-001', name: 'Scout', status: 'active', trustScore: 92 },
-  { id: 'agent-002', name: 'Archimedes', status: 'active', trustScore: 88 },
-  { id: 'agent-003', name: 'Pixel', status: 'revoked', trustScore: 45, revokedAt: '2026-05-20T09:15:00Z', revokeReason: 'Trust score dropped below threshold' },
-  { id: 'agent-004', name: 'Forge', status: 'active', trustScore: 85 },
-  { id: 'agent-005', name: 'Quinn', status: 'active', trustScore: 78 },
+  { id: 'agent-001', name: 'Researcher', status: 'active', trustScore: 92 },
+  { id: 'agent-002', name: 'Architect', status: 'active', trustScore: 88 },
+  { id: 'agent-003', name: 'Designer', status: 'revoked', trustScore: 45, revokedAt: '2026-05-20T09:15:00Z', revokeReason: 'Trust score dropped below threshold' },
+  { id: 'agent-004', name: 'Coder', status: 'active', trustScore: 85 },
+  { id: 'agent-005', name: 'Tester', status: 'active', trustScore: 78 },
 ];
 
 const KillSwitchContainer = () => {

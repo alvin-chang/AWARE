@@ -14,7 +14,7 @@
   "what_shipped": [
     "deploy/env.example (new file, 161 lines)",
     "24 v2 env vars documented across 8 config namespaces",
-    "Secrets sourced from ~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env",
+    "Secrets sourced from <credential-store>/credentials.env",
     "v1 fallback vars documented separately for upgrade path"
   ],
   "env_vars_documented": {

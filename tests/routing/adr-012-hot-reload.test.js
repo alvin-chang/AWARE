@@ -1,7 +1,7 @@
 /**
  * ADR-012: Phase 2.4 — Hot-Reload Policy Mechanism Tests
  * 
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

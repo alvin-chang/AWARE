@@ -3,8 +3,8 @@
 **Date:** 2026-06-21 22:00 BST
 **Branch:** `feature/aware-2.0`
 **Commit:** `2fda6555bc875f6b0223a46fedaf4aad0d370681`
-**Author:** Forge (sub-agent, dispatched by Critic via Orchestrator)
-**Source brief:** Orchestrator dispatch, 2026-06-21 21:08 BST → Critic revision 21:33 → Orchestrator 21:48 (push deferred)
+**Author:** Coder (sub-agent, dispatched by Reviewer via the coordinator)
+**Source brief:** the coordinator dispatch, 2026-06-21 21:08 BST → Reviewer revision 21:33 → the coordinator 21:48 (push deferred)
 
 ---
 
@@ -161,7 +161,7 @@ What this commit ships:
    operators can verify the cap at runtime.
 
 2. **OC shim is not yet calling AWARE coordinator.** The v4
-   HeavySkill strategy in `~/src/heavyskill-plugin/` does K+S
+   HeavySkill strategy in `<heavyskill-plugin-source>/` does K+S
    via the agent's own model client; it doesn't proxy through
    AWARE. The `api.pluginConfig` plumbing I added here is the
    receiving end of a future wire-up: when the OC shim is
@@ -210,7 +210,7 @@ What this commit ships:
 - **Commit:** `2fda6555bc875f6b0223a46fedaf4aad0d370681`
 - **Files changed:** 10 (4 src + 6 test, including 2 new files)
 - **Diff size:** +1125 / -75
-- **Push deferred — Gitea credential rotation in progress, awaiting Critic/Alvin.**
+- **Push deferred — Gitea credential rotation in progress, awaiting Reviewer/Alvin.**
 - Branch is 2 commits ahead of `origin/feature/aware-2.0` (this + `24d82ee`).
 
 [RESULT]

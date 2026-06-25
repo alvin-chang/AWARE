@@ -11,7 +11,7 @@
  * - classifySeverity(): Uses BOTH anomaly AND trust (F-3 fix)
  * 
  * @module monitoring/anomaly-scorer
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

@@ -1,9 +1,9 @@
 # ADR-015: Phase 3.1 — Tool Access Control & Enforcement
 
-**Status:** APPROVED (Critic, 2026-04-01 22:05 BST) ✅  
-**Author:** Archimedes  
+**Status:** APPROVED (Reviewer, 2026-04-01 22:05 BST) ✅  
+**Author:** Architect  
 **Date:** 2026-04-01  
-**Research inputs:** Scout Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
+**Research inputs:** Researcher Audit findings; ADR-011 (Quality-Gated Reinforcement); ADR-013 (Identity Framework); ADR-014 (Behavioural Anomaly)  
 **Depends on:** ADR-011, ADR-013, ADR-014  
 **Phase:** 3.1 (P1)  
 
@@ -738,7 +738,7 @@ async function checkSecurityGate(req) {
 
 ## Status
 
-**DRAFT** — Ready for Critor review and Scout research on tool access control patterns.
+**DRAFT** — Ready for Critor review and Researcher research on tool access control patterns.
 
 ---
 

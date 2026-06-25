@@ -2,7 +2,7 @@
 
 **Status:** **Empirical Finding — recorded 2026-06-22.** Not a decision per se; documents the state of the AWARE 2.0 quality-gate stack under Path 1 reversal.
 **Date:** 2026-06-22
-**Author:** Orchestrator (Alfie) — empirical audit after Path 1 reversal (ADR-027, accepted 2026-06-22 13:50 BST).
+**Author:** the coordinating agent — empirical audit after Path 1 reversal (ADR-027, accepted 2026-06-22 13:50 BST).
 **Build phase:** A1 (continuing)
 **Relates to:** ADR-024 (partially reversed), ADR-027 (Path 1 reversal), ADR-025 (production chat model deployment).
 **Findings-only:** This ADR records state. It does **not** propose a fix path. The fix path is a separate ADR (proposed: ADR-029 — Trainer Re-enable Runbook + Quality Gate Repair).
@@ -56,7 +56,7 @@ For pair 1 ("Reply with hello"):
 
 ## Finding 2: `outcome-filter.js` defaults to `noop` and even non-noop rules don't catch inversion
 
-**Source:** `~/src/AWARE/src/trainer/outcome-filter.js` (read in full 2026-06-22 14:00 BST).
+**Source:** `./src/trainer/outcome-filter.js` (read in full 2026-06-22 14:00 BST).
 
 **Default behavior (line 98):**
 ```javascript
@@ -83,7 +83,7 @@ With `minGap=0.05` (default), this rule **would drop** the inverted pairs from F
 - Filters by task_type, not quality. If no allowed list is configured, keeps everything. Today's pairs have `task_type: "standard"` which is not in any default allowed list — so this rule (if enabled) would drop them. But that's not "non-trivial verification."
 
 **Behavior of `azr_result` rule (lines 193-236):**
-- Only applies to MetaClaw pairs gated on AZR pass/fail. The `aware_azr_results` table currently has 0 rows (verified 2026-06-22 13:20 BST). So this rule is a no-op for the foreseeable future.
+- Only applies to <meta-rl-pipeline> pairs gated on AZR pass/fail. The `aware_azr_results` table currently has 0 rows (verified 2026-06-22 13:20 BST). So this rule is a no-op for the foreseeable future.
 - Even when populated, the rule's "missing data → keep" policy means most pairs would pass through.
 
 **Summary:** Under the default config, **every pair produced by the coordinator flows straight into the trainer** without any quality check beyond what the coordinator itself emits. The coordinator emits pairs with `verification.method: 'none'` and inverted PRM scores. The trainer would train on these pairs.
@@ -92,7 +92,7 @@ With `minGap=0.05` (default), this rule **would drop** the inverted pairs from F
 
 ## Finding 3 (REVISED 2026-06-22 14:25 BST): Verification is consistent across response and persisted pair, but always reports `method: 'none'` — no actual verification is performed
 
-**Original Finding 3 (RETRACTED):** The original Finding 3 claimed there was a divergence between the HTTP response verification (`method: 'prm+content'`) and the persisted pair verification (`method: 'none'`). **This finding was based on a hallucinated smoke test response** — there is no code path that produces `method: 'prm+content'`. The valid methods in heavy-think's `verify.js` are: `none`, `exec`, `test_suite`, `citation_check`, `kg_consistency`. The string `prm+content` exists only in this ADR and ADR-025, both written by the orchestrator. No actual smoke test produced it.
+**Original Finding 3 (RETRACTED):** The original Finding 3 claimed there was a divergence between the HTTP response verification (`method: 'prm+content'`) and the persisted pair verification (`method: 'none'`). **This finding was based on a hallucinated smoke test response** — there is no code path that produces `method: 'prm+content'`. The valid methods in heavy-think's `verify.js` are: `none`, `exec`, `test_suite`, `citation_check`, `kg_consistency`. The string `prm+content` exists only in this ADR and ADR-025, both written by the coordinating agent. No actual smoke test produced it.
 
 **Empirical verification 2026-06-22 14:25 BST:**
 
@@ -106,9 +106,9 @@ $ docker exec aware-2-coordinator cat /data/awareness-pairs/2026-06-22.jsonl | t
 PERSISTED PAIR: verification: {passed: true, method: 'none', duration_ms: 0}
 ```
 
-**Response and persisted pair are now identical.** Both report `method: 'none'`, which is the heavy-think default (line 110 of `~/src/heavy-think/src/index.js`): `let verificationResult = { passed: true, method: "none", duration_ms: 0 };`.
+**Response and persisted pair are now identical.** Both report `method: 'none'`, which is the heavy-think default (line 110 of `<heavy-think-source>/src/index.js`): `let verificationResult = { passed: true, method: "none", duration_ms: 0 };`.
 
-The AWARE coordinator's `/coordinate` request schema (in `~/src/AWARE/src/coordinator/http-server.js:304`) does NOT include a `verification` option in the body, so heavy-think's default is always used. There is no code path that triggers actual verification work.
+The AWARE coordinator's `/coordinate` request schema (in `./src/coordinator/http-server.js:304`) does NOT include a `verification` option in the body, so heavy-think's default is always used. There is no code path that triggers actual verification work.
 
 **Real Finding 3 (revised):** The verification metadata is consistent across response and persisted pair (both `method: 'none'`), but the pair schema is honest about the fact that **no verification is ever performed.** ADR-024 §Precondition 2 requires "verification pass non-trivial" — under current code state, no `/coordinate` call ever satisfies this bar. The pair writer emits pairs with `verification.method: 'none'`, meaning the trainer would receive pairs that are explicitly tagged as "unverified."
 
@@ -116,13 +116,13 @@ The AWARE coordinator's `/coordinate` request schema (in `~/src/AWARE/src/coordi
 
 **Implication for Path 1:** Path 1 reversal in ADR-027 is unaffected — the framing "AWARE 2.0 is a continuous flywheel" is still architecturally valid. The operational gating just has one more thing that needs to be real (not just consistent) before trainer enablement. This is a quality-of-pair issue, not a consistency issue.
 
-**Note for the audit trail:** This retraction is itself an audit finding. The orchestrator wrote a factual claim (`prm+content` method) into ADR-025 §Verification and ADR-028 §Finding 3 based on a misremembered smoke test response. The lesson: **verify claims against current code before recording them as findings.** This ADR is now the corrected record.
+**Note for the audit trail:** This retraction is itself an audit finding. The team wrote a factual claim (`prm+content` method) into ADR-025 §Verification and ADR-028 §Finding 3 based on a misremembered smoke test response. The lesson: **verify claims against current code before recording them as findings.** This ADR is now the corrected record.
 
 ---
 
 ## Finding 4: The trainer's second filter layer would throw at runtime — `toDpoDataset` not exported from heavy-think
 
-**Source:** `~/src/AWARE/src/trainer/index.js` lines 592-598 (read 2026-06-22 14:12 BST), `~/src/heavy-think/src/index.js` exports (verified via dynamic import 2026-06-22 14:13 BST).
+**Source:** `./src/trainer/index.js` lines 592-598 (read 2026-06-22 14:12 BST), `<heavy-think-source>/src/index.js` exports (verified via dynamic import 2026-06-22 14:13 BST).
 
 **The trainer pipeline has two filter layers:**
 1. `outcome-filter.js` (lines 582-590 of trainer/index.js) — config-driven, default `noop`
@@ -141,9 +141,9 @@ Exports: [
 ```
 
 `toDpoDataset` is **NOT exported** from heavy-think. It is referenced in:
-- `~/src/AWARE/src/trainer/index.js:593` — `const { toDpoDataset } = await import(config.heavyThink.path);`
-- `~/src/AWARE/<internal-doc>` (multiple lines) — documentation
-- `~/src/AWARE/docs/sop/sop-phase-4-dpo-dataset-pipeline.json` — phase 4 SOP
+- `./src/trainer/index.js:593` — `const { toDpoDataset } = await import(config.heavyThink.path);`
+- `./<internal-doc>` (multiple lines) — documentation
+- `./docs/sop/sop-phase-4-dpo-dataset-pipeline.json` — phase 4 SOP
 
 But it does not exist in heavy-think's source. The `preference-pair.js` module in heavy-think only exports `writePreferencePair` and `shouldSkipDuplicate` — no DPO dataset assembly.
 
@@ -213,7 +213,7 @@ These are audit-level observations, not action commitments. ADR-029 (Trainer Re-
 4. **(RETRACTED 2026-06-22 14:25 BST — see Finding 3 revision above)** Reconcile response vs persisted verification metadata — was based on a hallucinated `prm+content` claim. There is no divergence; both consistently report `method: 'none'`. The real concern (no verification work happens) is escalated to ADR-033 (proposed).
 5. **Add `toDpoDataset` to heavy-think's exports** OR **refactor trainer's `_packageDataset` to assemble DPO rows in AWARE itself** (e.g., a new `src/trainer/dpo-dataset.js` module that doesn't depend on heavy-think). Option B is safer — keeps heavy-think as a K+S primitive, makes DPO assembly a trainer concern.
 6. **Sample size is 2 pairs.** Before declaring a structural PRM inversion, gather ≥30 production pairs across varied problem types and verify the inversion is consistent. Pair 1 ("Reply with hello") is a degenerate case (single correct answer; PRM scoring may not be meaningful).
-7. **Diagnose PRM inversion root cause.** Even after the workaround (directionality check), understanding WHY PRM ranks hedging answers lower than hallucinated ones matters. The PRM judge in `~/src/heavy-think/src/prm.js` may need re-prompting or model swap. Out of scope for ADR-029 but flagged as follow-on.
+7. **Diagnose PRM inversion root cause.** Even after the workaround (directionality check), understanding WHY PRM ranks hedging answers lower than hallucinated ones matters. The PRM judge in `<heavy-think-source>/src/prm.js` may need re-prompting or model swap. Out of scope for ADR-029 but flagged as follow-on.
 
 ---
 
@@ -226,7 +226,7 @@ These are audit-level observations, not action commitments. ADR-029 (Trainer Re-
 
 ## Verification (so far)
 
-- Read `~/src/AWARE/src/trainer/outcome-filter.js` in full. ✅
+- Read `./src/trainer/outcome-filter.js` in full. ✅
 - Read `aware-2-coordinator:/data/awareness-pairs/2026-06-22.jsonl` (2 pairs). ✅
 - Read AWARE coordinator `/config` and `/health` to confirm current state. ✅ (smoke test 2026-06-22 13:20 BST)
 - Cross-referenced with `aware_conversations` and `aware_training_runs` Postgres tables (queries 2026-06-22 13:20 BST). ✅
@@ -235,6 +235,6 @@ These are audit-level observations, not action commitments. ADR-029 (Trainer Re-
 
 ---
 
-*Recorded by Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive 2026-06-22. This ADR records an empirical finding under Path 1 reversal; it does not propose a fix. Path 1 reversal (ADR-027) remains valid as an architectural decision — the framing "AWARE 2.0 is a continuous flywheel" is correct; the operational gating (quality gates that actually work) is what needs repair before runtime enablement.*
+*Recorded by the coordinating agent on behalf of operator (Alvin) "Continue" directive 2026-06-22. This ADR records an empirical finding under Path 1 reversal; it does not propose a fix. Path 1 reversal (ADR-027) remains valid as an architectural decision — the framing "AWARE 2.0 is a continuous flywheel" is correct; the operational gating (quality gates that actually work) is what needs repair before runtime enablement.*
 
-*Archimedes review invited on the three coordinated fixes (PRM inversion, outcome-filter default, verification metadata). Without these fixes, the trainer should not be enabled regardless of Path 1.*
+*Architect review invited on the three coordinated fixes (PRM inversion, outcome-filter default, verification metadata). Without these fixes, the trainer should not be enabled regardless of Path 1.*

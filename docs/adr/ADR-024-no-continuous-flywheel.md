@@ -2,8 +2,8 @@
 
 **Status:** **Partially reversed 2026-06-22** — see §Supersession at end. The three preconditions in §Decision remain valid as **quality gates** but no longer **gate enablement**. ADR-027 (accepted 2026-06-22) reverses the no-continuous-flywheel framing for the AWARE 2.0 stack: continuous OC-traffic flywheel is now restored. The "demand-driven or quarterly-cadence" framing in §Decision remains valid as the *quality gate* pattern (don't fire on garbage pairs), but the *enablement* framing is reversed.
 **Date:** 2026-06-21 (original); 2026-06-22 (partial reversal recorded)
-**Author:** Archimedes (Architect) on behalf of operator "Continue" directive (2026-06-21)
-**Supersedes:** Implicit "continuous improvement" assumption in ADR-020 §Decision 1 (AZR + MetaClaw + HeavySkill-as-flywheel); follows from ADR-023 (HeavySkill not the flywheel) by naming what *is*.
+**Author:** Architect (Architect) on behalf of operator "Continue" directive (2026-06-21)
+**Supersedes:** Implicit "continuous improvement" assumption in ADR-020 §Decision 1 (AZR + <meta-rl-pipeline> + HeavySkill-as-flywheel); follows from ADR-023 (HeavySkill not the flywheel) by naming what *is*.
 **Complementary:** ADR-022 (HeavySkill v2 plugin implementation stands — K+S is opt-in tool, not a flywheel); ADR-023 (HeavySkill not the flywheel — *what is*?).
 **Build phase:** A1 (continuing)
 
@@ -11,19 +11,19 @@
 
 ## Context
 
-ADR-020 commits AWARE 2.0 to two RL pipelines (AZR self-play on Modal + MetaClaw dialogue) feeding a shared weight store via DPO fine-tuning. ADR-023 closed the question "is HeavySkill the flywheel?" with **no**. This ADR answers the follow-on "what is?"
+ADR-020 commits AWARE 2.0 to two RL pipelines (AZR self-play on Modal + <meta-rl-pipeline> dialogue) feeding a shared weight store via DPO fine-tuning. ADR-023 closed the question "is HeavySkill the flywheel?" with **no**. This ADR answers the follow-on "what is?"
 
 By 2026-06-21, the actual state is:
 
 1. **The trainer pipeline is proven end-to-end (2026-06-13).** Smoke test drove a real DPO training run on Modal A100-80GB with 5 synthetic pairs, trained-model base model, LoRA r=16/α=16/dropout=0.05. Run completed: `{"event": "job_end", "status": "ok", "run_id": "run-1781341473932-cl85ug"}`. Merged checkpoint is 8182.1MB and loadable. Bug ledger (1-9) closed in commits `40d383e`, `8110033`, `d5d7b1a`, `50742ee`, `1f2286c`. **The engineering pipeline works.**
 2. **Trainer is currently off by policy.** `AWARE_TRAINER_ENABLED=0` in `docker-compose.coordinator.yml:312`. Trainer container boots clean post-`927d68a` (env audit 2026-06-13), but no run is submitted because the gate is `AWARE_TRAINER_MIN_PAIRS_PER_RUN=100` (line 314) and the source of pairs (`aware_conversations` Postgres table) is **empty** — <internal-doc> §"D5 run attempt": "v2 postgres: empty `aware_conversations` table".
 3. **The writer IS writing, but emitting garbage.** `<host-config>/awareness-pairs/2026-06-17.jsonl` (the only file in the dir, 2,110 bytes) contains 3 pairs with placeholder reasoning strings ("passthrough call #8 for model=minimax/primary-model"), fabricated PRM scores (0.75, 0.5, 1), and `verification.method: "none"`. This is because `wrapHeavyskillInferenceStream` in the OC shim is **still a passthrough** (<internal-doc> §"Layer 3 outstanding": "returns `ctx?.streamFn` unchanged. The paper-faithful K-Parallel + Summarize implementation is delivered in a follow-up patch.") — so "chosen" and "rejected" are not differentiated by content, only by which model produced them. The Postgres `aware_conversations` table doesn't even receive these garbage rows because the coordinator's `logger.logPair({ pair_path: result.pair_path || null })` only writes a row when the heavy-think envelope returns a real `pair_path` (commit `db78a2d` flywheel fix). Garbage pairs land in JSONL, not DB.
-4. **No production chat model.** The v14 LoRA (`qwen35-9b-dpo-smoke-v14`) is a 5-pair smoke-test artifact. Status §"Phase 2 — MetaClaw Integration + HeavySkill Production" lists every Phase 2 deliverable except HeavySkill (which shipped) as `[ ]`. Phase 1 (Coordinator Foundation) has six `[ ]` items including "Hello-world task: user prompt → coordinator → worker → response." **There is no AWARE chat model running in production to consume training signal.**
+4. **No production chat model.** The v14 LoRA (`qwen35-9b-dpo-smoke-v14`) is a 5-pair smoke-test artifact. Status §"Phase 2 — <meta-rl-pipeline> Integration + HeavySkill Production" lists every Phase 2 deliverable except HeavySkill (which shipped) as `[ ]`. Phase 1 (Coordinator Foundation) has six `[ ]` items including "Hello-world task: user prompt → coordinator → worker → response." **There is no AWARE chat model running in production to consume training signal.**
 5. **AZR self-play is unimplemented.** Phase 3 checklist (`<internal-doc>` lines 71-79): all eight items `[ ]`. The Modal app `aware-trainer` (ap-1tBuAGUUdYjxqwMQiyKzYD) is deployed with 0 GPU minutes used. AZR executor, Modal training Dockerfile, proposer/solver/verifier prompts, self-play loop, DPO training on Qwen 2.5 7B, synthetic task corpus — none of this exists.
-6. **MetaClaw is unimplemented.** Phase 2 §"Conversation logger hook into <runtime> session lifecycle" is `[ ]`. The operator dialogue batch that would feed MetaClaw DPO is not being captured.
-7. **The IUK TRL 7 blocker persists.** Scout's 8 June stress test flagged "no operational deployment evidence" as the gate for TRL 7. No production deployment exists; IUK re-application cannot claim TRL 7 until one does.
+6. **<meta-rl-pipeline> is unimplemented.** Phase 2 §"Conversation logger hook into <runtime> session lifecycle" is `[ ]`. The operator dialogue batch that would feed <meta-rl-pipeline> DPO is not being captured.
+7. **The IUK TRL 7 blocker persists.** Researcher's 8 June stress test flagged "no operational deployment evidence" as the gate for TRL 7. No production deployment exists; IUK re-application cannot claim TRL 7 until one does.
 
-The 19 June reversal (ADR-023) caught the gap between *stated intent* (HeavySkill as flywheel) and *actual state* (no producer, no consumer, no model). This ADR catches the gap between *ADR-020 §Decision 1's framing* (AZR + MetaClaw + HeavySkill as flywheel) and the same actual state — the *stated intent* that **something** is a continuous flywheel is wrong, not just the specific claim that HeavySkill is it.
+The 19 June reversal (ADR-023) caught the gap between *stated intent* (HeavySkill as flywheel) and *actual state* (no producer, no consumer, no model). This ADR catches the gap between *ADR-020 §Decision 1's framing* (AZR + <meta-rl-pipeline> + HeavySkill as flywheel) and the same actual state — the *stated intent* that **something** is a continuous flywheel is wrong, not just the specific claim that HeavySkill is it.
 
 ---
 
@@ -40,7 +40,7 @@ The 19 June reversal (ADR-023) caught the gap between *stated intent* (HeavySkil
 - Trainer container stays at `AWARE_TRAINER_ENABLED=0`.
 - `AWARE_LORA_WIRED` stays a partial signal (wire-up echo exists, but no production model).
 - v14 LoRA smoke artifact remains the most recent training run; no v15 until a real D5 run with real data.
-- Model improvement happens on **demand** (operator triggers an AZR batch, a MetaClaw batch, or a hand-curated batch) or on a **fixed compliance cadence** (recommended: quarterly review, see Consequences §3).
+- Model improvement happens on **demand** (operator triggers an AZR batch, a <meta-rl-pipeline> batch, or a hand-curated batch) or on a **fixed compliance cadence** (recommended: quarterly review, see Consequences §3).
 
 **HeavySkill wrap hook remains a separate, opt-in shipping surface** per ADR-022. The follow-up patch to implement paper-faithful K-Parallel + Summarize in `wrapHeavyskillInferenceStream` (<internal-doc> §"Layer 3 outstanding") is **not blocked** by this ADR — that work proceeds independently. When the patch lands, the writer will emit real pairs (assuming the wrap is configured to fire, per ADR-022's 4 activation surfaces). Whether those pairs flow into `aware_conversations` (DB) for the trainer is a separate decision covered by preconditions 1-2 above.
 
@@ -59,8 +59,8 @@ The 19 June reversal (ADR-023) caught the gap between *stated intent* (HeavySkil
 
 - **No continuous improvement path.** Until preconditions 1-3 hold, AWARE 2.0's model can only improve when an operator triggers an explicit retraining run. The implicit "model gets better every day" promise of a flywheel is not delivered.
 - **The "Recursive Evolution" framing is weaker.** A demand-driven retraining cycle is *evolution*, but it is *not recursive* (no consumer → trainer loop). The product brief's name is now partly aspirational; this ADR records the gap rather than papering over it.
-- **Phase 3 + Phase 4 scope is open.** AZR self-play and MetaClaw remain the *named* producers in ADR-020 §Decision 1, but this ADR removes the implicit obligation to keep them continuously running. They can be built as batch pipelines (trigger on demand) without the continuous-loop infrastructure. The D5 runbook (smoke-tested 2026-06-13) already supports this — `run-phase4-d5.sh` is operator-triggered.
-- **IUK TRL 7 timeline depends on production model.** The "no operational deployment evidence" blocker (Scout 8 June) persists until preconditions 1-3 hold. IUK re-application timing is decoupled from "flywheel works" timing.
+- **Phase 3 + Phase 4 scope is open.** AZR self-play and <meta-rl-pipeline> remain the *named* producers in ADR-020 §Decision 1, but this ADR removes the implicit obligation to keep them continuously running. They can be built as batch pipelines (trigger on demand) without the continuous-loop infrastructure. The D5 runbook (smoke-tested 2026-06-13) already supports this — `run-phase4-d5.sh` is operator-triggered.
+- **IUK TRL 7 timeline depends on production model.** The "no operational deployment evidence" blocker (Researcher 8 June) persists until preconditions 1-3 hold. IUK re-application timing is decoupled from "flywheel works" timing.
 
 ### Compliance cadence (recommendation, not a hard rule)
 
@@ -103,13 +103,13 @@ None yet. This ADR is the canonical record of the no-continuous-flywheel decisio
 
 ---
 
-*Recorded by Archimedes (Architect) on behalf of operator "Continue" directive at 2026-06-21 16:34 UTC. Status: Proposed — pending operator confirmation that this ADR accurately captures the no-continuous-flywheel decision, separate from ADR-023's no-HeavySkill-as-flywheel decision.*
+*Recorded by Architect (Architect) on behalf of operator "Continue" directive at 2026-06-21 16:34 UTC. Status: Proposed — pending operator confirmation that this ADR accurately captures the no-continuous-flywheel decision, separate from ADR-023's no-HeavySkill-as-flywheel decision.*
 
 ---
 
 ## Supersession (recorded 2026-06-22)
 
-**Operator decision 2026-06-22 13:50 BST (single-character confirmation "1" on orchestrator's three-path question):** Path 1 of ADR-027 is selected. The no-continuous-flywheel framing in §Decision is **partially reversed** for the AWARE 2.0 stack.
+**Operator decision 2026-06-22 13:50 BST (single-character confirmation "1" on the three-path question):** Path 1 of ADR-027 is selected. The no-continuous-flywheel framing in §Decision is **partially reversed** for the AWARE 2.0 stack.
 
 **What stands (still valid):**
 - The three preconditions in §Decision remain correct as **quality gates** for any candidate pair:
@@ -126,7 +126,7 @@ None yet. This ADR is the canonical record of the no-continuous-flywheel decisio
 
 **What is unchanged:**
 - HeavySkill remains a separate opt-in shipping surface per ADR-022.
-- AZR self-play and MetaClaw remain the named producers in ADR-020 §Decision 1; ADR-027 does not supersede ADR-020 §Decision 1's producer-side commitments, only the no-continuous-flywheel gating.
+- AZR self-play and <meta-rl-pipeline> remain the named producers in ADR-020 §Decision 1; ADR-027 does not supersede ADR-020 §Decision 1's producer-side commitments, only the no-continuous-flywheel gating.
 
 **Implication for <internal-doc> and other artifacts:**
 - "Pair writer dormant" framing (already corrected in commit `02cea51`) — confirmed accurate under Path 1; the pair writer is the data source for the flywheel.

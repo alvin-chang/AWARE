@@ -89,7 +89,7 @@ git push
 - `chore:` — tooling / dependency bumps / .gitignore
 
 **Secrets policy:** never commit a real token, key, or password. Secrets
-are sourced from `~/.<host-secret-dir>/ACTIVE-CREDENTIALS.env` on the
+are sourced from `<credential-store>/credentials.env` on the
 operator's host. If you need a new secret, document its env-var name in
 `deploy/env.example` as a placeholder — the value lives in the operator's
 credential store, not the repo.
@@ -153,9 +153,9 @@ If you add a new v2 source file:
 3. Add a test file at the matching `test/unit/<dir>/<basename>.test.js` path
 4. The default coverage table will include it on the next `npm run coverage`
 
-### The `~/src/heavy-think/` dependency
+### The `<heavy-think-source>/` dependency
 
-The coordinator imports `~/src/heavy-think/src/index.js` for the AZR task
+The coordinator imports `<heavy-think-source>/src/index.js` for the AZR task
 proposer / solver. The path is configurable via
 `AWARE_HEAVY_THINK_PATH` (see `deploy/env.example`). This is a sibling
 repo, not a submodule. If you change the heavy-think API, you must

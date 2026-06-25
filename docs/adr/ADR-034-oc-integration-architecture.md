@@ -1,8 +1,8 @@
 # ADR-034 — <runtime>-Side AWARE 2.0 Integration Architecture
 
-**Status:** Proposed (drafted 2026-06-22 15:10 BST by Orchestrator Alfie on behalf of operator Alvin; for Archimedes Architect review)
+**Status:** Proposed (drafted 2026-06-22 15:10 BST by the coordinating agent on behalf of operator Alvin; for Architect Architect review)
 **Date:** 2026-06-22
-**Author:** Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive
+**Author:** the coordinating agent on behalf of operator (Alvin) "Continue" directive
 **Build phase:** A2 (integration phase)
 **Relates to:** ADR-025 (production chat model — defines `/coordinate` contract), ADR-027 (Path 1 reversal — gates enablement), ADR-022 (HeavySkill v2 plugin — analog), ADR-029 (trainer-enable runbook), ADR-030 (PRM calibration)
 **Implements:** The operator's 2026-06-22 (B) selection "wire OC agent traffic as the data source" — specifically, the OC-side half of that integration.
@@ -29,7 +29,7 @@ Concretely: this ADR designs the <runtime> extension that exposes `/coordinate` 
 
 ### Surface
 
-The extension registers as a **provider** (per the OC plugin SDK contract — same as HeavySkill in `~/src/heavyskill-plugin/`). Concretely:
+The extension registers as a **provider** (per the OC plugin SDK contract — same as HeavySkill in `<heavyskill-plugin-source>/`). Concretely:
 
 ```
 extensions/aware/
@@ -132,7 +132,7 @@ OC agent loop calls heavy-think (HeavySkill plugin)
     Pass through to heavy-think unchanged
 ```
 
-This is the same pattern as the `wrapHeavyskillInferenceStream` function in `~/src/<runtime>/extensions/heavyskill/` (the v4 wrap that's currently a passthrough per <internal-doc>). The AWARE extension adds an alternative target — instead of forwarding to heavy-think, forward to `/coordinate`.
+This is the same pattern as the `wrapHeavyskillInferenceStream` function in `<runtime-source>/extensions/heavyskill/` (the v4 wrap that's currently a passthrough per <internal-doc>). The AWARE extension adds an alternative target — instead of forwarding to heavy-think, forward to `/coordinate`.
 
 ### HTTP client details
 
@@ -196,7 +196,7 @@ Three reasons:
 
 1. **Different lifecycle.** HeavySkill is OC's local K+S primitive. AWARE is AWARE 2.0's distributed coordinator with PRM cache, hybrid backend, and pair-writing. They have different upgrade cadences, different failure modes, different config surfaces.
 
-2. **Different ownership.** `~/src/heavyskill-plugin/` is HeavySkill's source-of-truth (separate repo). AWARE 2.0 lives at `~/src/AWARE/`. Conflating them creates a tight coupling that future maintainers will hate.
+2. **Different ownership.** `<heavyskill-plugin-source>/` is HeavySkill's source-of-truth (separate repo). AWARE 2.0 lives at `./`. Conflating them creates a tight coupling that future maintainers will hate.
 
 3. **Different opt-in semantics.** HeavySkill is "wrap my inference stream" (transparency). AWARE is "give me K+S + training signal" (explicit choice). Agents that want one don't necessarily want the other.
 
@@ -206,15 +206,15 @@ The pattern of "two related extensions" is established in the OC plugin SDK (e.g
 
 ## Source location
 
-The plugin source goes in a NEW separate repo: `~/src/aware-plugin/`. This is consistent with how HeavySkill is structured (`~/src/heavyskill-plugin/` is a separate repo, with `extensions/heavyskill/` in the <runtime> working tree being a thin re-export).
+The plugin source goes in a NEW separate repo: `<aware-plugin-source>/`. This is consistent with how HeavySkill is structured (`<heavyskill-plugin-source>/` is a separate repo, with `extensions/heavyskill/` in the <runtime> working tree being a thin re-export).
 
-Why a new repo (not `~/src/AWARE/extensions/aware/`):
+Why a new repo (not `./extensions/aware/`):
 - AWARE 2.0 is a standalone product (Docker compose stack). Adding OC extensions to it conflates the product with the integration.
 - A separate repo lets the OC extension evolve at OC's cadence, not AWARE's.
 
 The repo structure:
 ```
-~/src/aware-plugin/
+<aware-plugin-source>/
 ├── <runtime>.plugin.json
 ├── package.json
 ├── src/
@@ -236,10 +236,10 @@ This is a multi-step rollout. Each step has explicit operator sign-off:
 
 ### Step 1: Build the extension (no runtime impact)
 
-- Create `~/src/aware-plugin/` repo
+- Create `<aware-plugin-source>/` repo
 - Implement `client.js` (HTTP wrapper), `provider.js` (OC plugin contract), `schema.js` (input validation)
 - Unit tests (mock the HTTP layer; verify request shape matches ADR-025 §"Concrete consumer contract")
-- Sign-off: Archimedes reviews the API contract + per-agent config shape
+- Sign-off: Architect reviews the API contract + per-agent config shape
 
 ### Step 2: Add `aware` to OC's plugin registry
 
@@ -303,8 +303,8 @@ For comparison: current heavy-think local calls are ~$0.001/call (much smaller m
 ## What this ADR does NOT do
 
 - **Does NOT touch the <runtime> working tree** (mid-refactor). The plugin lives in a separate repo. Installation happens via `pnpm install` after the working tree stabilizes.
-- **Does NOT modify `~/src/AWARE/`.** This is OC-side. The AWARE-side changes are in ADR-025 + ADR-027 + ADR-029.
-- **Does NOT modify `~/src/heavyskill-plugin/`.** HeavySkill is unchanged. The AWARE plugin coexists with it.
+- **Does NOT modify `./`.** This is OC-side. The AWARE-side changes are in ADR-025 + ADR-027 + ADR-029.
+- **Does NOT modify `<heavyskill-plugin-source>/`.** HeavySkill is unchanged. The AWARE plugin coexists with it.
 - **Does NOT enable `AWARE_TRAINER_ENABLED=1`.** That's Step 5 of the rollout, gated on operator sign-off + ADR-029's go/no-go checklist.
 
 ---
@@ -320,14 +320,14 @@ For comparison: current heavy-think local calls are ~$0.001/call (much smaller m
 ## Verification (so far)
 
 - ADR-025 §"Concrete consumer contract" read; this ADR's request shape matches. ✅
-- Existing HeavySkill plugin (`~/src/heavyskill-plugin/`) structure reviewed; this ADR's design follows the same pattern. ✅
+- Existing HeavySkill plugin (`<heavyskill-plugin-source>/`) structure reviewed; this ADR's design follows the same pattern. ✅
 - OC plugin SDK contract verified (`extensions/heavyskill/<runtime>.plugin.json` shape). ✅
-- No code changes proposed in this ADR — it's a design + rollout plan. Implementation happens in follow-up PRs after Archimedes review. ✅
+- No code changes proposed in this ADR — it's a design + rollout plan. Implementation happens in follow-up PRs after Architect review. ✅
 
 ---
 
-*Drafted by Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive 2026-06-22 15:10 BST. Status: Proposed. Archimedes review invited on: (a) the tool + hook dual-surface design, (b) the per-agent config schema, (c) the rollout sequence (especially the cost analysis at Step 3), (d) the failure-mode mitigation table, (e) the new-repo decision (`~/src/aware-plugin/`).*
+*Drafted by the coordinating agent on behalf of operator (Alvin) "Continue" directive 2026-06-22 15:10 BST. Status: Proposed. Architect review invited on: (a) the tool + hook dual-surface design, (b) the per-agent config schema, (c) the rollout sequence (especially the cost analysis at Step 3), (d) the failure-mode mitigation table, (e) the new-repo decision (`<aware-plugin-source>/`).*
 
 *Operator review invited on: (f) the rollout sign-off cadence (per-step vs all-at-once), (g) the budget figure ($14/day for 3 enabled agents at 10 calls/hour), (h) the choice of which agents to enable first.*
 
-*This ADR closes the OC-side design gap left open by ADR-025 + ADR-027. With this ADR + ADR-025 (AWARE-side) + ADR-027 (architectural framing) + ADR-029 (trainer-enable runbook) + ADR-030 (PRM calibration), the integration design is complete. Implementation is a separate multi-step process gated on operator + Archimedes sign-off.*
+*This ADR closes the OC-side design gap left open by ADR-025 + ADR-027. With this ADR + ADR-025 (AWARE-side) + ADR-027 (architectural framing) + ADR-029 (trainer-enable runbook) + ADR-030 (PRM calibration), the integration design is complete. Implementation is a separate multi-step process gated on operator + Architect sign-off.*

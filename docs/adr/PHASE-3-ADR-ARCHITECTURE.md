@@ -1,6 +1,6 @@
 # Phase 3 ADR Architecture Plan
 
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-01  
 **Status:** PLANNING  
 
@@ -8,7 +8,7 @@
 
 ## Phase 3 Scope: Security Control Plane
 
-From Scout's research (phase-2-routing-research.md):
+From Researcher's research (phase-2-routing-research.md):
 
 > AWARE's routing intelligence must evolve into an **agentic AI security control plane**.  
 > Phase 3: Full identity, behavioural, kill-switch, compliance
@@ -51,9 +51,9 @@ From Scout's research (phase-2-routing-research.md):
 
 ### Dependencies
 - Phase 1.1 (Agent Identity Layer) — existing foundation
-- Scout research needed for attestation standards
+- Researcher research needed for attestation standards
 
-### Implementation (Forge)
+### Implementation (Coder)
 - `src/agents/identity-provider.js` extensions
 - `src/agents/credential-rotator.js`
 - `src/agents/attestation-service.js`
@@ -80,9 +80,9 @@ From Scout's research (phase-2-routing-research.md):
 
 ### Dependencies
 - Phase 1.3 (Behavioural Baseline) — existing foundation
-- Scout research needed for anomaly detection methodologies
+- Researcher research needed for anomaly detection methodologies
 
-### Implementation (Forge)
+### Implementation (Coder)
 - `src/monitoring/behavioural-monitor.js`
 - `src/monitoring/baseline-mapper.js`
 - `src/monitoring/anomaly-scorer.js`
@@ -110,9 +110,9 @@ From Scout's research (phase-2-routing-research.md):
 
 ### Dependencies
 - ADR-011 (Quality-Gated Reinforcement) — policy violation penalties
-- Scout research for tool control patterns
+- Researcher research for tool control patterns
 
-### Implementation (Forge)
+### Implementation (Coder)
 - `src/tools/tool-registry.js`
 - `src/tools/permission-enforcer.js`
 - `src/tools/shadow-detector.js`
@@ -141,9 +141,9 @@ From Scout's research (phase-2-routing-research.md):
 
 ### Dependencies
 - All prior ADRs (compliance cuts across everything)
-- Scout research for compliance frameworks
+- Researcher research for compliance frameworks
 
-### Implementation (Forge)
+### Implementation (Coder)
 - `src/compliance/framework-mapper.js`
 - `src/compliance/evidence-collector.js`
 - `src/compliance/report-generator.js`
@@ -170,18 +170,18 @@ From Scout's research (phase-2-routing-research.md):
 
 ### Dependencies
 - Phase 1.4 (Kill Switch) — existing foundation
-- Scout research for propagation patterns
+- Researcher research for propagation patterns
 
-### Implementation (Forge)
+### Implementation (Coder)
 - `src/emergency/kill-switch-propagator.js`
 - `src/emergency/shutdown-consensus.js`
 - `src/emergency/recovery-manager.js`
 
 ---
 
-## Scout Research Assignments
+## Researcher Research Assignments
 
-To support Phase 3 ADRs, Scout needs research on:
+To support Phase 3 ADRs, Researcher needs research on:
 
 ### P0 (Blocking ADR-013, ADR-014)
 
@@ -210,7 +210,7 @@ To support Phase 3 ADRs, Scout needs research on:
 
 ---
 
-## Forge Implementation Plan
+## Coder Implementation Plan
 
 ### After ADR-013 (Identity Framework)
 - Extend identity-provider for attestation
@@ -237,24 +237,24 @@ To support Phase 3 ADRs, Scout needs research on:
 
 ```
 Week 1:
-  ├── Scout: Research Identity Attestation + Behavioural Anomaly
-  ├── Archimedes: Draft ADR-013 (Identity) + ADR-014 (Behavioural)
-  └── Forge: Continue Phase 1.4 testing support
+  ├── Researcher: Research Identity Attestation + Behavioural Anomaly
+  ├── Architect: Draft ADR-013 (Identity) + ADR-014 (Behavioural)
+  └── Coder: Continue Phase 1.4 testing support
 
 Week 2:
-  ├── Scout: Research Tool Control + Compliance
-  ├── Archimedes: Draft ADR-015 (Tool) + ADR-016 (Compliance)
-  └── Forge: Implement ADR-013 + ADR-014 components
+  ├── Researcher: Research Tool Control + Compliance
+  ├── Architect: Draft ADR-015 (Tool) + ADR-016 (Compliance)
+  └── Coder: Implement ADR-013 + ADR-014 components
 
 Week 3:
-  ├── Scout: Research Kill Switch Propagation
-  ├── Archimedes: Draft ADR-017 (Kill Switch Propagation)
-  └── Forge: Implement ADR-015 + ADR-016 components
+  ├── Researcher: Research Kill Switch Propagation
+  ├── Architect: Draft ADR-017 (Kill Switch Propagation)
+  └── Coder: Implement ADR-015 + ADR-016 components
 
 Week 4:
   ├── Critor: Review all Phase 3 ADRs
-  ├── Quinn: Integration testing Phase 3 components
-  └── Forge: Implement ADR-017 + full integration
+  ├── Tester: Integration testing Phase 3 components
+  └── Coder: Implement ADR-017 + full integration
 ```
 
 ---

@@ -1,7 +1,7 @@
 /**
  * ADR-011: Phase 2.3 — Quality-Gated Reinforcement Tests
  * 
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

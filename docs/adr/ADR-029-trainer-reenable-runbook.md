@@ -1,8 +1,8 @@
 # ADR-029 — AWARE 2.0 Trainer Re-enable Runbook + Quality Gate Repair
 
-**Status:** Proposed (drafted 2026-06-22 14:18 BST by Orchestrator Alfie on behalf of operator Alvin; for Archimedes Architect review)
+**Status:** Proposed (drafted 2026-06-22 14:18 BST by the coordinating agent on behalf of operator Alvin; for Architect Architect review)
 **Date:** 2026-06-22
-**Author:** Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive
+**Author:** the coordinating agent on behalf of operator (Alvin) "Continue" directive
 **Build phase:** A1 → A2 transition (Phase 4 deliverable)
 **Relates to:** ADR-024 (partially reversed), ADR-025 (production chat model), ADR-027 (Path 1 reversal), ADR-028 (four quality-gate findings this runbook addresses)
 **Implements:** ADR-024 §Open Questions #3 (re-evaluation trigger for the no-flywheel state) — now redefined under Path 1
@@ -37,7 +37,7 @@ This is the **cheapest, lowest-risk** fix. It's a code change in a single file w
 
 ### Changes
 
-**File:** `~/src/AWARE/src/trainer/outcome-filter.js`
+**File:** `./src/trainer/outcome-filter.js`
 
 **Change A (line 98):**
 ```diff
@@ -75,7 +75,7 @@ This is the **cheapest, lowest-risk** fix. It's a code change in a single file w
   }
 ```
 
-**Change C (config defaults — `~/src/AWARE/src/config/index.cjs` line 221):**
+**Change C (config defaults — `./src/config/index.cjs` line 221):**
 ```diff
 - get filterRule() { return str('AWARE_TRAINER_FILTER_RULE', 'noop'); },
 + get filterRule() { return str('AWARE_TRAINER_FILTER_RULE', 'min_score_gap'); },
@@ -89,7 +89,7 @@ And (line 227):
 
 ### Verification (Repair 1)
 
-1. Run existing unit tests: `cd ~/src/AWARE && pnpm test trainer/outcome-filter` (or `node --test src/trainer/__tests__/outcome-filter.test.js`).
+1. Run existing unit tests: `cd ./ && pnpm test trainer/outcome-filter` (or `node --test src/trainer/__tests__/outcome-filter.test.js`).
 2. Add a new test case asserting that today's inverted pair (gap = -0.05) is dropped with reason `min_score_gap:inverted:-0.0500<=0`.
 3. Add a test case asserting that today's other inverted pair (gap = -0.40) is dropped with the same reason.
 4. Add a test case asserting that a non-inverted pair with gap = 0.25 passes (above 0.20 default minGap).
@@ -99,8 +99,8 @@ And (line 227):
 
 ### Operator decision points
 
-- **`minGap = 0.20` vs `0.05`**: The current default of 0.05 is too lenient (would not have caught the gap=-0.05 inverted pair, only the gap=-0.40 one). The proposed 0.20 is stricter but means fewer pairs pass. ADR-028 recommends 0.20; Archimedes review may revise.
-- **"Missing scores → drop" policy change**: The current code's "missing scores → keep" was a lenient policy to avoid dropping pairs when PRM scoring failed. The new policy "missing scores → drop" is stricter. This is a deliberate trade-off: we accept dropping some pairs (where PRM failed) in exchange for not training on pairs where we can't verify quality. Archimedes review may propose a third policy (e.g., "missing scores → quarantine for re-scoring").
+- **`minGap = 0.20` vs `0.05`**: The current default of 0.05 is too lenient (would not have caught the gap=-0.05 inverted pair, only the gap=-0.40 one). The proposed 0.20 is stricter but means fewer pairs pass. ADR-028 recommends 0.20; Architect review may revise.
+- **"Missing scores → drop" policy change**: The current code's "missing scores → keep" was a lenient policy to avoid dropping pairs when PRM scoring failed. The new policy "missing scores → drop" is stricter. This is a deliberate trade-off: we accept dropping some pairs (where PRM failed) in exchange for not training on pairs where we can't verify quality. Architect review may propose a third policy (e.g., "missing scores → quarantine for re-scoring").
 
 ---
 
@@ -125,7 +125,7 @@ ADR-024 §Precondition 2 says "verification pass non-trivial" as a quality gate.
 1. **Strict:** Each pair must have non-trivial verification before trainer consumes it. Under this interpretation, Repair 2 (now scoped as "implement verification") IS on the critical path.
 2. **Lenient:** The trainer's outcome filter can handle unverified pairs. Pairs with `verification.method: 'none'` can be quarantined or routed through a different code path (e.g., AZR re-verification).
 
-Under the lenient interpretation (which ADR-024 §Open Questions #4 partially anticipated with "AZR result gates MetaClaw"), unverified pairs can still flow through if there's a downstream quality check. The trainer's outcome filter (`outcome-filter.js`) currently does not differentiate verified vs unverified pairs — but it COULD be extended to do so.
+Under the lenient interpretation (which ADR-024 §Open Questions #4 partially anticipated with "AZR result gates <meta-rl-pipeline>"), unverified pairs can still flow through if there's a downstream quality check. The trainer's outcome filter (`outcome-filter.js`) currently does not differentiate verified vs unverified pairs — but it COULD be extended to do so.
 
 **Recommendation (revised Repair 2):**
 1. **Mark original Repair 2 complete** (no work needed for reconciliation).
@@ -151,7 +151,7 @@ This is the **highest-risk, hardest-to-verify** fix. PRM scoring depends on the 
 ### Investigation steps (before any code change)
 
 1. **Sample size:** Gather ≥30 production pairs by running 30+ `/coordinate` calls with varied problem types (security, code, reasoning, factual Q&A, single-word).
-2. **Distribution analysis:** For each pair, record `chosen.prm_score`, `rejected.prm_score`, `gap`, `problem.length`, `task_type`, and a human-judged "which is better?" label. Save to `~/src/AWARE/eval-results/prm-inversion-study-2026-06-22.jsonl`.
+2. **Distribution analysis:** For each pair, record `chosen.prm_score`, `rejected.prm_score`, `gap`, `problem.length`, `task_type`, and a human-judged "which is better?" label. Save to `./eval-results/prm-inversion-study-2026-06-22.jsonl`.
 3. **Calculate inversion rate:** `count(gap < 0) / count(total)`. If inversion rate is high (>50%), the issue is structural. If low (<20%), it may be domain-specific (e.g., single-word answers where confidence dominates).
 4. **Categorize:** Are inverted pairs concentrated in:
    - Long answers (>500 chars)? → PRM may reward length
@@ -164,7 +164,7 @@ This is the **highest-risk, hardest-to-verify** fix. PRM scoring depends on the 
 
 **Outcome A — Inversion is structural (>50% of pairs):** Root-cause fix is needed.
 - **Repair 3a:** Re-prompt `prm.js` with explicit anti-hallucination clause ("penalize answers that assert specific technical details without verification").
-- **Repair 3b:** Swap PRM model to a model that scores more conservatively (out of scope — requires Archimedes design).
+- **Repair 3b:** Swap PRM model to a model that scores more conservatively (out of scope — requires Architect design).
 - **Repair 3c:** Add a post-PRM scoring adjustment in the coordinator's `refine.js` that penalizes high-confidence answers when verification is "none" (i.e., apply a "trust gap" that's inversely proportional to verification rigor).
 
 **Outcome B — Inversion is domain-specific (<20% of pairs):** Workaround is sufficient.
@@ -181,7 +181,7 @@ This is the **highest-risk, hardest-to-verify** fix. PRM scoring depends on the 
 
 ### Operator decision points
 
-- **Time investment:** The inversion study requires ~30-60 minutes of curl calls + analysis. Archimedes may prefer to skip the study and jump to Repair 3a (re-prompt PRM) directly. Trade-off: study gives evidence-based decision; jumping to fix is faster but may miss the root cause.
+- **Time investment:** The inversion study requires ~30-60 minutes of curl calls + analysis. Architect may prefer to skip the study and jump to Repair 3a (re-prompt PRM) directly. Trade-off: study gives evidence-based decision; jumping to fix is faster but may miss the root cause.
 - **Repair 3c (post-hoc adjustment)** is the most pragmatic — it doesn't require modifying the PRM model, just adding a coordinator-side scoring adjustment. But it's the most "compensating for broken upstream" of the options.
 
 ---
@@ -198,7 +198,7 @@ By the time we get here, Repairs 1-3 have been verified, so the trainer is proce
 
 ### Recommended fix (Option B from ADR-028 §Finding 4)
 
-**Create a new module:** `~/src/AWARE/src/trainer/dpo-dataset.js`
+**Create a new module:** `./src/trainer/dpo-dataset.js`
 
 This module exports a `toDpoDataset(records, options)` function that:
 1. Accepts filtered preference records (from outcome-filter + Repair 1's directionality)
@@ -255,7 +255,7 @@ Before flipping `AWARE_TRAINER_ENABLED=1` for production:
 - [ ] **Repair 2 verified:** HTTP response and persisted pair have identical `verification` blocks (asserted via curl + docker exec cat).
 - [ ] **Repair 3 verified:** Inversion rate dropped to <10% on ≥30-pair study (or Repair 3 explicitly skipped with directionality check as the only guard).
 - [ ] **Repair 4 verified:** New `dpo-dataset.js` module tested (unit + integration); trainer's `_packageDataset()` runs without TypeError; smoke test produced a valid LoRA checkpoint.
-- [ ] **Operator runbook review:** This ADR reviewed by Archimedes; all four repair decisions documented in <internal-doc>.
+- [ ] **Operator runbook review:** This ADR reviewed by Architect; all four repair decisions documented in <internal-doc>.
 - [ ] **Rollback procedure:** Operator knows the reverse of each repair (revert env vars, revert code changes, restore backup LoRA at `/opt/aware/weights/active`).
 
 If any box is unchecked, **do not flip `AWARE_TRAINER_ENABLED=1`**. Path 1's continuous-flywheel framing remains valid; runtime enablement remains gated on these four repairs.
@@ -276,7 +276,7 @@ docker exec aware-2-trainer ls -la /opt/aware/weights/  # find previous
 docker exec aware-2-trainer ln -sfn /opt/aware/weights/<previous-id> /opt/aware/weights/active
 ```
 
-**Step 4:** Verify `/coordinate` quality on a smoke-test problem (use the "What is AWARE 2.0?" probe from ADR-028 §Finding 1). If quality is restored, rollback is complete. If not, the previous LoRA was already bad — escalate to Archimedes.
+**Step 4:** Verify `/coordinate` quality on a smoke-test problem (use the "What is AWARE 2.0?" probe from ADR-028 §Finding 1). If quality is restored, rollback is complete. If not, the previous LoRA was already bad — escalate to Architect.
 
 **Step 5:** Document the rollback in <internal-doc> with timestamp, root cause, and any new findings.
 
@@ -296,10 +296,10 @@ docker exec aware-2-trainer ln -sfn /opt/aware/weights/<previous-id> /opt/aware/
 - Repair sequencing is dependency-safe (1→2→3→4 with operator sign-off between each). ✅
 - Repair 1's code changes are small (one file, ~10 lines diff). ✅
 - Repair 4's recommended approach (new `dpo-dataset.js` module in AWARE) avoids touching heavy-think. ✅
-- No code changes proposed in this ADR — it's a runbook, not an implementation. The implementation happens in follow-up commits after Archimedes review.
+- No code changes proposed in this ADR — it's a runbook, not an implementation. The implementation happens in follow-up commits after Architect review.
 
 ---
 
-*Drafted by Orchestrator (Alfie) on behalf of operator (Alvin) "Continue" directive 2026-06-22 14:18 BST. Status: Proposed. Archimedes review invited on: (a) the four-repair sequencing, (b) the `minGap=0.20` choice, (c) the directionality check policy, (d) the new `dpo-dataset.js` module design, (e) the operator's go/no-go checklist.*
+*Drafted by the coordinating agent on behalf of operator (Alvin) "Continue" directive 2026-06-22 14:18 BST. Status: Proposed. Architect review invited on: (a) the four-repair sequencing, (b) the `minGap=0.20` choice, (c) the directionality check policy, (d) the new `dpo-dataset.js` module design, (e) the operator's go/no-go checklist.*
 
 *Operator (Alvin) decision points are clearly marked. The runbook is intended to be read top-to-bottom once, then executed repair-by-repair with verification between each.*

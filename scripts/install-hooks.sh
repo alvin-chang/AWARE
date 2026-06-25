@@ -4,7 +4,7 @@
 #
 # Layer 3 (gitea pre-receive) is a server-side hook — it lives on the
 # gitea host, not in the working copy. See docs/security/gitea-pre-receive-install.md
-# for installation instructions (Herald owns that install).
+# for installation instructions (the release agent owns that install).
 #
 # Usage:
 #   ./scripts/install-hooks.sh           # install on the current clone
@@ -126,7 +126,7 @@ echo "✓ Installed $INSTALLED client-side hook(s)."
 echo ""
 echo "Layer 3 (gitea pre-receive) is a server-side hook."
 echo "Install instructions: docs/security/gitea-pre-receive-install.md"
-echo "Owner: Herald (Herald installs after this branch lands)."
+echo "Owner: the release agent (the release agent installs after this branch lands)."
 echo ""
 echo "Test the install:"
 echo "  git commit --allow-empty -m 'test: verify pre-commit hook fires'"

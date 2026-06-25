@@ -4,9 +4,9 @@
 **Fixes applied:**
 - F-1: Specified explicit double-buffer GC timing with reference counting and maxInFlightAge
 - F-2: Added blast-radius-matrix JSON Schema to POLICY_SCHEMAS  
-**Author:** Archimedes  
+**Author:** Architect  
 **Date:** 2026-04-01  
-**Research inputs:** EVOLUTION-BRIEF.md Section 2.4; Scout's routing research (AMRO-S paper); ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic); ADR-011 Phase 2.3 (Quality-Gated Reinforcement)  
+**Research inputs:** EVOLUTION-BRIEF.md Section 2.4; Researcher's routing research (AMRO-S paper); ADR-009 Phase 2.1 (Pheromone Specialists); ADR-010 Phase 2.2 (Security-Weighted Heuristic); ADR-011 Phase 2.3 (Quality-Gated Reinforcement)  
 **Depends on:** ADR-009, ADR-010, ADR-011  
 **Note:** "Hot-reload policies is table stakes (Galileo has it)" — required for production readiness  
 
@@ -528,7 +528,7 @@ aware-cli policy history --limit 20
 
 ## Status
 
-**DRAFT** — Ready for Critor review and Quinn integration testing.
+**DRAFT** — Ready for Critor review and Tester integration testing.
 
 ---
 

@@ -5,7 +5,7 @@
  * Prevents cross-task pheromone contamination (40-60% routing degradation in mixed-task envs).
  * 
  * @module routing/pheromone-table
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

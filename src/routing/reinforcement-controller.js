@@ -5,7 +5,7 @@
  * Per ADR-011 §Dual-Gate Flow.
  * 
  * @module routing/reinforcement-controller
- * @author Forge (Coder)
+ * @author Coder (Coder)
  * @license GPL-3.0
  */
 

@@ -3,7 +3,7 @@
 // (compliance.js, tools.js) export Express routers and mount as-is.
 // Three (identity-v2.js, audit.js, hot-reload-policies.js) export
 // collections of route handlers and need adapter wrappers. The audit
-// notes that a single ~2h Forge task closes 4 highs at once
+// notes that a single ~2h Coder task closes 4 highs at once
 // (AR-HIGH-001, RP-HIGH-001 partial, MR-008, SC-MOD-015).
 //
 // We verify the mount by static analysis of src/api/index.js: each

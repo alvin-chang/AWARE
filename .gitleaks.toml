@@ -32,7 +32,7 @@ paths = [
     # because the line has the word 'keys' + a number suffix. Not a secret.
     '''src/db/prm-cache\.js''',
     # src/config/index.cjs: legitimately references env-var names like
-    # MODAL_TOKEN_ID, MINIMAX_API_KEY, etc. as STRINGS (the names are
+    # MODAL_TOKEN_ID, PROVIDER_API_KEY, etc. as STRINGS (the names are
     # public; only the values would be secrets). Plus host paths under
     # the author's $REPO_PARENT/... which are also legitimate
     # documentation in this file.

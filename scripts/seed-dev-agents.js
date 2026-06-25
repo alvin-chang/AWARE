@@ -54,7 +54,7 @@ const agents = [
   {
     id: 'c3cb2d0f-b6b7-4ebb-99c1-11a11f81efcb',
     agentId: 'agent:coder:instance-xyz789',
-    name: 'Forge (Test)',
+    name: 'Coder (Test)',
     type: 'coder',
     model: 'qwen-coder',
     version: '1.0.0',
@@ -76,7 +76,7 @@ const agents = [
   {
     id: 'd4dc3e1e-c7c8-5fcc-a0d2-22b22f92f0dc',
     agentId: 'agent:researcher:instance-uvw456',
-    name: 'Scout (Test)',
+    name: 'Researcher (Test)',
     type: 'researcher',
     model: 'primary-model',
     version: '1.0.0',

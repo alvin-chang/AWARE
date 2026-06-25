@@ -1,6 +1,6 @@
 // test/unit/trainer/outcome-filter.test.js — Unit tests for src/trainer/outcome-filter.js
 //
-// Phase 4 (ADR-020 618-627): outcome filter gates MetaClaw preference
+// Phase 4 (ADR-020 618-627): outcome filter gates process-RL pipeline preference
 // pairs. The filter is a pure function — these tests assert the
 // contract directly, with no I/O, no clock, no randomness.
 
@@ -234,7 +234,7 @@ test('outcome-filter: tag_match drops records with no task_type', () => {
 
 // -- azr_result ---------------------------------------------------------
 // Phase 4 deliverable 1: ADR-020 Decision 2 ("AZR pass/fail gates
-// MetaClaw process training") is enforced here. The index maps
+// process-RL pipeline process training") is enforced here. The index maps
 // content_hash → {passed, runId, recordedAt}, populated from the
 // aware_azr_results table by the trainer, filtered to passed=true.
 //

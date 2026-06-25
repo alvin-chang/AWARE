@@ -2,8 +2,8 @@
 
 **Status:** Proposed
 **Date:** 2026-06-19
-**Author:** Archimedes (Architect) on behalf of operator (Alvin) reversal
-**Supersedes:** Implicit assumption in ADR-020 §"Two-Pipeline Architecture" (MetaClaw + AZR + HeavySkill as the data flywheel); complementary to ADR-022 (HeavySkill v2 plugin implementation, which stands)
+**Author:** Architect (Architect) on behalf of operator (Alvin) reversal
+**Supersedes:** Implicit assumption in ADR-020 §"Two-Pipeline Architecture" (<meta-rl-pipeline> + AZR + HeavySkill as the data flywheel); complementary to ADR-022 (HeavySkill v2 plugin implementation, which stands)
 **Build phase:** A1 (continuing)
 **Related session:** `20260619_155545_0be6f6` — System Diagram Audit, 2026-06-19 09:40 BST
 
@@ -11,7 +11,7 @@
 
 ## Context
 
-ADR-020 commits AWARE 2.0 to two RL pipelines (AZR self-play + MetaClaw dialogue) feeding a shared weight store via DPO fine-tuning. The implicit third producer was **HeavySkill v2** (ADR-022): HeavySkill's K+S call patterns generate preference pairs on every invocation, and those pairs were expected to be the **primary continuous source** of training data — the "flywheel" that keeps AWARE 2.0's model improving in production.
+ADR-020 commits AWARE 2.0 to two RL pipelines (AZR self-play + <meta-rl-pipeline> dialogue) feeding a shared weight store via DPO fine-tuning. The implicit third producer was **HeavySkill v2** (ADR-022): HeavySkill's K+S call patterns generate preference pairs on every invocation, and those pairs were expected to be the **primary continuous source** of training data — the "flywheel" that keeps AWARE 2.0's model improving in production.
 
 Three pieces of evidence accumulated by 2026-06-19 made the operator reverse that assumption:
 
@@ -29,7 +29,7 @@ The 19 June system-diagram audit caught the drift between *stated intent* (Heavy
 
 **HeavySkill is removed from the AWARE 2.0 data flywheel design.** Preference-pair writing from HeavySkill calls is no longer a goal. If the writer ever existed as a code path, it is deprecated; if it does not exist, it must not be added.
 
-**The data flywheel role is now an open design question.** The replacement has been *decided* (HeavySkill is not it) but not yet *designed*. AZR self-play (ADR-020 §Decision 1) and MetaClaw (ADR-020 §Decision 1) remain the two named pipelines; whether either is the flywheel, or whether the flywheel is a different mechanism, is **deferred to a follow-on ADR** (placeholder: ADR-024).
+**The data flywheel role is now an open design question.** The replacement has been *decided* (HeavySkill is not it) but not yet *designed*. AZR self-play (ADR-020 §Decision 1) and <meta-rl-pipeline> (ADR-020 §Decision 1) remain the two named pipelines; whether either is the flywheel, or whether the flywheel is a different mechanism, is **deferred to a follow-on ADR** (placeholder: ADR-024).
 
 ---
 
@@ -43,7 +43,7 @@ The 19 June system-diagram audit caught the drift between *stated intent* (Heavy
 
 ### Negative
 
-- **AWARE 2.0 has no continuous-improvement path documented.** Until ADR-024 lands, the only ways AWARE 2.0's model can improve are: (a) manual DPO runs against hand-curated pairs, (b) AZR self-play runs against the existing Modal budget, (c) MetaClaw runs against user dialogue batches. None of these is "continuous" in the way HeavySkill-as-flywheel was supposed to be.
+- **AWARE 2.0 has no continuous-improvement path documented.** Until ADR-024 lands, the only ways AWARE 2.0's model can improve are: (a) manual DPO runs against hand-curated pairs, (b) AZR self-play runs against the existing Modal budget, (c) <meta-rl-pipeline> runs against user dialogue batches. None of these is "continuous" in the way HeavySkill-as-flywheel was supposed to be.
 - **Documentation drift still exists.** Four decision-bearing layers still claim HeavySkill is the flywheel: AWARE commits, <internal-doc>, the OC heavyskill extension, and any source-level integration. This ADR is the canonical record; the other layers need to be updated to match.
 - **MemoryStone KG is silent on the reversal.** No `supersedes/replaces` triple exists yet for ADR-023. That gap should be filled when the KG is next writable.
 
@@ -66,11 +66,11 @@ None yet. This ADR is the canonical record; commits updating <internal-doc>, the
 
 ## Open Questions (for ADR-024)
 
-1. **What is the data flywheel?** Candidates: AZR self-play scaled up, MetaClaw with operator-curated dialogue batches, a third pipeline (synthetic preference generation against the existing model), or accepting that AWARE 2.0 has *no* continuous flywheel and ships with periodic batch retraining only.
+1. **What is the data flywheel?** Candidates: AZR self-play scaled up, <meta-rl-pipeline> with operator-curated dialogue batches, a third pipeline (synthetic preference generation against the existing model), or accepting that AWARE 2.0 has *no* continuous flywheel and ships with periodic batch retraining only.
 2. **What is the production chat model path?** v14 LoRA is smoke-test. When does a real training run happen? What is the input? What does success look like?
 3. **Is the trainer's 2,265-restart-loop failure mode understood?** Re-enabling the trainer without a root-cause fix is a footgun.
-4. **How does this affect the IUK re-application strategy?** Scout's TRL 7 stress test (8 June) flagged "no operational deployment evidence" as the blocker. If the flywheel is the missing piece, the IUK timeline depends on ADR-024 landing first.
+4. **How does this affect the IUK re-application strategy?** Researcher's TRL 7 stress test (8 June) flagged "no operational deployment evidence" as the blocker. If the flywheel is the missing piece, the IUK timeline depends on ADR-024 landing first.
 
 ---
 
-*Recorded by Archimedes (Architect) on behalf of operator reversal captured in session `20260619_155545_0be6f6`. Status: Proposed — pending operator confirmation that this ADR accurately reflects the 19 June decision.*
+*Recorded by Architect (Architect) on behalf of operator reversal captured in session `20260619_155545_0be6f6`. Status: Proposed — pending operator confirmation that this ADR accurately reflects the 19 June decision.*

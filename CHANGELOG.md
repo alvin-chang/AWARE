@@ -33,7 +33,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-015/016: Phase 3.1C/3.2 — APPROVED + IMPLEMENTED + TESTED ✅
 
-**Status:** APPROVED (Critic, 2026-04-01 22:05 BST, commit b0f7104) | IMPLEMENTED (Forge, 2026-04-01 22:35 BST, commit 5a67661) | TESTED (Quinn, 2026-04-01 22:36 BST, commit f20c262)
+**Status:** APPROVED (Reviewer, 2026-04-01 22:05 BST, commit b0f7104) | IMPLEMENTED (Coder, 2026-04-01 22:35 BST, commit 5a67661) | TESTED (Tester, 2026-04-01 22:36 BST, commit f20c262)
 
 **Testing:** 40/40 PASS ✅
 
@@ -59,7 +59,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-017: Phase 3.2 — Kill Switch Propagation & Emergency Shutdown ✅ APPROVED
 
-**Status:** APPROVED (Critic, 2026-04-01 22:38 BST, commit 192db34) | IMPLEMENTED (Archimedes, commit be5b430)
+**Status:** APPROVED (Reviewer, 2026-04-01 22:38 BST, commit 192db34) | IMPLEMENTED (Architect, commit be5b430)
 
 **Findings fixed:**
 - F-1 [MEDIUM]: Acknowledgment etcd write verification with retry
@@ -79,7 +79,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-014: Phase 3.1B — Behavioural Anomaly Detection ✅ IMPLEMENTED
 
-**Status:** APPROVED (Critic, 2026-04-01 21:10 BST) | IMPLEMENTED (Forge, 2026-04-01 21:24 BST)
+**Status:** APPROVED (Reviewer, 2026-04-01 21:10 BST) | IMPLEMENTED (Coder, 2026-04-01 21:24 BST)
 **Commit:** `06c983e` (approved) | `85b04a1` (implemented)
 **Testing:** 14/14 tests PASS
 
@@ -90,7 +90,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-014: Phase 3.1B — Behavioural Anomaly Detection ✅
 
-**Status:** APPROVED (Critic, 2026-04-01 21:10 BST)
+**Status:** APPROVED (Reviewer, 2026-04-01 21:10 BST)
 **Commit:** `06c983e`
 
 **Findings resolved:**
@@ -100,7 +100,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-013: Phase 3.1A — Agent Identity & Authentication Framework ✅
 
-**Status:** APPROVED (Critic, 2026-04-01 14:00 BST)
+**Status:** APPROVED (Reviewer, 2026-04-01 14:00 BST)
 **Commit:** `b61fda3`
 **Testing:** 27/27 tests passing (identity-v2.test.js)
 
@@ -117,7 +117,7 @@ All notable changes to AWARE Evolution are documented here.
 
 ### ADR-010: Phase 2.2 — Security-Weighted Heuristic Function ✅
 
-**Status:** APPROVED (Critic, 2026-04-01 20:39 BST)
+**Status:** APPROVED (Reviewer, 2026-04-01 20:39 BST)
 **Commit:** `39bc2be`
 
 **Findings resolved:**
@@ -139,7 +139,7 @@ All notable changes to AWARE Evolution are documented here.
 - **Vote Granting** (C-03): Proper Raft vote granting via node registry
 - **Kill Switch Routes** (C-04): Emergency shutdown endpoints mounted in src/api/index.js
 
-**Testing:** 10/10 kill-switch tests passing (Quinn verified)
+**Testing:** 10/10 kill-switch tests passing (Tester verified)
 **Commits:** `d4f44d7`, `aa278ab`, `f711c3d`, `2846e2e`
 
 ---
@@ -162,7 +162,7 @@ All notable changes to AWARE Evolution are documented here.
 - `ERROR_RATE` — Error frequency per agent
 - `DECISION_FINGERPRINT` — Prompt injection detection (beyond spec)
 
-**Review:** ✅ Critic APPROVED (2026-04-01)
+**Review:** ✅ Reviewer APPROVED (2026-04-01)
 **Testing:** 47/52 passing | 6 pre-existing auth failures (api.test.js)
 **Commits:** `d679ec6`, `e0c0fd2`, `a3ceaec`, `f7e7427`, `653ba7a`, `8159cf7`, `1bc02ce`
 
