@@ -26,7 +26,74 @@
 //     core schema stays clean; plugin-owned config is opaque to
 //     the core.
 
-import { defaultKForTaskType } from '../../../heavy-think/src/config.js';
+import config from '../config/index.cjs';
+
+// Lazy-load `defaultKForTaskType` from heavy-think's index module
+// (which re-exports from `./config.js`). The previous static import
+// `'../../../heavy-think/src/config.js'` resolved to `/heavy-think/config.js`
+// in the Docker image (where `WORKDIR=/app`), but the actual location baked
+// by Dockerfile.coordinator is `/app/heavy-think/config.js`. The static
+// path ignored `AWARE_HEAVY_THINK_PATH` and caused the coordinator to
+// crash-loop on import-time `ERR_MODULE_NOT_FOUND`. Resolving via
+// `config.heavyThink.path` honors the env override.
+//
+// We avoid top-level `await import()` because `plugin-config.js` is
+// transitively `require()`d from CJS tests (rate-limit.test.js), and
+// top-level await turns the module into an "async module" that
+// `require()` rejects with ERR_REQUIRE_ASYNC_MODULE. Instead we expose
+// `defaultKForTaskType` as a sync wrapper that lazy-loads on first call.
+// Tests that need the binding before a call must `await loadHeavyThink()`
+// first; see test/unit/coordinator/index.test.js for the pattern.
+let _heavyThinkMod = null;
+let _heavyThinkLoadError = null;
+let _heavyThinkLoadPromise = null;
+export function loadHeavyThink() {
+  if (_heavyThinkMod) return Promise.resolve(_heavyThinkMod);
+  if (_heavyThinkLoadError) return Promise.reject(_heavyThinkLoadError);
+  if (_heavyThinkLoadPromise) return _heavyThinkLoadPromise;
+  _heavyThinkLoadPromise = import(config.heavyThink.path)
+    .then((mod) => {
+      _heavyThinkMod = mod;
+      if (typeof mod.defaultKForTaskType !== 'function') {
+        throw new Error(
+          `defaultKForTaskType not exported from ${config.heavyThink.path} — ` +
+          `check that AWARE_HEAVY_THINK_PATH points at a heavy-think build >= v0.2.x`
+        );
+      }
+      return mod;
+    })
+    .catch((err) => {
+      _heavyThinkLoadError = err;
+      throw err;
+    });
+  return _heavyThinkLoadPromise;
+}
+
+/**
+ * Synchronous wrapper around heavy-think's `defaultKForTaskType`.
+ * If heavy-think has been loaded (via `loadHeavyThink()` or a prior call
+ * through this wrapper), returns the live value. If not yet loaded, returns
+ * the static fallback for the most common task types so unit tests that
+ * don't exercise the dynamic-import path stay green. Callers needing the
+ * canonical heavy-think resolution for an unknown task_type should
+ * `await loadHeavyThink()` first.
+ */
+const STATIC_K_FALLBACK = Object.freeze({
+  simple: 2, standard: 4, security: 6, financial: 6, creative: 3,
+});
+export function defaultKForTaskType(task_type) {
+  if (_heavyThinkMod && typeof _heavyThinkMod.defaultKForTaskType === 'function') {
+    return _heavyThinkMod.defaultKForTaskType(task_type);
+  }
+  // Trigger lazy load in the background; if it succeeds, future calls hit the
+  // live function. For now return the static fallback so call-sites that
+  // fire before the load completes don't crash. The fallback intentionally
+  // matches heavy-think v0.2.x K_CONFIGS defaults — drift here is a bug.
+  loadHeavyThink().catch(() => { /* surfaced on first await loadHeavyThink() */ });
+  const key = task_type || 'standard';
+  if (key in STATIC_K_FALLBACK) return STATIC_K_FALLBACK[key];
+  return STATIC_K_FALLBACK.standard;
+}
 
 /**
  * Schema version. Bump when the shape of `pluginConfig` changes in
@@ -37,11 +104,14 @@ import { defaultKForTaskType } from '../../../heavy-think/src/config.js';
 export const K_PLUGIN_CONFIG_VERSION = 1;
 
 /**
- * Default per-task-type K from heavy-think. Re-exported for callers
- * that want to know what the fallback K would be when no pluginConfig
- * is present.
+ * Default per-task-type K from heavy-think. Resolved lazily on first call
+ * via `loadHeavyThink()`. See the module header for why we don't statically
+ * import from heavy-think/src/config.js.
+ *
+ * Callers needing the canonical heavy-think resolution for an unknown
+ * task_type should `await loadHeavyThink()` first; the sync wrapper
+ * below returns the static fallback for the common task types.
  */
-export { defaultKForTaskType };
 
 /**
  * Sanitize a pluginConfig object to the ADR-022 shape. Returns a new

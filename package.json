@@ -12,6 +12,8 @@
     "seed:dev": "npm run seed:dev:users && npm run seed:dev:agents",
     "seed:dev:clean": "rm -f src/data/users.json src/data/agents.json",
     "test": "node --test 'test/unit/**/*.test.js'",
+    "test:integration": "node --test 'test/integration/**/*.test.js'",
+    "test:all": "node --test 'test/unit/**/*.test.js' 'test/integration/**/*.test.js'",
     "test:jest": "jest",
     "test:watch": "node --test --watch 'test/unit/**/*.test.js'",
     "coverage": "c8 --reporter=text --reporter=lcov --reporter=html npm test",

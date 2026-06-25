@@ -36,7 +36,7 @@
 #   5. `docker compose config` validates
 #   6. `docker compose up -d` brings the stack up
 #   7. gateway `http://localhost:18080/health` returns 200 within 60s
-#   8. coordinator `http://localhost:18081/health` returns 200 within 60s
+#   8. coordinator `http://localhost:38181/health` returns 200 within 60s
 #   9. ollama `http://localhost:11434/api/tags` returns 200 within 60s
 #  10. summary printed with operator-action links
 
@@ -270,7 +270,7 @@ wait_for_http() {
 }
 
 wait_for_http "http://localhost:18080/health" "gateway"    || die "gateway health check failed"
-wait_for_http "http://localhost:18081/health" "coordinator" || die "coordinator health check failed"
+wait_for_http "http://localhost:38181/health" "coordinator" || die "coordinator health check failed"
 wait_for_http "http://localhost:11434/api/tags" "ollama"   || warn "ollama not ready (continue without — model may not be pulled yet)"
 
 # ─── Summary ────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ cat <<EOF
 
 ${C_BOLD}Services:${C_RESET}
   gateway      http://localhost:18080        (Telegram channel, A2A endpoint)
-  coordinator  http://localhost:18081        (Ollama + <secondary-llm> routing, conversation logger)
+  coordinator  http://localhost:38181        (Ollama + <secondary-llm> routing, conversation logger)
   ollama       http://localhost:11434        (qwen2.5:7b local inference)
   postgres     localhost:18432                (preference pairs, PRM cache, runs)
   redis        localhost:18379                (rate limiting, session state)
