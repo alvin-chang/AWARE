@@ -48,24 +48,34 @@ volumes:
     name: aware-2-postgres-data
   aware-2-redis-data:
     name: aware-2-redis-data
+  # C-step finding #16: shared audit-data volume. Both coordinator
+  # (writer) and gateway (reader via /api/audit/*) mount this so the
+  # gateway's audit HTTP API surfaces decisions the coordinator
+  # appended to /data/audit/decision-chain.jsonl. Without the shared
+  # volume, the gateway would read an empty chain (or fail to read
+  # entirely if AUDIT_DIR doesn't exist in its container filesystem).
+  # C-step finding #17: AWARE_AUDIT_RETENTION_DAYS governs how long
+  # entries survive here; see scripts/audit-retention-cleanup.js
+  # and docs/sop/audit-retention.md for the cleanup contract.
+  aware-2-audit-data:
+    name: aware-2-audit-data
   # aware-2-ollama-models REMOVED 2026-06-23: Ollama sidecar deprecated.
   # Coordinator now runs AWARE_MODE=online on MiniMax only. See ADR-020
   # amendment at the bottom of that file. The named volume can be
   # cleaned up with:
   #   docker volume rm aware-2-ollama-models
   # aware-2-preference-pairs removed (Phase 2.4): the named volume was
-  # mounted at /root/.<runtime>/metaclaw/preference-pairs but the AWARE
-  # process (running as `aware`, with HOME=/home/aware) writes to
-  # /home/aware/.<runtime>/metaclaw/preference-pairs/. The coordinator
-  # service now uses a host bind mount to that path instead. The orphan
-  # Docker volume can be removed with:
+  # mounted at an image-baked path but the AWARE process (running as
+  # `aware`, with HOME=/home/aware) writes to a different home-relative
+  # path. The coordinator service now uses a host bind mount to that
+  # path instead. The orphan Docker volume can be removed with:
   #   docker volume rm aware-2-preference-pairs
   # Note (2026-06-14): the host bind mount to /data/awareness-pairs
   # also doesn't work in this Docker Desktop environment — bind mounts
-  # from [REDACTED-PATH] into containers silently fail to populate.
+  # from <host-config>/ into containers silently fail to populate.
   # The trainer (aware-2-trainer) reads via aware-2-pairs-data named
   # volume, so the host doesn't need direct access. See
-  # [REDACTED-PATH]
+  # docs/sop/sop-phase-2-4-data-flywheel.md
   # (added in this slice) for the full bind-mount investigation +
   # named-volume fallback rationale.
   aware-2-pairs-data:
@@ -102,6 +112,20 @@ services:
       - COORDINATOR_URL=http://coordinator:8080
       - AWARE_GATEWAY_KILL_SWITCH=${AWARE_GATEWAY_KILL_SWITCH:-0}
       - GATEWAY_PROXY_TIMEOUT_MS=120000
+      # C-step finding #16: the gateway reads the audit chain from
+      # /data/audit (mounted via aware-2-audit-data below). The
+      # AUDIT_DIR var tells decision-logger.js where to read from.
+      # The coordinator (writer) must share this path.
+      - AUDIT_DIR=/data/audit
+      # C-step finding #15: explicit CORS allowlist for the v2 gateway.
+      # Comma-separated. Defaults to localhost:3001 if unset.
+      - AWARE_GATEWAY_ALLOWED_ORIGINS=${AWARE_GATEWAY_ALLOWED_ORIGINS:-http://localhost:3001}
+    volumes:
+      # C-step finding #16: read-only mount of the shared audit-data
+      # volume. The gateway never writes here — only reads, via the
+      # audit HTTP API mounted at /api/audit/*. Read-only so a
+      # compromised gateway can't tamper with the chain.
+      - aware-2-audit-data:/data/audit:ro
     depends_on:
       coordinator:
         condition: service_healthy
@@ -201,16 +225,16 @@ services:
       # Must match the volume mount point in the volumes: block below
       # (named volume aware-2-pairs-data → /data/awareness-pairs). The
       # path is intentionally not under the home directory because the
-      # image bakes /home/aware/.<runtime>/metaclaw/preference-pairs at
-      # build time, which would shadow a host bind mount to that path.
-      # Phase 1 had the implicit default home/.<runtime>/metaclaw/
-      # preference-pairs which is why the trainer's pair ingestion has
-      # never seen any live data — the live writes were landing in the
-      # image's ephemeral dir, not the bind-mounted host dir. Phase 2.4
-      # swaps to a named volume (aware-2-pairs-data) that the trainer
-      # reads via the same mount; host bind mounts from [REDACTED-PATH]
-      # into containers silently fail to populate in this Docker Desktop
-      # environment, so the named volume is the only working path.
+      # image bakes a home-relative preference-pairs path at build time,
+      # which would shadow a host bind mount to that path.
+      # Phase 1 had the implicit default home-relative path which is why
+      # the trainer's pair ingestion has never seen any live data — the
+      # live writes were landing in the image's ephemeral dir, not the
+      # bind-mounted host dir. Phase 2.4 swaps to a named volume
+      # (aware-2-pairs-data) that the trainer reads via the same mount;
+      # host bind mounts from <host-config>/ into containers silently
+      # fail to populate in this Docker Desktop environment, so the named
+      # volume is the only working path.
       - AWARE_PAIRS_DIR=/data/awareness-pairs
       # The coordinator authenticates with the same password the postgres
       # service was initialized with (see POSTGRES_PASSWORD below). The
@@ -223,6 +247,16 @@ services:
       # NODE_ENV=production if unset or shorter than 32 chars (config.validate()).
       # The gateway must mirror this token in its outbound Authorization header.
       - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
+      # C-step finding #16: AUDIT_DIR is the path where decision-logger.js
+      # writes the hash-chained audit log (decision-chain.jsonl). It must
+      # match the gateway's AUDIT_DIR so the gateway's /api/audit/* API
+      # reads what the coordinator writes. The shared mount is
+      # aware-2-audit-data below.
+      - AUDIT_DIR=/data/audit
+      # C-step finding #17: retention policy for audit log + Postgres
+      # aware_conversations. Default 2555 days = 7 years (DORA Art.26
+      # baseline). See scripts/audit-retention-cleanup.js + docs/sop/audit-retention.md
+      - AWARE_AUDIT_RETENTION_DAYS=${AWARE_AUDIT_RETENTION_DAYS:-2555}
     # The upstream LLM API key is intentionally NOT hardcoded. The
     # compose file reads the env var from the canonical credential
     # store on this host:
@@ -247,18 +281,23 @@ services:
     volumes:
       # Named volume for preference-pair output. Phase 1 used a bind
       # mount from <host-config>/metaclaw/preference-pairs but bind mounts
-      # from [REDACTED-PATH] into containers silently fail to populate
-      # in this Docker Desktop environment. The named volume lives at
+      # from <host-config>/ into containers silently fail to populate.
+      # The named volume lives at
       # /var/lib/docker/volumes/aware-2-pairs-data/_data; the trainer
       # (aware-2-trainer) reads via the same named volume mount. The
       # AWARE_PAIRS_DIR env var below tells the coordinator to write
       # to /data/awareness-pairs, the path the named volume mounts at.
       # The previous named volume (`aware-2-preference-pairs`) was
-      # mounted at /root/.<runtime>/metaclaw/preference-pairs but the
-      # AWARE process (running as `aware`, with HOME=/home/aware) wrote to
-      # /home/aware/.<runtime>/metaclaw/preference-pairs — so the volume
-      # was dead weight. Phase 2.4 data flywheel unblock.
+      # mounted at <image-baked-path> but the AWARE process (running as
+      # `aware`, with HOME=/home/aware) wrote to <image-baked-home-path>
+      # — so the volume was dead weight. Phase 2.4 data flywheel unblock.
       - aware-2-pairs-data:/data/awareness-pairs
+      # C-step finding #16: read-write mount of the shared audit-data
+      # volume. The coordinator appends to /data/audit/decision-chain.jsonl
+      # after each successful /coordinate. The gateway reads the same
+      # path via its own (read-only) mount so the /api/audit/* API
+      # surfaces real decisions.
+      - aware-2-audit-data:/data/audit
     depends_on:
       postgres:
         condition: service_healthy

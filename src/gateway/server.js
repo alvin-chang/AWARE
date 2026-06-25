@@ -61,6 +61,27 @@ const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const config = require('../config/index.cjs');
 
+// C-step finding #16 (AR-HIGH-001 partial — v2 surface): the v2 gateway
+// exposes the audit HTTP API on its public surface so an operator
+// running v2 can query the hash-chained decision log, verify chain
+// integrity, and export audit data — the same routes the v1 API
+// mounts at /api/audit/* (src/api/index.js:264).
+//
+// The audit module is CJS; we lazy-require it so the gateway can boot
+// even if /data/audit isn't mounted (offline dev mode) and so the
+// require cost is paid only when an audit route is actually hit.
+// `createRequire` from `node:module` is the canonical Node ESM↔CJS
+// bridge for environments where the surrounding module is ESM.
+const { createRequire } = require('node:module');
+const _auditRequire = createRequire(__filename);
+let _auditHandlers = null;
+function getAuditHandlers() {
+  if (!_auditHandlers) {
+    _auditHandlers = _auditRequire('../api/routes/audit.js');
+  }
+  return _auditHandlers;
+}
+
 const GATEWAY_VERSION = '0.2.0-phase-1-passthrough';
 const GATEWAY_BUILD_PHASE = 'phase-1-passthrough';
 
@@ -102,7 +123,40 @@ const app = express();
 // --- Middleware: in the same order as the v1 server.js ------------------
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors());
+
+// CORS posture (C-step finding #15, 2026-06-25).
+//
+// The previous `cors()` with no options defaulted to
+// `Access-Control-Allow-Origin: *` — wildcard, which removed the
+// browser-side defense for users who happen to be logged in. The
+// v1 API (src/api/index.js:91) already uses an explicit allowlist;
+// this brings the v2 gateway to the same posture.
+//
+// Allowed origins:
+//   - `AWARE_GATEWAY_ALLOWED_ORIGINS` (comma-separated env var)
+//   - `FRONTEND_URL` (single origin, for parity with v1)
+//   - `http://localhost:3001` (development default)
+//
+// The allowlist is re-read on every access so tests and operators can
+// change it without restarting the gateway. Like other env-driven
+// config in this file, it falls back to a safe local-dev default
+// when no env var is set.
+function getAllowedOrigins() {
+  const fromList = process.env.AWARE_GATEWAY_ALLOWED_ORIGINS?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (fromList && fromList.length > 0) return fromList;
+  const single = process.env.FRONTEND_URL?.trim();
+  if (single) return [single];
+  return ['http://localhost:3001'];
+}
+
+app.use(cors({
+  origin: getAllowedOrigins(),
+  credentials: true,
+  optionsSuccessStatus: 200,
+}));
+
 // NOTE: no global express.json(). The proxy path installs its own
 // raw-body middleware (see below). Adding express.json here would
 // re-introduce the buffer-and-reserialize leak that the passthrough
@@ -164,6 +218,33 @@ app.get('/version', (req, res) => {
   });
 });
 
+// --- Audit HTTP API (C-step finding #16) --------------------------------
+//
+// Mirror the v1 API audit routes (src/api/index.js:264) on the v2
+// gateway surface. The audit module is CJS and the routes are exposed
+// as named handler functions, not as an Express router; we wrap them
+// in a small Router here so the path shape matches v1 exactly:
+//   POST /api/audit/log
+//   GET  /api/audit/chain/:decisionId
+//   GET  /api/audit/verify
+//   GET  /api/audit/export
+//   GET  /api/audit/records/:decisionId
+//
+// We mount a path-scoped express.json() so the POST handler can read
+// `req.body` without re-introducing a global body parser (which would
+// break the proxy path's raw-body passthrough below).
+const auditRouter = express.Router();
+function mountAudit() {
+  const h = getAuditHandlers();
+  auditRouter.post('/log', express.json({ limit: '1mb' }), h.logDecisionRoute);
+  auditRouter.get('/chain/:decisionId', h.getChainRoute);
+  auditRouter.get('/verify', h.verifyChainRoute);
+  auditRouter.get('/export', h.exportChainRoute);
+  auditRouter.get('/records/:decisionId', h.getRecordRoute);
+}
+mountAudit();
+app.use('/api/audit', auditRouter);
+
 // --- Proxy: passthrough wrap to the coordinator -------------------------
 //
 // The proxy is generic: any path that isn't handled above gets forwarded.
@@ -204,6 +285,18 @@ app.all(
     // found" without a proxy hop. This avoids accidentally proxying
     // POSTs to those paths and confusing the coordinator.
     if (req.path === '/health' || req.path === '/version') {
+      res.status(404).json({ error: 'not found', request_id: req.id });
+      return;
+    }
+
+    // C-step finding #16: /api/audit/* is a gateway-local surface
+    // (audit HTTP API mounted above). Returning 404 here — without
+    // proxying — prevents the audit handler from running twice and
+    // avoids leaking request bodies to the coordinator's audit endpoint
+    // (which doesn't exist). Anything not matched by the audit router
+    // above has already 404'd by Express's default; this is belt-and-
+    // suspenders for paths the catch-all would otherwise catch.
+    if (req.path.startsWith('/api/audit')) {
       res.status(404).json({ error: 'not found', request_id: req.id });
       return;
     }
