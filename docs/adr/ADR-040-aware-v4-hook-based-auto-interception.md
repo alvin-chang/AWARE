@@ -1,7 +1,7 @@
 # ADR-040 — AWARE 2.0 v0.4 hook-based auto-interception
 
 **Status:** Accepted (2026-06-23)
-**Author:** Alfie (orchestrator)
+**Author:** AWARE maintainers
 **Supersedes:** part of v0.2.0 (InferenceStrategy) and v0.3.0 (explicit tool call only)
 
 ## Context
