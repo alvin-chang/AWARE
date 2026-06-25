@@ -1,0 +1,21 @@
+{
+  "name": "aware-gateway",
+  "version": "0.1.0-phase-1",
+  "private": true,
+  "type": "commonjs",
+  "description": "AWARE 2.0 gateway — thin BFF in front of the coordinator. Phase 1 partial. See ADR (internal).",
+  "main": "src/gateway/server.js",
+  "scripts": {
+    "start": "node src/gateway/server.js",
+    "test": "node --test test/unit/gateway/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.7.0",
+    "helmet": "^6.0.1"
+  }
+}

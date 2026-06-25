@@ -1,0 +1,57 @@
+#!/bin/bash
+# scripts/hooks/pre-commit — Layer 1 of the AWARE 4-layer privacy filter
+# (see docs/security/filter-architecture.md).
+#
+# Hard-blocks any commit that would re-introduce the anti-patterns
+# the [date-redacted] audit flagged in GoodCISO/aware:
+#   1. Host-specific paths in docs/audits/*.md
+#   2. LAN IPs and secrets paths in STATUS.md
+#   3. src/data/users.json + src/data/agents.json shape (not the templates)
+#   4. gitleaks custom rules from .gitleaks.toml
+#
+# This script is the **client-side** hook installed by
+# scripts/install-hooks.sh into .git/hooks/pre-commit. The
+# authoritative filter logic lives in scripts/pre-commit-check.sh
+# (committed in Phase A1) — this wrapper just delegates to it
+# plus a gitleaks pass, so the rules are maintained in one place.
+#
+# Bypassability: client-side hook. A contributor with shell access
+# can skip with `git commit --no-verify`. Layer 2 (pre-push) and
+# Layer 3 (gitea pre-receive) catch that.
+
+set -euo pipefail
+
+# Locate the repo root (this script lives at <repo>/scripts/hooks/pre-commit)
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+# 1) Authoritative content rules (A1 script — host paths, LAN IPs, fixture shape)
+echo "==> [Layer 1/3] pre-commit-check.sh (content rules)"
+if ! bash scripts/pre-commit-check.sh; then
+    echo ""
+    echo "✗ pre-commit blocked: content rules failed."
+    echo "  Fix the issues above (or update scripts/pre-commit-check.sh if the pattern is a known false positive)."
+    exit 1
+fi
+
+# 2) gitleaks custom rules (A1 ruleset in .gitleaks.toml)
+#    Use a no-git pass — fast, no network, no git history scan.
+#    Skip gracefully if gitleaks isn't installed.
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "==> [Layer 1/3] gitleaks (staged content)"
+    # --staged: scan only what is staged (fast, mirrors what we're about to commit)
+    # --no-git: in case we're in a subdirectory
+    if ! gitleaks protect --staged --redact --no-banner \
+        --config "$REPO_ROOT/.gitleaks.toml" \
+        --source "$REPO_ROOT"; then
+        echo ""
+        echo "✗ pre-commit blocked: gitleaks found a pattern."
+        echo "  Add the pattern to .gitleaks.toml [allowlist] if it's a known false positive."
+        exit 1
+    fi
+else
+    echo "  (gitleaks not installed — skipping. Install: brew install gitleaks)"
+fi
+
+echo "✓ Layer 1 (pre-commit) passed."
+exit 0

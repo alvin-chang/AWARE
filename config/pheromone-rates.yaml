@@ -1,0 +1,38 @@
+# the Pheromone Specialists ADR (internal): Phase 2.1 — Pheromone Decay Rates Configuration
+#
+# Per-category decay rates per the Pheromone Specialists ADR (internal) §Per-Category Decay Rates.
+# Higher volatility = faster decay.
+#
+# Category             | Typical Task Duration | Decay Rate | Rationale
+# -------------------- | -------------------- | ---------- | --------------------------------------------------
+# CODE_GENERATION      | Minutes              | 0.15/hour  | Fast-changing requirements, model upgrades invalidate quickly
+# RESEARCH            | Hours                | 0.05/hour  | Longer validity, knowledge accumulation
+# SECURITY_REVIEW     | Minutes              | 0.20/hour  | High-stakes, must adapt fast to new vulnerabilities
+# DATA_ANALYSIS       | Hours                | 0.03/hour  | Stable patterns, slow drift
+# COORDINATION        | Seconds              | 0.30/hour  | Near-real-time, high turnover
+# GENERAL             | Variable             | 0.10/hour  | Default
+
+pheromone:
+  decay_rates:
+    code-generation: 0.15
+    research: 0.05
+    security-review: 0.20
+    data-analysis: 0.03
+    coordination: 0.30
+    general: 0.10
+
+  # AMRO-S soft-max exponents (the Pheromone Specialists ADR (internal) F-5 fix)
+  # ALPHA = pheromone exponent, BETA = heuristic exponent
+  # Can override via environment variables: AMRO_ALPHA, AMRO_BETA
+  soft_max:
+    alpha: 1.0
+    beta: 1.0
+
+  # Minimum pheromone strength before pruning
+  pheromone_min: 0.01
+
+  # Maximum agents per pheromone matrix (OQ-5: hard limit)
+  max_agents_per_matrix: 1000
+
+  # Evaporation interval in seconds
+  evaporation_interval_seconds: 60

@@ -1,0 +1,163 @@
+# Dockerfile.training — AWARE 2.0 Modal GPU training image
+#
+# This image is BUILT by Modal, not by docker compose. Modal reads
+# this Dockerfile when you call `modal.Image.from_dockerfile(...)`
+# (see config/modal-training.json). The image is then run on a
+# Modal A100-80GB pod with a Modal Volume mounted at /root/aware-data.
+#
+# 2026-06-14 REWRITE: ported from unsloth+TRL stack (CUDA 12.4 +
+# Python 3.10 + transformers 4.51) to training-framework+transformers 5.x stack
+# (CUDA 13.0 + Python 3.12 + transformers 5.x). The dep stack +
+# framework call are validated by the v13 smoke test (commit 410af62,
+# 13 attempts, v13 passed in 229.32 sec).
+#
+# SECURITY
+# ========
+# - No Modal token is baked into the image. The token is read at
+#   job-start time via `modal run` from the operator's environment
+#   (set in the trainer service's env in docker-compose.coordinator.yml).
+# - No source code, credentials, or model weights are baked into
+#   layers beyond what training/run.py explicitly needs.
+# - Image runs as root inside the Modal pod; this is fine because
+#   Modal pods are ephemeral and the network is namespaced.
+#
+# BUILD vs RUNTIME
+# ================
+# - BUILD: `modal.Image.from_dockerfile("Dockerfile.training")`
+#   → Modal builds on its own build infrastructure, no local GPU needed
+# - RUNTIME: triggered by src/trainer/index.js via `modal.Function.remote(...)`
+#   → spins up a fresh A100-80GB pod with this image + /root/aware-data volume
+
+# Use NVIDIA's CUDA 13.0 devel base. training-framework 4.3.0 + transformers 5.x
+# require cu130 wheels and Python 3.12. The `devel` variant is required
+# (not `runtime`) because training-framework's Qwen3.5 model loader compiles
+# torchinductor kernels at load time, which needs the full CUDA
+# toolchain (nvcc, headers, libs). The `runtime` variant only ships
+# the shared libs.
+FROM nvidia/cuda:13.0.0-devel-ubuntu22.04
+
+# Avoid tzdata interactive prompt during apt install
+ENV DEBIAN_FRONTEND=noninteractive
+# Disable Python's bytecode generation in /root/.pyc files; we want
+# to see source on inspect.
+ENV PYTHONDONTWRITEBYTECODE=1
+# Unbuffered stdout so the trainer service gets real-time training
+# progress (Modal forwards process stdout to the caller's logger).
+ENV PYTHONUNBUFFERED=1
+# Modal Volume mount point for model + dataset cache. The Modal
+# Volume `qwen35-9b-cache` is mounted here by training/app.py
+# (configured per-job by the trainer service). First run downloads
+# the model to the volume; subsequent runs cache-hit.
+ENV HF_HOME=/root/.cache/huggingface
+# Faster HF downloads (XET protocol optimization; pairs with
+# hf-transfer==0.1.9 in requirements)
+ENV HF_XET_HIGH_PERFORMANCE=1
+# Modal backend hint for torch's CUDA init
+ENV TORCH_BACKEND=auto
+# Default Modal volume mount point for AWARE data (preference pairs,
+# AZR results, conversation logs). The Modal Volume is mounted
+# per-job by the trainer service in docker-compose.coordinator.yml
+ENV AWARE_DATA_DIR=/root/aware-data
+# Checkpoint volume (LoRA adapters + per-step safetensors)
+ENV AWARE_CHECKPOINT_DIR=/checkpoints
+# Default base model — overridable per-job via env var.
+# The base-model (Instruct) multimodal variant (Qwen3_5ForConditionalGeneration
+# architecture, 9.65B params, hybrid linear/full attention) is the
+# new base, locked in by the v14 smoke test (pivoted from v13's
+# base-model after the Instruct variant's DPO smoke passed). R1's
+# trained-model path is retained as a fallback in config/modal-training.json.
+# Keep this env var in sync with config/modal-training.json:dpo_defaults.base_model
+# and training/run.py:_resolve_dpo_args().
+ENV AWARE_BASE_MODEL=Qwen/base-model
+# Default DPO hyperparameters (training-framework-aligned; cf. swift rlhf --help)
+ENV AWARE_DPO_BETA=0.1
+ENV AWARE_DPO_LR=5e-5
+ENV AWARE_DPO_EPOCHS=1
+ENV AWARE_DPO_BATCH_SIZE=1
+ENV AWARE_DPO_GRAD_ACCUM=2
+ENV AWARE_DPO_LORA_RANK=16
+ENV AWARE_DPO_LORA_ALPHA=32
+ENV AWARE_DPO_MAX_LENGTH=512
+# RPO alpha (the canonical stability trick from training-framework v4.3.0's
+# examples/train/rlhf/dpo/lora.sh)
+ENV AWARE_DPO_RPO_ALPHA=0.1
+
+# Install Python 3.12 (training-framework 4.3.0 + transformers 5.x require 3.10+;
+# 3.12 is the most-tested combo for the v13 dep envelope). apt-get
+# for system deps, then a separate layer for pip install so the heavy
+# ML wheels are cached separately.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
+        git \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && python3 --version
+
+# Install Python deps in a venv so the system Python stays clean.
+# The venv lives in /opt/venv and is on PATH for subsequent RUN/CMD.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV VIRTUAL_ENV=/opt/venv
+
+# Copy requirements first (separate from the source) so pip install
+# is cached at the Modal image layer above the source code. This
+# means a one-line change to training/run.py doesn't bust the
+# multi-GB pip install layer.
+COPY training/requirements-training.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    # CRITICAL: training-framework 4.3.0's pyproject.toml pins `transformers<5.0`
+    # transitively. Without this `--upgrade`, the previous `pip install`
+    # resolves transformers to 4.57.6 (highest in [4.45, 5.0)). The
+    # qwen3_5 model class only exists in transformers 5.x, so the model
+    # loader would fail with "model type 'qwen3_5' not recognized" (v12
+    # smoke test failure). The `--upgrade` after the requirements
+    # install is the load-bearing override pattern validated by v13.
+    && pip install --no-cache-dir --upgrade "transformers>=5.0.0.dev" \
+    && rm /tmp/requirements.txt
+
+# Copy the AWARE source we need. The trainer only uses azr/ (for the
+# AZR self-play verifier) and training/ (for run.py). It does NOT
+# need the coordinator, gateway, or any Node code.
+COPY azr/ /opt/aware/azr/
+COPY training/ /opt/aware/training/
+# Make azr importable as a package. The training script does
+# `from azr.executor import ...` so /opt/aware must be on PYTHONPATH.
+ENV PYTHONPATH="/opt/aware:${PYTHONPATH}"
+
+# Set the working directory. The trainer service runs the job from
+# /opt/aware so the imports resolve cleanly.
+WORKDIR /opt/aware
+
+# Modal's container entrypoint. This is the process that imports the
+# registered App and dispatches function calls to them. The previous
+# revision had ENTRYPOINT=["python3", "-m", "training.run"] + CMD=["--help"],
+# which caused Modal to invoke `python3 -m training.run` as the main
+# process (because Modal doesn't override the image's ENTRYPOINT). The
+# `app.py:train()` decorated function was never reached, and the script
+# either printed help or rejected Modal's injected args with argparse.
+#
+# With this ENTRYPOINT, Modal's container_entrypoint is the main process
+# and dispatches the registered function (app.py:train) to the call.
+# For manual debug (`docker run -it aware-training:latest /bin/bash`),
+# the operator overrides the entrypoint explicitly.
+# See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+# follow-up: Modal entrypoint contract.
+ENTRYPOINT ["python3", "-m", "modal._container_entrypoint"]
+CMD []
+
+# HEALTHCHECK is intentionally absent. This image is not a long-running
+# service — it's a job runner. The trainer service (Node) is what polls
+# Modal for job status; the image's process exit code is the truth.
+
+# Modal's recommended label pattern (consumed by their dashboard)
+LABEL org.opencontainers.image.title="aware-2-training"
+LABEL org.opencontainers.image.description="AWARE 2.0 DPO fine-tuning (training-framework 4.x + transformers 5.x on base-model Instruct)"
+LABEL org.opencontainers.image.source="https://github.com/<runtime>/aware"
+LABEL org.opencontainers.image.licenses="Apache-2.0"

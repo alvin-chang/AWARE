@@ -1,0 +1,144 @@
+# Dockerfile.coordinator — AWARE 2.0 coordinator service
+# Per ADR (internal) Decision 1: persistent coordinator session + lightweight task workers
+#
+# rl-pipeline source is cloned from the canonical remote at build time,
+# not mounted from the host. The canonical remote is your internal git
+# server (pinned by tag), so changes to the local working copy don't
+# silently change what ships in the image. See ADR (internal).
+#
+# Build:
+#   DOCKER_BUILDKIT=1 docker compose \
+#     -f docker-compose.coordinator.yml \
+#     -p aware-2 \
+#     up -d --build
+#
+# The compose file passes AWARE_RL_PIPELINE_TAG=v0.2.2 + AWARE_RL_PIPELINE_REPO
+# as build args. The build stage below clones from your git server at
+# that tag. Override AWARE_RL_PIPELINE_REPO at build time to point at your
+# own internal repository.
+#
+# Production alternative: publish rl-pipeline to a public registry
+# (GitHub or npm) and `npm install rl-pipeline@<version>` in the build.
+# Tracked in ADR (internal) follow-ups.
+
+# ─── Stage 1: build ───────────────────────────────────────────────
+FROM node:22-alpine AS build
+
+# git is needed to clone rl-pipeline from your git server. alpine's
+# git package is ~5MB. We could use alpine/git:2.45 as a separate stage
+# to keep the cache layer clean, but some image mirrors only have a
+# subset of alpine/git tags; installing in the main stage is more
+# portable.
+RUN apk add --no-cache git
+
+WORKDIR /build
+
+# Pin rl-pipeline version (declared by compose, also overridable from CLI).
+# The Dockerfile clones the source at exactly this tag from your git server.
+# Operators MUST pass AWARE_RL_PIPELINE_REPO at build time (e.g. via docker-compose
+# `build.args` or `docker build --build-arg AWARE_RL_PIPELINE_REPO=...`). No
+# default is provided — pointing at a host-specific git server by default
+# would leak operator topology into published images.
+ARG AWARE_RL_PIPELINE_TAG=v0.2.2
+# AWARE_RL_PIPELINE_REPO has no default; the build will fail with a clear
+# "AWARE_RL_PIPELINE_REPO not set" error if the operator forgets to pass it.
+ARG AWARE_RL_PIPELINE_REPO
+
+# Clone rl-pipeline from your git server at the pinned tag. The tag,
+# not the local working copy, is the source of truth. See ADR (internal).
+RUN git clone --depth 1 --branch ${AWARE_RL_PIPELINE_TAG} ${AWARE_RL_PIPELINE_REPO} /build/rl-pipeline && \
+    rm -rf /build/rl-pipeline/.git
+
+# Copy AWARE package manifest first for better layer caching
+COPY package*.json ./
+
+# Install production deps for the AWARE repo
+RUN npm install --omit=dev
+
+# Copy the AWARE source (coordinator service + the shared config module)
+COPY src/coordinator ./src/coordinator
+COPY src/config/index.cjs ./src/config/index.cjs
+COPY src/db ./src/db
+COPY src/budget ./src/budget
+COPY src/trainer ./src/trainer
+COPY db ./db
+# Bake the Modal training config into the image so the trainer's
+# default `config.trainer.configPath` (`config/modal-training.json`,
+# resolved to /app/config/modal-training.json) is always readable.
+# The compose file still mounts a bind override at
+# /opt/aware/config/modal-training.json for operator hot-swap; the
+# in-image copy is the fallback that makes the default case work.
+# See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md BLOCKER-1.
+COPY config/modal-training.json ./config/modal-training.json
+
+# ─── Stage 2: runtime ─────────────────────────────────────────────
+FROM node:22-alpine AS runtime
+
+# Security: run as non-root
+RUN addgroup -S aware && adduser -S aware -G aware
+
+WORKDIR /app
+
+# Copy the production node_modules and source from the build stage
+COPY --from=build --chown=aware:aware /build/node_modules ./node_modules
+COPY --from=build --chown=aware:aware /build/src ./src
+COPY --from=build --chown=aware:aware /build/rl-pipeline ./rl-pipeline
+COPY --from=build --chown=aware:aware /build/db ./db
+# Pre-create the trainer's weights dir and chown to `aware` so the
+# atomic-symlink-swap in src/trainer/index.js:_atomicSymlinkSwap can
+# write to it (the dir defaults to /opt/aware/weights/active; the
+# parent /opt/ is root-owned, so we have to create the leaf here at
+# build time and chown the leaf+parent-subtree). See
+# docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md MEDIUM-2.
+RUN mkdir -p /opt/aware/weights/active && chown -R aware:aware /opt/aware
+# Phase 2.4: the AWARE_PAIRS_DIR default override path used by the
+# compose file (also baked here as a fallback). The compose file
+# bind-mounts the named volume aware-2-pairs-data to this path; the
+# volume's root is created as root:root on first attach, which would
+# cause EACCES when the AWARE process (running as `aware`, uid 100)
+# tries to open the JSONL file. Pre-creating + chowning here means
+# the first write succeeds without operator intervention.
+RUN mkdir -p /data/awareness-pairs && chown -R aware:aware /data
+# Carry the Modal training config (baked in the build stage) into the
+# runtime image. The build stage's `COPY config/modal-training.json
+# ./config/modal-training.json` lands the file at
+# /build/config/modal-training.json; the runtime needs it at
+# /app/config/modal-training.json so the trainer's default
+# `config.trainer.configPath` (`config/modal-training.json`) resolves
+# to a readable file when WORKDIR=/app. See
+# docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md BLOCKER-1.
+COPY --from=build --chown=aware:aware /build/config/modal-training.json /app/config/modal-training.json
+# Symlink so the coordinator's static `../../../../src/rl-pipeline/` import
+# (which resolves to `/src/rl-pipeline/` from /app/) finds the source at
+# /app/rl-pipeline/. This matches the dev layout where `../../../../` from
+# the coordinator lands at the rl-pipeline sibling repo.
+RUN mkdir -p /src && ln -s /app/rl-pipeline /src/rl-pipeline
+
+# Minimal package.json so ESM is honored (coordinator source is .js with ESM syntax)
+RUN echo '{"type":"module","name":"aware-coordinator","private":true}' > /app/package.json
+
+USER aware
+
+# Document the port (overridable via COORDINATOR_PORT env var)
+EXPOSE 8080
+
+# T0-T4 enforcement env defaults — overridable at runtime
+# SEC-007: COORDINATOR_HOST defaults to 127.0.0.1 (loopback only)
+# so the coordinator is only reachable from within its container's network
+# namespace or via an explicit Docker network. Operators exposing the
+# coordinator publicly MUST set COORDINATOR_HOST=0.0.0.0 explicitly and
+# place an authenticating reverse proxy in front.
+ENV COORDINATOR_HOST=127.0.0.1 \
+    COORDINATOR_PORT=8080 \
+    AWARE_REQUEST_TIMEOUT_MS=120000 \
+    AWARE_REQUEST_COST_CAP_USD=1.0 \
+    AWARE_KILL_SWITCH=0 \
+    AWARE_RL_PIPELINE_PATH=/app/rl-pipeline/src/index.js \
+    NODE_ENV=production
+
+# Health check — uses the /health endpoint this image serves
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1
+
+# Direct invocation; the http-server.js isMain branch boots the server.
+CMD ["node", "src/coordinator/http-server.js"]

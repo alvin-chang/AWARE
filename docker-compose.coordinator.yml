@@ -1,0 +1,522 @@
+# docker-compose.coordinator.yml — AWARE 2.0 coordinator stack
+# Per ADR (internal) Phase 1: 7-service topology, of which 5 run locally and 2 are
+# placeholder external services for Phase 3 (Modal).
+#
+# This file is ADDITIVE — it does NOT replace the v1 docker-compose.yml
+# (which still runs the v1.0.0 backend + frontend). The v1 stack continues
+# to run on ports 3000/3001/80/443/5001; the v2 stack lives in the 18xxx range.
+#
+# Build with:
+#   DOCKER_BUILDKIT=1 docker compose \
+#     -f docker-compose.coordinator.yml \
+#     -p aware-2 \
+#     up -d --build
+#
+# rl-pipeline source is cloned from your internal git server
+# (pinned at AWARE_RL_PIPELINE_TAG=v0.2.2) inside the Dockerfile's Stage 0
+# (alpine/git). The build does NOT mount the local working copy from
+# the host — the canonical source is the git remote you specify via
+# AWARE_RL_PIPELINE_REPO at build time. To bump rl-pipeline: tag the new
+# commit in your repo, update AWARE_RL_PIPELINE_TAG in this file, re-build.
+# See ADR (internal).
+#
+# Tear down:
+#   docker compose -f docker-compose.coordinator.yml -p aware-2 down
+#
+# Verify:
+#   curl -sS http://127.0.0.1:18080/health  # gateway
+#   curl -sS http://127.0.0.1:18081/health  # coordinator
+#   curl -sS http://127.0.0.1:18081/version # coordinator identity
+#
+# [date-redacted]: Ollama sidecar REMOVED. AWARE_MODE=online runs the
+# coordinator on the primary LLM provider only. See docs/adr/ADR (internal) amendment at
+# the bottom of that file (and the bring-up script) for the
+# rationale. The previous ollama-sidecar smoke-test line
+# (curl http://127.0.0.1:11434/api/tags) is no longer applicable.
+
+name: aware-2
+
+# ─── Networks ──────────────────────────────────────────────────────
+networks:
+  aware-2:
+    driver: bridge
+    name: aware-2
+
+# ─── Volumes (persistent) ──────────────────────────────────────────
+volumes:
+  aware-2-postgres-data:
+    name: aware-2-postgres-data
+  aware-2-redis-data:
+    name: aware-2-redis-data
+  # C-step finding #16: shared audit-data volume. Both coordinator
+  # (writer) and gateway (reader via /api/audit/*) mount this so the
+  # gateway's audit HTTP API surfaces decisions the coordinator
+  # appended to /data/audit/decision-chain.jsonl. Without the shared
+  # volume, the gateway would read an empty chain (or fail to read
+  # entirely if AUDIT_DIR doesn't exist in its container filesystem).
+  # C-step finding #17: AWARE_AUDIT_RETENTION_DAYS governs how long
+  # entries survive here; see scripts/audit-retention-cleanup.js
+  # and docs/sop/audit-retention.md for the cleanup contract.
+  aware-2-audit-data:
+    name: aware-2-audit-data
+  # aware-2-ollama-models REMOVED [date-redacted]: Ollama sidecar deprecated.
+  # Coordinator now runs AWARE_MODE=online on the primary LLM provider only. See ADR (internal)
+  # amendment at the bottom of that file. The named volume can be
+  # cleaned up with:
+  #   docker volume rm aware-2-ollama-models
+  # aware-2-preference-pairs removed (Phase 2.4): the named volume was
+  # mounted at an image-baked path but the AWARE process (running as
+  # `aware`, with HOME=/home/aware) writes to a different home-relative
+  # path. The coordinator service now uses a host bind mount to that
+  # path instead. The orphan Docker volume can be removed with:
+  #   docker volume rm aware-2-preference-pairs
+  # Note (2026-06-14): the host bind mount to /data/awareness-pairs
+  # also doesn't work in this Docker Desktop environment — bind mounts
+  # from redacted-host-config/ into containers silently fail to populate.
+  # The trainer (aware-2-trainer) reads via aware-2-pairs-data named
+  # volume, so the host doesn't need direct access. See
+  # docs/sop/sop-phase-2-4-data-flywheel.md
+  # (added in this slice) for the full bind-mount investigation +
+  # named-volume fallback rationale.
+  aware-2-pairs-data:
+    name: aware-2-pairs-data
+  aware-2-trainer-data:
+    name: aware-2-trainer-data
+
+# ─── Services ──────────────────────────────────────────────────────
+services:
+
+  # ─── 1. Gateway ───────────────────────────────────────────────
+  # Thin BFF/proxy in front of the coordinator. Adds helmet, cors,
+  # rate-limit, and a per-request X-Request-Id; forwards /coordinate,
+  # /health, and /version to the coordinator. Gateway kill-switch
+  # (AWARE_GATEWAY_KILL_SWITCH) takes precedence over the coordinator
+  # kill-switch (defense in depth). Lives behind `profiles: ["full"]`
+  # so the bring-up script's default 4-service stack works without it.
+  # [date-redacted]: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up LLM_API_KEY env var name (was PROVIDER_API_KEY in 0.2.0
+  # image), plus ADR (internal) Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR (internal) amendment.
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: aware-gateway:0.2.0-ollama-removed
+    container_name: aware-2-gateway
+    profiles: ["full"]
+    ports:
+      - "18080:18080"
+    environment:
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=18080
+      - COORDINATOR_URL=http://coordinator:8080
+      - AWARE_GATEWAY_KILL_SWITCH=${AWARE_GATEWAY_KILL_SWITCH:-0}
+      - GATEWAY_PROXY_TIMEOUT_MS=120000
+      # C-step finding #16: the gateway reads the audit chain from
+      # /data/audit (mounted via aware-2-audit-data below). The
+      # AUDIT_DIR var tells decision-logger.js where to read from.
+      # The coordinator (writer) must share this path.
+      - AUDIT_DIR=/data/audit
+      # C-step finding #15: explicit CORS allowlist for the v2 gateway.
+      # Comma-separated. Defaults to localhost:3001 if unset.
+      - AWARE_GATEWAY_ALLOWED_ORIGINS=${AWARE_GATEWAY_ALLOWED_ORIGINS:-http://localhost:3001}
+    volumes:
+      # C-step finding #16: read-only mount of the shared audit-data
+      # volume. The gateway never writes here — only reads, via the
+      # audit HTTP API mounted at /api/audit/*. Read-only so a
+      # compromised gateway can't tamper with the chain.
+      - aware-2-audit-data:/data/audit:ro
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  # ─── 2. Coordinator ───────────────────────────────────────────
+  # The Phase 1 deliverable. Built from Dockerfile.coordinator.
+  # Brings its own /health endpoint (used by the Docker HEALTHCHECK).
+  # [date-redacted]: rebuilt as 0.4.0-phase4-complete-ollama-removed.
+  # Picks up LLM_API_KEY env var name (was PROVIDER_API_KEY in 0.2.0
+  # image), plus ADR (internal) Repair 1 trainer-config defaults (filterRule
+  # min_score_gap, filterMinGap 0.20). See ADR (internal) amendment.
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+      # host network so the build stage can reach your git server if it
+      # lives on the host's loopback. Without this, BuildKit's build
+      # container has its own network namespace and can't see the host.
+      # Remove this if your git server is reachable on a routable address.
+      network: host
+      args:
+        - AWARE_RL_PIPELINE_TAG=v0.2.2
+        # Override at the command line, in your .env, or in a CI secret.
+        # Example: AWARE_RL_PIPELINE_REPO=https://git.internal/rl-pipeline.git
+        - AWARE_RL_PIPELINE_REPO=${AWARE_RL_PIPELINE_REPO:?AWARE_RL_PIPELINE_REPO must be set (SEC-007/008, privacy scrub [date-redacted])}
+    image: aware-coordinator:0.4.5-phase4-rl-pipeline-from-internal-git
+    container_name: aware-2-coordinator
+    ports:
+      - "38181:8080"
+    environment:
+      # SEC-007: bind coordinator to 0.0.0.0 inside the container.
+      # The 38181:8080 port mapping above exposes 8080 on the host; with
+      # 0.0.0.0 binding the docker-proxy can DNAT host:38181 traffic to
+      # container:8080 (the previous 127.0.0.1 binding broke host access
+      # because docker-proxy connects via the container bridge IP, not
+      # loopback). Only the published port path reaches the coordinator
+      # from outside the docker network. Operators who want to harden
+      # further can drop the ports: mapping and rely on sibling-container
+      # network access only.
+      - COORDINATOR_HOST=${COORDINATOR_HOST:-0.0.0.0}
+      - COORDINATOR_PORT=8080
+      # [date-redacted]: AWARE_MODE=online (was hybrid). Ollama sidecar
+      # removed; coordinator now runs on the primary LLM provider only. See ADR (internal)
+      # amendment. If the primary LLM provider is unavailable, /coordinate returns
+      # 503 (single-client-mode behavior). The previous offline
+      # fallback to Ollama no longer exists.
+      - AWARE_MODE=${AWARE_MODE:-online}
+      - AWARE_REQUEST_TIMEOUT_MS=${AWARE_REQUEST_TIMEOUT_MS:-120000}
+      - AWARE_REQUEST_COST_CAP_USD=${AWARE_REQUEST_COST_CAP_USD:-1.0}
+      - AWARE_KILL_SWITCH=${AWARE_KILL_SWITCH:-0}
+      # [date-redacted]: API key wiring. The canonical env var is
+      # PROVIDER_API_KEY. We also pass through LLM_API_KEY for
+      # backward compat with operators still using the legacy name —
+      # the config module reads PROVIDER_API_KEY first and falls back
+      # to LLM_API_KEY with a soft deprecation warning. The compose
+      # `env_file:` block references the host's credential-store file
+      # (path is operator-specific; see redacted-credential-dir/env.example),
+      # Operators should either (a) symlink `redacted-credential-dir` to the
+      # canonical location, or (b) source the credentials file into
+      # their shell before invoking docker compose.
+      # See ADR (internal).
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - PROVIDER_API_HOST=${PROVIDER_API_HOST:-}
+      # [date-redacted]: OLLAMA_URL removed — no Ollama sidecar. If the
+      # env var is set in the host (e.g. from a stale .env), it's
+      # ignored by the coordinator because the Ollama client is no
+      # longer constructed in AWARE_MODE=online. config/index.cjs
+      # still reads it for backward compat (and warns if mode=offline
+      # but the URL is missing), so we leave the door open if someone
+      # wants to flip back to offline mode without re-deploying.
+      # - OLLAMA_URL=http://ollama-sidecar:11434
+      # [date-redacted]: LoRA reloader disabled. It depends on the Ollama
+      # /api/create endpoint to register LoRA adapters with the
+      # local model daemon. Without Ollama, the reloader would
+      # repeatedly fail. Re-enable only if Ollama is reintroduced.
+      - AWARE_LORA_RELOADER_ENABLED=${AWARE_LORA_RELOADER_ENABLED:-false}
+      - AWARE_DB_HOST=postgres
+      - AWARE_DB_PORT=5432
+      - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
+      - AWARE_DB_USER=${POSTGRES_USER:-aware}
+      - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
+      # Phase 2.4 (ADR (internal) 618-627) preference-pair output directory.
+      # Must match the volume mount point in the volumes: block below
+      # (named volume aware-2-pairs-data → /data/awareness-pairs). The
+      # path is intentionally not under the home directory because the
+      # image bakes a home-relative preference-pairs path at build time,
+      # which would shadow a host bind mount to that path.
+      # Phase 1 had the implicit default home-relative path which is why
+      # the trainer's pair ingestion has never seen any live data — the
+      # live writes were landing in the image's ephemeral dir, not the
+      # bind-mounted host dir. Phase 2.4 swaps to a named volume
+      # (aware-2-pairs-data) that the trainer reads via the same mount;
+      # host bind mounts from redacted-host-config/ into containers silently
+      # fail to populate in this Docker Desktop environment, so the named
+      # volume is the only working path.
+      - AWARE_PAIRS_DIR=/data/awareness-pairs
+      # The coordinator authenticates with the same password the postgres
+      # service was initialized with (see POSTGRES_PASSWORD below). The
+      # bring-up script sources this from AWARE_DB_PWD or falls back to
+      # the dev-only default below.
+      - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+      # [date-redacted]: SEC-002. Bearer token
+      # required for /coordinate + /budget/status. Operator sets this in the
+      # env_file or shell before compose up. Fail-closed at boot in
+      # NODE_ENV=production if unset or shorter than 32 chars (config.validate()).
+      # The gateway must mirror this token in its outbound Authorization header.
+      - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
+      # C-step finding #16: AUDIT_DIR is the path where decision-logger.js
+      # writes the hash-chained audit log (decision-chain.jsonl). It must
+      # match the gateway's AUDIT_DIR so the gateway's /api/audit/* API
+      # reads what the coordinator writes. The shared mount is
+      # aware-2-audit-data below.
+      - AUDIT_DIR=/data/audit
+      # C-step finding #17: retention policy for audit log + Postgres
+      # aware_conversations. Default 2555 days = 7 years (DORA Art.26
+      # baseline). See scripts/audit-retention-cleanup.js + docs/sop/audit-retention.md
+      - AWARE_AUDIT_RETENTION_DAYS=${AWARE_AUDIT_RETENTION_DAYS:-2555}
+    # The upstream LLM API key is intentionally NOT hardcoded. The
+    # compose file reads the env var from a credential-store file
+    # whose path is operator-supplied via the `AWARE_CREDENTIALS_FILE`
+    # env var (default: `redacted-credential-dir/credentials.env`).
+    # Operators set up the credential store as part of install. If the
+    # file is absent (e.g. a CI runner or a fresh dev box), the
+    # coordinator boots in offline-only-disabled mode: with
+    # AWARE_MODE=online (the default), there is no offline fallback,
+    # so /coordinate returns 503 until the key is provided.
+    # Required: false makes this a soft dependency.
+    env_file:
+      - path: ${AWARE_CREDENTIALS_FILE:-redacted-credential-dir/credentials.env}
+        required: false
+    volumes:
+      # Named volume for preference-pair output. Phase 1 used a bind
+      # mount from redacted-host-config/meta-rl-pipeline/preference-pairs but bind mounts
+      # from redacted-host-config/ into containers silently fail to populate.
+      # The named volume lives at
+      # /var/lib/docker/volumes/aware-2-pairs-data/_data; the trainer
+      # (aware-2-trainer) reads via the same named volume mount. The
+      # AWARE_PAIRS_DIR env var below tells the coordinator to write
+      # to /data/awareness-pairs, the path the named volume mounts at.
+      # The previous named volume (`aware-2-preference-pairs`) was
+      # mounted at <image-baked-path> but the AWARE process (running as
+      # `aware`, with HOME=/home/aware) wrote to <image-baked-home-path>
+      # — so the volume was dead weight. Phase 2.4 data flywheel unblock.
+      - aware-2-pairs-data:/data/awareness-pairs
+      # C-step finding #16: read-write mount of the shared audit-data
+      # volume. The coordinator appends to /data/audit/decision-chain.jsonl
+      # after each successful /coordinate. The gateway reads the same
+      # path via its own (read-only) mount so the /api/audit/* API
+      # surfaces real decisions.
+      - aware-2-audit-data:/data/audit
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # [date-redacted]: ollama-sidecar dependency REMOVED. Ollama sidecar
+      # no longer exists. The coordinator runs in AWARE_MODE=online
+      # on the primary LLM provider only — no second-tier backend to wait for.
+      # ollama-sidecar:
+      #   condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # ─── 3. Ollama sidecar ───────────────────────────────────────
+  # REMOVED [date-redacted]. AWARE 2.0 now runs on the primary LLM provider only
+  # (AWARE_MODE=online). See ADR (internal) amendment for the rationale.
+  # Previous block (kept here commented for archaeology):
+  #
+  #   # ─── 3. Ollama sidecar ───────────────────────────────────────
+  #   # Local model fallback. Pre-pulled models (qwen2.5:7b, etc.) live in
+  #   # the aware-2-ollama-models volume. Override the default pull model
+  #   # with AWARE_OLLAMA_PULL=llama3.2:3b, or set to "none" to skip the pull.
+  #   ollama-sidecar:
+  #     image: ollama/ollama:0.5.7
+  #     container_name: aware-2-ollama
+  #     ports:
+  #       - "11434:11434"
+  #     environment:
+  #       - OLLAMA_KEEP_ALIVE=24h
+  #       - OLLAMA_HOST=0.0.0.0:11434
+  #     volumes:
+  #       - aware-2-ollama-models:/root/.ollama
+  #     networks:
+  #       - aware-2
+  #     restart: unless-stopped
+  #     healthcheck:
+  #       test: ["CMD", "ollama", "list"]
+  #       interval: 15s
+  #       timeout: 5s
+  #       start_period: 30s
+  #       retries: 5
+  #     entrypoint: ["/bin/sh", "-c"]
+  #     command:
+  #       - |
+  #         ollama serve &
+  #         OLLAMA_PID=$$!
+  #         for i in $$(seq 1 30); do
+  #           if wget -qO- http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
+  #           sleep 1
+  #         done
+  #         if [ "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}" != 'none' ]; then
+  #           ollama pull "$${AWARE_OLLAMA_PULL:-qwen2.5:7b}"
+  #         fi
+  #         wait $$OLLAMA_PID
+  #
+  # To bring this back (e.g. for offline/air-gapped deployments):
+  # 1. Restore the block above (uncomment).
+  # 2. Restore the `aware-2-ollama-models` volume declaration.
+  # 3. Restore the `coordinator.depends_on.ollama-sidecar` block.
+  # 4. Restore the `coordinator.environment.OLLAMA_URL` line.
+  # 5. Set `AWARE_MODE=offline` (or hybrid) in coordinator env.
+  # 6. Set `AWARE_LORA_RELOADER_ENABLED=true` if you want live LoRA swap.
+
+  # ─── 4. Postgres ─────────────────────────────────────────────
+  # Session + preference-pair metadata (rl-pipeline already writes
+  # JSONL to a volume; this is the structured metadata store).
+  # Default password is for local dev only — override via the
+  # AWARE_DB_PWD env var (see .env.example) in any non-dev deployment.
+  postgres:
+    image: postgres:16-alpine
+    container_name: aware-2-postgres
+    ports:
+      - "18432:5432"
+    environment:
+      - POSTGRES_DB=aware2
+      - POSTGRES_USER=aware
+      - POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+    volumes:
+      - aware-2-postgres-data:/var/lib/postgresql/data
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aware -d aware2"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  # ─── 5. Redis ────────────────────────────────────────────────
+  # Cache + memory backend (Phase 5 N.O.M.A.D. uses Redis for memory).
+  redis:
+    image: redis:7-alpine
+    container_name: aware-2-redis
+    ports:
+      - "18379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - aware-2-redis-data:/data
+    networks:
+      - aware-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+
+  # ─── 7. trainer (Phase 3 — aware-trainer poller) ──────────────
+  # The Node-based aware-trainer poller. Watches Postgres for new
+  # preference pairs (the conversations table), submits DPO training
+  # jobs to Modal, polls for completion, and atomically swaps the
+  # active weight checkpoint.
+  #
+  # SECURITY:
+  # - The Modal token is read from redacted-credential-file at runtime;
+  #   it is NOT in this compose file. The env_file reference below
+  #   uses `required: false` so a host without the credential store
+  #   still brings the trainer up (in disabled-by-config state).
+  # - The trainer is gated behind the `training` profile so the
+  #   default 5-service bring-up (gateway/coordinator/ollama/postgres/redis)
+  #   is unaffected.
+  # - AWARE_TRAINER_ENABLED defaults to 0 (kill switch off). Setting
+  #   it to 1 + having MODAL_TOKEN_ID/SECRET set is the explicit opt-in.
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+      network: host
+      args:
+        - AWARE_RL_PIPELINE_TAG=v0.2.2
+        - AWARE_RL_PIPELINE_REPO=${AWARE_RL_PIPELINE_REPO:?AWARE_RL_PIPELINE_REPO must be set (SEC-007/008, privacy scrub [date-redacted])}
+    # [date-redacted]: bumped to 0.4.5-phase4-rl-pipeline-from-internal-git.
+    # rl-pipeline is now cloned from your internal git server in the
+    # Dockerfile, not mounted from the host. See ADR (internal).
+    image: aware-coordinator:0.4.5-phase4-rl-pipeline-from-internal-git
+    container_name: aware-2-trainer
+    profiles: ["training"]
+    command: ["node", "src/trainer/index.js"]
+    environment:
+      - NODE_ENV=production
+      - AWARE_TRAINER_ENABLED=${AWARE_TRAINER_ENABLED:-0}
+      - AWARE_TRAINER_POLL_INTERVAL_SEC=${AWARE_TRAINER_POLL_INTERVAL_SEC:-300}
+      - AWARE_TRAINER_MIN_PAIRS_PER_RUN=${AWARE_TRAINER_MIN_PAIRS_PER_RUN:-100}
+      # AWARE_TRAINER_CONFIG default points at the in-image baked
+      # config (see Dockerfile.coordinator COPY of
+      # config/modal-training.json to /app/config/modal-training.json).
+      # Operators can override with a custom path; the bind-mount
+      # override at /opt/aware/config/... was removed (see
+      # docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+      # BLOCKER-1).
+      - AWARE_TRAINER_CONFIG=${AWARE_TRAINER_CONFIG:-/app/config/modal-training.json}
+      - AWARE_TRAINER_WEIGHTS_DIR=${AWARE_TRAINER_WEIGHTS_DIR:-/opt/aware/weights/active}
+      - AWARE_TRAINER_BASE_MODEL=${AWARE_TRAINER_BASE_MODEL:-unsloth/Qwen2.5-7B-Instruct-bnb-4bit}
+      - AWARE_TRAINER_GPU_TYPE=${AWARE_TRAINER_GPU_TYPE:-A100-80GB}
+      - AWARE_TRAINER_JOB_TIMEOUT_SEC=${AWARE_TRAINER_JOB_TIMEOUT_SEC:-14400}
+      - AWARE_DB_HOST=postgres
+      - AWARE_DB_PORT=5432
+      - AWARE_DB_DATABASE=${POSTGRES_DB:-aware2}
+      - AWARE_DB_USER=${POSTGRES_USER:-aware}
+      - AWARE_DB_ENABLED=${AWARE_DB_ENABLED:-1}
+      - AWARE_POSTGRES_PASSWORD=${AWARE_DB_PWD:-dev-only-pwd}
+      # [date-redacted]: SEC-002. Bearer token
+      # required for /coordinate + /budget/status. Operator sets this in the
+      # env_file or shell before compose up. Fail-closed at boot in
+      # NODE_ENV=production if unset or shorter than 32 chars (config.validate()).
+      # The gateway must mirror this token in its outbound Authorization header.
+      - AWARE_COORDINATOR_TOKEN=${AWARE_COORDINATOR_TOKEN:-}
+    env_file:
+      - path: ${AWARE_CREDENTIALS_FILE:-redacted-credential-dir/credentials.env}
+        required: false
+    volumes:
+      # The trainer's data dir is where it stages DPO dataset JSONLs
+      # before they're uploaded to a Modal Volume. A named volume
+      # survives across container restarts.
+      - aware-2-trainer-data:/opt/aware/data
+      # Phase 2.4: the trainer reads preference pairs from the same
+      # named volume the coordinator writes them to (aware-2-pairs-data).
+      # Without this mount, _fetchUnconsumedPairPaths would scan an
+      # empty dir and the trainer would record a "cancelled" run with
+      # "no unconsumed pair_path values". Now the trainer sees the
+      # live pair files at /data/awareness-pairs/YYYY-MM-DD.jsonl.
+      - aware-2-pairs-data:/data/awareness-pairs:ro
+      # NOTE: config/modal-training.json is baked into the image at
+      # /app/config/modal-training.json (see Dockerfile.coordinator).
+      # An earlier revision of this compose file mounted the host
+      # file to /opt/aware/config/modal-training.json via bind mount;
+      # that bind conflicted with the named-volume mount point at
+      # /opt/aware/, causing Docker to auto-create /opt/aware/config/
+      # as a directory (which then returned EISDIR on readFile). The
+      # in-image copy is the canonical source; operators who need to
+      # hot-swap can override via AWARE_TRAINER_CONFIG env var.
+      # See docs/audits/aware-2.0-trainer-env-audit-2026-06-13.md
+      # BLOCKER-1.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aware-2
+    restart: unless-stopped
+    # No healthcheck — the trainer is a poller, not a request-serving
+    # service. liveness is verified by checking the container is up
+    # + the trainer's process is alive (via docker ps / docker stats).
+
+  # ─── Optional: live bring-up probe (development only) ──────
+  # Use: docker compose -f docker-compose.coordinator.yml -p aware-2 --profile test up bring-up-probe
+  # Hits the coordinator + ollama via the internal network and exits 0 on success.
+  # The coordinator container has wget (alpine base); the ollama container has
+  # neither curl nor wget, so we hit ollama via `docker exec ollama list` instead.
+  bring-up-probe:
+    image: curlimages/curl:8.10.1
+    container_name: aware-2-bring-up-probe
+    profiles: ["test"]
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - aware-2
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo '--- coordinator /version ---'
+        curl -sS http://coordinator:8080/version
+        echo
+        echo '--- coordinator /health ---'
+        curl -sS http://coordinator:8080/health
+        echo
+        echo 'BRING-UP-OK'

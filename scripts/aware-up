@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+# scripts/aware-up — AWARE 2.0 single-command bring-up
+# Per the AWARE 2.0 Architecture ADR (internal) Phase 5 deliverable 1 ("operator bring-up ergonomics"):
+#   `deploy/env.example`, single command boot, README quickstart.
+#
+# This is the SUPER-WRAPPER around `docker compose -f docker-compose.coordinator.yml
+# -p aware-2 up -d`. It does four things the bare compose invocation does not:
+#
+#   1. Pre-flight: validates that `.env` exists and offers to copy from
+#      `deploy/env.example` if not. Validates that required CLI tools are
+#      installed (docker, curl, node, npm). Validates repo root.
+#   2. Config validation: runs `npm run config:validate` so we fail fast on a
+#      bad `.env` BEFORE pulling images.
+#   3. Optional test smoke: with `--test`, runs `npm test` first and bails on
+#      any failure.
+#   4. Post-up: waits for the gateway + ollama + coordinator health endpoints
+#      to return 200, then prints an operator-action summary (URLs, logs paths,
+#      what to do next).
+#
+# Usage:
+#   ./scripts/aware-up                     # bring up the base v2 stack
+#   ./scripts/aware-up --profile training  # also start the trainer poller
+#   ./scripts/aware-up --test              # run `npm test` first
+#   ./scripts/aware-up --teardown          # `docker compose down -v` and exit
+#   ./scripts/aware-up --logs              # tail logs from all services
+#   ./scripts/aware-up --help              # this help
+#
+# Cost: ~850MB of Docker image pulls (first time only), ~1-2 min for boot.
+# Idempotent: re-running on an already-up stack is a no-op (compose handles it).
+#
+# What it verifies (in order):
+#   1. `.env` exists (or offers to copy from `deploy/env.example`)
+#   2. `docker`, `curl`, `node`, `npm` are on PATH
+#   3. `npm run config:validate` exits 0
+#   4. (Optional) `npm test` exits 0
+#   5. `docker compose config` validates
+#   6. `docker compose up -d` brings the stack up
+#   7. gateway `http://localhost:18080/health` returns 200 within 60s
+#   8. coordinator `http://localhost:38181/health` returns 200 within 60s
+#   9. ollama `http://localhost:11434/api/tags` returns 200 within 60s
+#  10. summary printed with operator-action links
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# ─── ANSI colors (only on TTY) ──────────────────────────────────────────
+if [ -t 1 ]; then
+    C_GREEN='\033[0;32m'
+    C_RED='\033[0;31m'
+    C_YELLOW='\033[0;33m'
+    C_BLUE='\033[0;34m'
+    C_BOLD='\033[1m'
+    C_RESET='\033[0m'
+else
+    C_GREEN=''; C_RED=''; C_YELLOW=''; C_BLUE=''; C_BOLD=''; C_RESET=''
+fi
+
+info()    { printf "${C_BLUE}==>${C_RESET} %s\n" "$*"; }
+ok()      { printf "${C_GREEN}✓${C_RESET} %s\n" "$*"; }
+warn()    { printf "${C_YELLOW}!${C_RESET} %s\n" "$*"; }
+err()     { printf "${C_RED}✗${C_RESET} %s\n" "$*" >&2; }
+section() { printf "\n${C_BOLD}${C_BLUE}── %s ──${C_RESET}\n" "$*"; }
+
+die() { err "$*"; exit 1; }
+
+# ─── Defaults ───────────────────────────────────────────────────────────
+COMPOSE_FILE="docker-compose.coordinator.yml"
+COMPOSE_PROJECT="aware-2"
+PROFILES=()              # extra `--profile X` flags
+RUN_TESTS=0
+DO_TEARDOWN=0
+DO_LOGS=0
+DO_HELP=0
+WAIT_TIMEOUT_SEC=60
+
+# ─── Help text ──────────────────────────────────────────────────────────
+print_help() {
+    sed -n '2,/^set -euo pipefail$/p' "${BASH_SOURCE[0]}" \
+        | sed -e 's/^# \{0,1\}//' -e '/^$/d' -e '/^set -euo pipefail$/d' \
+        | head -n 60
+    exit 0
+}
+
+# ─── Argument parsing ───────────────────────────────────────────────────
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --profile)
+            [ $# -ge 2 ] || die "--profile requires an argument"
+            PROFILES+=("$2")
+            shift 2
+            ;;
+        --test)
+            RUN_TESTS=1
+            shift
+            ;;
+        --teardown)
+            DO_TEARDOWN=1
+            shift
+            ;;
+        --logs)
+            DO_LOGS=1
+            shift
+            ;;
+        --help|-h)
+            DO_HELP=1
+            shift
+            ;;
+        *)
+            die "Unknown argument: $1 (try --help)"
+            ;;
+    esac
+done
+
+[ "$DO_HELP" = "1" ] && print_help
+
+# ─── Build the compose invocation ───────────────────────────────────────
+compose_cmd() {
+    local cmd="docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT"
+    # NB: only iterate PROFILES if it has elements. '${PROFILES[@]:-}'
+    # evaluates to a single empty string when the array is empty,
+    # which causes the loop to fire once with p="" and produce
+    # "--profile " followed by the subcommand (which docker compose
+    # then mis-parses as a profile name). Length-check guards against
+    # that. The trailing ${arr[@]+"${arr[@]}"} pattern would also work
+    # but is harder to read.
+    if [ "${#PROFILES[@]}" -gt 0 ]; then
+        for p in "${PROFILES[@]}"; do
+            cmd="$cmd --profile $p"
+        done
+    fi
+    cmd="$cmd $*"
+    printf "%s" "$cmd"
+}
+
+# ─── Pre-flight: tools on PATH ──────────────────────────────────────────
+section "Pre-flight: required tools"
+for tool in docker curl node npm; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        ok "$tool: $(command -v "$tool")"
+    else
+        die "$tool: not found on PATH. Install $tool and retry."
+    fi
+done
+
+# ─── Pre-flight: repo root markers ──────────────────────────────────────
+section "Pre-flight: repo root"
+for marker in package.json deploy/env.example "$COMPOSE_FILE"; do
+    if [ -f "$REPO_ROOT/$marker" ]; then
+        ok "$marker"
+    else
+        die "$marker missing — run from inside the AWARE repo."
+    fi
+done
+
+# ─── Pre-flight: .env file ──────────────────────────────────────────────
+section "Pre-flight: .env"
+if [ -f "$REPO_ROOT/.env" ]; then
+    ok ".env present ($(wc -l < "$REPO_ROOT/.env") lines)"
+else
+    warn ".env missing — copying from deploy/env.example"
+    cp "$REPO_ROOT/deploy/env.example" "$REPO_ROOT/.env"
+    ok ".env created from template (review and fill in real values)"
+    info "  Edit $REPO_ROOT/.env before re-running for production use."
+    info "  For a first smoke you can leave the defaults as-is."
+fi
+
+# ─── Config validation ──────────────────────────────────────────────────
+section "Config validation"
+if npm run --silent config:validate >/dev/null 2>&1; then
+    ok "config:validate passed"
+else
+    die "config:validate failed — fix $REPO_ROOT/.env and retry"
+fi
+
+# ─── Optional test smoke ────────────────────────────────────────────────
+if [ "$RUN_TESTS" = "1" ]; then
+    section "Test smoke"
+    if npm test --silent; then
+        ok "npm test passed"
+    else
+        die "npm test failed — fix tests before bringing the stack up"
+    fi
+fi
+
+# ─── Teardown path ──────────────────────────────────────────────────────
+if [ "$DO_TEARDOWN" = "1" ]; then
+    section "Teardown"
+    info "$(compose_cmd down -v)"
+    bash -c "$(compose_cmd down -v)"
+    ok "stack torn down"
+    exit 0
+fi
+
+# ─── Logs path ──────────────────────────────────────────────────────────
+if [ "$DO_LOGS" = "1" ]; then
+    section "Tailing logs"
+    exec bash -c "$(compose_cmd logs -f --tail=100)"
+fi
+
+# ─── Compose config validation ──────────────────────────────────────────
+section "Compose config validation"
+if bash -c "$(compose_cmd config --quiet)"; then
+    ok "compose config validates"
+else
+    die "compose config invalid — fix $COMPOSE_FILE and retry"
+fi
+
+# ─── Bring up ───────────────────────────────────────────────────────────
+section "Bringing up stack"
+profile_summary=""
+if [ ${#PROFILES[@]} -gt 0 ]; then
+    profile_summary=" (profiles: ${PROFILES[*]})"
+fi
+info "$(compose_cmd up -d)$profile_summary"
+bash -c "$(compose_cmd up -d)"
+ok "compose up exited 0"
+
+# ─── Apply v2 DB migrations ──────────────────────────────────────────
+# The v2 migrations (004_training_runs.sql, 005_azr_results.sql) are
+# additive (CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS) and
+# idempotent. They are NOT auto-applied by the v1 backend, so we apply
+# them here, in numeric order, after compose up succeeds and before
+# the coordinator's first request. Without this step, the v2 tables
+# would never exist and the trainer's smoke tests would fail with
+# "relation does not exist". To skip: pass --no-migrate.
+SKIP_MIGRATE=0
+for arg in "$@"; do
+    case "$arg" in --no-migrate) SKIP_MIGRATE=1 ;; esac
+done
+if [ "$SKIP_MIGRATE" = "1" ]; then
+    warn "--no-migrate: skipping v2 migrations (operator's responsibility)"
+else
+    section "Applying v2 DB migrations (004, 005)"
+    # Use compose's interpolation to get the same password the postgres
+    # service was initialized with. ${AWARE_DB_PWD:-dev-only-pwd} matches
+    # the compose file's fallback.
+    PG_PWD_VALUE="${AWARE_DB_PWD:-dev-only-pwd}"
+    for mig in 004_training_runs 005_azr_results; do
+        mig_file="$REPO_ROOT/db/migrations/${mig}.sql"
+        if [ ! -f "$mig_file" ]; then
+            warn "  $mig.sql not found at $mig_file — skipping (will need to be applied manually)"
+            continue
+        fi
+        info "  applying $mig.sql"
+        if ! docker exec -i -e PGPASSWORD="$PG_PWD_VALUE" aware-2-postgres \
+             psql -U aware -d aware2 -v ON_ERROR_STOP=1 \
+             < "$mig_file" 2>&1 | tail -3; then
+            die "$mig.sql failed to apply — check postgres logs and fix manually"
+        fi
+        ok "  $mig.sql applied"
+    done
+    unset PG_PWD_VALUE
+fi
+
+# ─── Wait for health ────────────────────────────────────────────────────
+section "Waiting for health endpoints"
+wait_for_http() {
+    local url="$1" label="$2" deadline=$((SECONDS + WAIT_TIMEOUT_SEC))
+    while [ $SECONDS -lt $deadline ]; do
+        if curl -fsS -m 2 "$url" >/dev/null 2>&1; then
+            ok "$label: $url"
+            return 0
+        fi
+        sleep 2
+    done
+    err "$label: $url did not return 200 within ${WAIT_TIMEOUT_SEC}s"
+    return 1
+}
+
+wait_for_http "http://localhost:18080/health" "gateway"    || die "gateway health check failed"
+wait_for_http "http://localhost:38181/health" "coordinator" || die "coordinator health check failed"
+wait_for_http "http://localhost:11434/api/tags" "ollama"   || warn "ollama not ready (continue without — model may not be pulled yet)"
+
+# ─── Summary ────────────────────────────────────────────────────────────
+section "AWARE 2.0 is up"
+cat <<EOF
+
+${C_BOLD}Services:${C_RESET}
+  gateway      http://localhost:18080        (Telegram channel, A2A endpoint)
+  coordinator  http://localhost:38181        (Ollama + <secondary-llm> routing, conversation logger)
+  ollama       http://localhost:11434        (qwen2.5:7b local inference)
+  postgres     localhost:18432                (preference pairs, PRM cache, runs)
+  redis        localhost:18379                (rate limiting, session state)
+EOF
+
+if printf '%s\n' "${PROFILES[@]:-}" | grep -qx "training"; then
+    cat <<EOF
+  trainer      (poller, opt-in)               (Modal-side DPO job submitter)
+EOF
+fi
+
+cat <<EOF
+
+${C_BOLD}Operator actions:${C_RESET}
+  Verify health:   curl -sS http://localhost:18080/health
+  Tail logs:       $0 --logs
+  Tear down:       $0 --teardown
+  Bring up trainer (separate): $0 --profile training
+  Deploy Modal job (one-time): MODAL_PROFILE=goodciso modal deploy training/run.py
+
+${C_BOLD}Documentation:${C_RESET}
+  Status:          $REPO_ROOT/redacted-internal-doc
+  SOPs:            $REPO_ROOT/docs/sop/
+  v1 SOP mirror:   redacted-host-config/sops/
+
+${C_BOLD}Next steps:${C_RESET}
+  1. Read redacted-internal-doc to see what's shipped vs. what's pending.
+  2. If you haven't yet, deploy the Modal training function (one-time, ~5 min).
+  3. To exercise the trainer: set AWARE_TRAINER_ENABLED=1 in .env, then $0 --profile training.
+
+EOF

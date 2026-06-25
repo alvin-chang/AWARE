@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AWARE 2.0 Modal training app spec",
+  "description": "Declarative config for the Phase 3 Modal training app. Read by src/trainer/index.js at boot. Validated by the bring-up script's smoke test.",
+  "type": "object",
+  "required": ["app_name", "image_dockerfile", "modal_volume", "gpu", "dpo_defaults", "checkpoint"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional reference to the schema file. Not validated."
+    },
+    "app_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,40}$",
+      "description": "Modal app name. Must be unique within your Modal workspace."
+    },
+    "image_dockerfile": {
+      "type": "string",
+      "description": "Path to the Dockerfile (relative to repo root) that Modal builds the image from."
+    },
+    "image_tag": {
+      "type": "string",
+      "description": "Human-readable tag for the image (used in logs only)."
+    },
+    "modal_volume": {
+      "type": "object",
+      "required": ["name", "mount_path"],
+        "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "mount_path": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "required": ["type", "count"],
+        "properties": {
+        "type": { "type": "string", "enum": ["A100-80GB", "A100-40GB", "H100", "L40S"] },
+        "count": { "type": "integer", "minimum": 1, "maximum": 8 }
+      }
+    },
+    "resources": {
+      "type": "object",
+        "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "memory_mb": { "type": "integer", "minimum": 1024 }
+      }
+    },
+    "timeout_seconds": { "type": "integer", "minimum": 60 },
+    "dpo_defaults": {
+      "type": "object",
+      "required": ["base_model", "beta", "learning_rate", "epochs", "per_device_train_batch_size"],
+        "properties": {
+        "base_model": { "type": "string", "minLength": 1 },
+        "max_seq_length": { "type": "integer", "minimum": 128 },
+        "lora_r": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "lora_alpha": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "lora_dropout": { "type": "number", "minimum": 0, "maximum": 1 },
+        "beta": { "type": "number", "minimum": 0.01, "maximum": 1.0 },
+        "learning_rate": { "type": "number", "minimum": 1e-8, "maximum": 1.0 },
+        "epochs": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "per_device_train_batch_size": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "gradient_accumulation_steps": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "warmup_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "weight_decay": { "type": "number", "minimum": 0, "maximum": 1 },
+        "lr_scheduler_type": { "type": "string", "enum": ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant"] },
+        "optim": { "type": "string", "enum": ["adamw_8bit", "adamw", "paged_adamw_8bit", "paged_adamw_32bit"] },
+        "seed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": ["output_dir"],
+        "properties": {
+        "output_dir": { "type": "string", "pattern": "^/" },
+        "save_merged": { "type": "boolean" },
+        "save_adapter": { "type": "boolean" },
+        "atomic_swap_target": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "self_play": {
+      "type": "object",
+        "properties": {
+        "enabled": { "type": "boolean" },
+        "corpus_size_target": { "type": "integer", "minimum": 100 },
+        "verification_method": { "type": "string" },
+        "verification_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+        "properties": {
+        "log_interval_steps": { "type": "integer", "minimum": 1 },
+        "log_to_modal_dashboard": { "type": "boolean" },
+        "log_to_postgres": { "type": "boolean" }
+      }
+    },
+    "failure_policy": {
+      "type": "object",
+        "properties": {
+        "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "retry_backoff_seconds": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

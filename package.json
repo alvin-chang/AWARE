@@ -1,0 +1,65 @@
+{
+  "name": "aware",
+  "version": "1.0.0-phase4-complete",
+  "description": "AWARE - Autonomous Compliance Infrastructure for AI Agents",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/api/index.js",
+    "dev": "nodemon src/index.js",
+    "init-users": "node scripts/init-users.js",
+    "seed:dev:users": "node scripts/seed-dev-users.js",
+    "seed:dev:agents": "node scripts/seed-dev-agents.js",
+    "seed:dev": "npm run seed:dev:users && npm run seed:dev:agents",
+    "seed:dev:clean": "rm -f src/data/users.json src/data/agents.json",
+    "test": "node --test 'test/unit/**/*.test.js'",
+    "test:integration": "node --test 'test/integration/**/*.test.js'",
+    "test:all": "node --test 'test/unit/**/*.test.js' 'test/integration/**/*.test.js'",
+    "test:jest": "jest",
+    "test:watch": "node --test --watch 'test/unit/**/*.test.js'",
+    "coverage": "c8 --reporter=text --reporter=lcov --reporter=html npm test",
+    "coverage:text": "c8 --reporter=text npm test",
+    "coverage:html": "c8 --reporter=html npm test && node scripts/coverage-summary.mjs",
+    "coverage:summary": "c8 --reporter=text --reporter=lcov npm test && node scripts/coverage-summary.mjs",
+    "lint": "eslint src/",
+    "ui-dev": "cd src/ui && npm start",
+    "ui-build": "cd src/ui && npm run build",
+    "ui-install": "cd src/ui && npm install",
+    "config:show": "node -e \"const c = require('./src/config/index.cjs'); console.log(JSON.stringify(c.snapshot(), null, 2))\"",
+    "config:validate": "node -e \"const c = require('./src/config/index.cjs'); try { c.validate(); console.log('OK'); } catch (e) { console.error('FAIL:', e.message); process.exit(1); }\"",
+    "eval:baseline": "node scripts/run-eval-baseline.mjs --label=baseline",
+    "eval:trained": "node scripts/run-eval-baseline.mjs --label=trained --model=trained-model",
+    "audit:retention:cleanup": "node scripts/audit-retention-cleanup.js"
+  },
+  "keywords": [
+    "cluster",
+    "distributed-systems",
+    "orchestration",
+    "self-organizing",
+    "ant-colony",
+    "automated-resource-engine"
+  ],
+  "author": "Alvin Chang",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.7.0",
+    "express-validator": "^7.0.0",
+    "helmet": "^6.0.1",
+    "jsonwebtoken": "^9.0.0",
+    "modal": "^0.8.0",
+    "pg": "^8.21.0",
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "c8": "^10.1.3",
+    "eslint": "^8.40.0",
+    "jest": "^29.5.0",
+    "nodemon": "^3.0.0",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

@@ -1,0 +1,87 @@
+# Pinned Python ML dependencies for the AWARE 2.0 Modal training job
+# (Phase 4, the AWARE 2.0 Architecture ADR (internal) Decision 2).
+#
+# Pinned to specific versions for reproducibility. Bumping any of
+# these requires a re-validation run (the bring-up script's
+# `--profile training` rebuilds the image and dry-runs a 1-pair job).
+#
+# 2026-06-14 REWRITE: ported from unsloth+TRL stack to training-framework+transformers
+# 5.x stack. The dep envelope was validated end-to-end by the v13 smoke
+# test on Modal A100-80GB (commit 410af62, 13 attempts, v13 passed in
+# 229.32 sec with 5/5 training steps and 5 LoRA adapter checkpoints).
+#
+# The dep stack is locked in. Do not bump any of these without a smoke
+# re-validation (see redacted-internal-doc 2026-06-14 § "Dep stack — locked in" for
+# the 12 prior failure modes that drove each pin).
+#
+# Tested against: Python 3.12, CUDA 13.0, torch 2.6+ with cu130 wheels.
+# The Dockerfile.training image is built FROM nvidia/cuda:13.0.0-devel-ubuntu22.04.
+#
+# Version envelope rationale (post-training-framework port, 2026-06-14):
+# - training-framework 4.3.0: DPO is under `swift rlhf --rlhf_type dpo` in v4
+#   (released 2026-03-03). The CLI dispatch + framework call are validated.
+# - transformers >=5.0.0.dev: qwen3_5 class is in 5.x. The v13 smoke test
+#   showed that training-framework 4.3.0's pyproject.toml transitively pins
+#   `transformers<5.0`, which overrides a direct constraint unless
+#   transformers is re-pinned AFTER the training-framework install. The Dockerfile
+#   does this with a `pip install --upgrade` after the requirements file.
+# - qwen_vl_utils >=0.0.14 + decord: required by training-framework's Qwen3.5 model
+#   loader (v9 smoke test failure). Without these, swift rlhf fails at
+#   _check_qwen_vl_utils() before the model even loads.
+# - peft >=0.11,<0.20: training-framework uses peft under the hood for LoRA. Pin to
+#   the range training-framework 4.3.0 is tested against.
+# - trl >=0.15,<1.0: kept for training-framework's internal use (training-framework 4.0 imports
+#   trl.experimental for CPO configs).
+# - bitsandbytes >=0.43.0: 4-bit BNB quantization for QLoRA.
+# - torch >=2.6.0,<3.0: cu130 wheels, required by transformers 5.x +
+#   the multimodal Qwen3.5 architecture.
+# - accelerate >=0.34.0: bnb 4-bit CPU-offload + Qwen3.5 tokenizer fix.
+# - hf-transfer >=0.1.9: faster HF downloads (replaces the deprecated
+#   `huggingface-cli` which now exits rc=1).
+# - huggingface_hub >=0.34.0: provides `hf` CLI (replacement for
+#   `huggingface-cli`).
+
+# Core ML stack (training-framework 4.x is the load-bearing framework)
+training-framework>=4.0
+qwen_vl_utils>=0.0.14
+decord
+
+# Transformers (5.x is required for the qwen3_5 class; training-framework
+# 4.3.0's transitive pin will be overridden by the Dockerfile's
+# explicit `pip install --upgrade transformers>=5.0.0.dev` after
+# this requirements install)
+transformers>=5.0.0.dev
+
+# Torch + CUDA stack (cu130 wheels)
+torch>=2.6.0,<3.0
+torchvision>=0.20.0
+accelerate>=0.34.0
+
+# LoRA + quantization peer deps
+peft>=0.11,<0.20
+trl>=0.15,<1.0
+bitsandbytes>=0.43.0
+
+# HF ecosystem (faster downloads, current CLI)
+hf-transfer>=0.1.9
+huggingface_hub>=0.34.0
+safetensors==0.4.5
+tokenizers>=0.21.0
+
+# Dataset handling (preference-pair JSONL → training-framework dataset format)
+datasets==3.1.0
+
+# Modal SDK (called by training/run.py to write checkpoints to a
+# Modal Volume, and to log training metrics)
+modal==0.64.0
+
+# Pillow (training-framework's Qwen3.5 multimodal processor needs it)
+pillow>=10.0.0
+
+# Stdlib-only things below (no install needed, listed for explicitness)
+# - json, os, sys, subprocess, tempfile — built into Python
+# - hashlib, hmac, base64, urllib — built into Python
+
+# Optional: progress bar (training-framework prints a tqdm bar; if not installed
+# we fall back to plain print)
+tqdm==4.66.5

@@ -1,0 +1,95 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js/
+
+# Build output
+dist/
+build/
+out/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+.uv/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+temp.*
+*.tmp
+*.temp
+
+# Local development
+*.local
+
+# qwen/ directory (AI coding agent)
+.qwen/
+
+# bmad-core/ directory
+.bmad-core/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache
+.npm
+
+# Optional eslint cache
+.eslintcache
+__pycache__/
+
+# Security audit harness output (regeneratable, contains local scan results)
+security-audit-report.txt
+security-audit-report.json
+security-audit-npm-audit.json
+security-audit-gitleaks.json
+security-audit-trivy.json
+
+# Generated seed data (see scripts/seed-dev-*.js for source)
+/src/data/users.json
+/src/data/agents.json
+
+# Operational runtime data (cron logs, probe summaries, eval results)
+/data/
+/eval-results/
+
+# Backup files (e.g. training/run.py.bak from refactors)
+*.bak
+*.orig
+*.rej
+
+# Private audit working notes (per-integration handoff docs)
+SECURITY-FINDINGS-INTEGRATION-*.md
+SECURITY-FINDINGS-*.md
+
+# package-lock.json is intentionally NOT shipped (see v2.3.0 release notes)
+package-lock.json
