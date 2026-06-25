@@ -34,7 +34,7 @@ paths = [
     # src/config/index.cjs: legitimately references env-var names like
     # MODAL_TOKEN_ID, MINIMAX_API_KEY, etc. as STRINGS (the names are
     # public; only the values would be secrets). Plus host paths under
-    # the author's /Users/alfie/src/... which are also legitimate
+    # the author's $REPO_PARENT/... which are also legitimate
     # documentation in this file.
     '''src/config/index\.cjs''',
     # src/trainer/modal-client.js: similarly references env-var names

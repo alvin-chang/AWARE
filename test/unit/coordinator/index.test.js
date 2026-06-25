@@ -11,8 +11,8 @@ import {
 } from '../../../src/coordinator/index.js';
 
 test('buildDefaultRouter accepts opts.heavyThinkPath (used by tests + Docker image)', async () => {
-  // Absolute path to the actual heavy-think source (sibling repo at /Users/alfie/src/heavy-think/)
-  // From test/unit/coordinator/, 4 `..` lands at /Users/alfie/src/, then heavy-think/...
+  // Absolute path to the actual heavy-think source (sibling repo at $REPO_PARENT/heavy-think/)
+  // From test/unit/coordinator/, 4 `..` lands at $REPO_PARENT, then heavy-think/...
   const heavyThinkAbs = new URL('../../../../heavy-think/src/index.js', import.meta.url).pathname;
   const router = await buildDefaultRouter({
     heavyThinkPath: heavyThinkAbs,
