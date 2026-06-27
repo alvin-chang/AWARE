@@ -26,7 +26,13 @@ AWARE is different. It's infrastructure that makes compliance happen on its own:
 - **Full audit trails build themselves** — every decision, every context access, every escalation
 - **(v2)** Every preference-pair disagreement becomes **DPO training data** — the system improves itself from real production traffic
 
-AWARE implements **T0–T4 constraint levels** — from fully human-controlled (T0) to full autonomous operation with cryptographic identity (T4). Agents self-enforce the constraint level you define. You don't babysit them.
+AWARE implements **T0–T4 constraint levels** — five enforcement tiers every agent is defined on before it's allowed to act. Agents self-enforce the constraint level you assign. The tiers are defined in `src/server.js` and surfaced in `src/ui/src/components/ConstraintEnforcementView.js`:
+
+- **T0 — Audit Trail.** Every action is logged. Foundational, always on.
+- **T1 — Crypto Identity.** Every agent gets a non-human identity it can't fake. Foundational, always on.
+- **T2 — Guardrailed.** Operational policies constrain what the agent can do.
+- **T3 — Policy-Driven.** Advanced governance — full policy enforcement, including rate limits and decision routing.
+- **T4 — Autonomous.** Full self-operation under declared constraints.
 
 **Core thesis:** Bio-inspired coordination algorithms are the right primitive for autonomous agent orchestration and compliance. Pheromone-based routing, distributed consensus, and self-healing topologies translate directly to agent governance.
 
@@ -73,7 +79,7 @@ AWARE 1.0 was the bio-inspired routing + compliance layer (Phases 1–4 of the v
 
 Each stage writes to Postgres; the next stage consumes what the previous wrote. When the loop closes (Phase 4 evaluation harness, not done), we'll have a system that improves itself from real production traffic with no operator intervention.
 
-**Detailed design:** see `docs/adr/ADR (internal).md` (the v2 architecture) and `redacted-internal-doc` (where each phase stands today).
+**Detailed design:** see `redacted-internal-doc` (v2 architecture + where each phase stands today).
 
 ---
 
@@ -198,8 +204,8 @@ See `docs/sop/sop-phase-3-azr-self-play.json` for the full operator-action seque
 - `src/trainer/` — Phase 3 + 4 trainer poller + outcome filter
 - `training/run.py` — Modal QLoRA training function (operator deploys once)
 - `eval/` — Phase 4 evaluation harness (scaffold, not started)
-- `docs/adr/ADR (internal).md` — the v2 architecture decision
-- `docs/adr/ADR (internal).md` — centralised config (Phase 1 polish)
+- `redacted-internal-doc` — the v2 architecture decision
+- `redacted-internal-doc` — centralised config (Phase 1 polish)
 
 ---
 
@@ -215,7 +221,7 @@ AWARE/
 ├── scripts/              # aware-up, bring-up-coordinator.sh
 ├── config/               # modal-training.json + v2 runtime config
 ├── docs/
-│   ├── adr/              # architecture decision records (ADR (internal)..021)
+│   ├── adr/              # architecture decision records (reserved directory; current design notes in `redacted-internal-doc`)
 │   ├── sop/              # Standard Operating Procedures per phase
 │   └── EVOLUTION-BRIEF.md
 ├── redacted-internal-doc             # closure status of every phase
@@ -246,7 +252,7 @@ AWARE/
 ## Quick Links
 
 - **Status:** [redacted-internal-doc](redacted-internal-doc) — closure status of every phase
-- **v2 architecture:** [docs/adr/ADR (internal).md](docs/adr/ADR (internal).md)
+- **v2 architecture:** [`redacted-internal-doc`](redacted-internal-doc)
 - **Dev guide:** [CONTRIBUTING.md](CONTRIBUTING.md) — for anyone reading or modifying v2 source
 - **Dev deep dive:** [docs/dev/architecture.md](docs/dev/architecture.md) — pipeline, data flow, trainer lifecycle
 - **v1 evolution brief:** [docs/EVOLUTION-BRIEF.md](docs/EVOLUTION-BRIEF.md)

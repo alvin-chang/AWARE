@@ -30,39 +30,53 @@ echo "    Full re-scan + gitleaks against ALL changed refs"
 
 FAILED=0
 
-# 1) gitleaks against the working tree (not just staged).
-#    detect (vs protect) scans the full tree without requiring staged content.
-#    This catches patterns in modified-but-unstaged files, plus the full
-#    new content of any ref being pushed.
-#
-#    --no-git: don't scan git history (history may have known false positives
-#    from before the filter existed; we only want NEW content blocked).
-if command -v gitleaks >/dev/null 2>&1; then
-    echo "    gitleaks detect --source . --no-git"
-    if ! gitleaks detect --source "$REPO_ROOT" --no-git \
-        --config "$REPO_ROOT/.gitleaks.toml" \
-        --redact --no-banner --exit-code 1 2>/dev/null; then
-        echo ""
-        echo "✗ pre-push blocked: gitleaks found a pattern in the working tree."
-        echo "  See .gitleaks.toml for the rule that fired."
-        FAILED=1
-    fi
-else
-    echo "  (gitleaks not installed — skipping. Install: brew install gitleaks)"
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "  (gitleaks not installed — skipping gitleaks scan. Install: brew install gitleaks)"
 fi
 
-# 2) For every ref being pushed, scan the new content being introduced.
+# 1) For every ref being pushed, scan the new content being introduced.
 #    We compare <local-sha>..<remote-sha> (or <local-sha> for new refs)
 #    and grep the patch for the A1 content rules.
+#
+#    Bug-fix history:
+#      v1 (in v2.7.2): ran `gitleaks detect --source . --no-git` against the
+#        full working tree, producing false positives on gitignored files
+#        (`.env`, `node_modules/*/README.md`, etc.) that the push would
+#        never carry.
+#      v2 (in v2.7.3 first attempt): piped changed-file paths via stdin to
+#        `gitleaks detect`. This does NOT scope the scan in gitleaks 8.x —
+#        gitleaks treats positional file arguments as advisory and still
+#        scans `--source .` (or `.` by default) recursively. End result:
+#        same 38 false positives in node_modules/*.
+#      v3 (this version): invoke `gitleaks detect --source <file>` once per
+#        changed file. Each call scans exactly that file (no directory
+#        descent), so gitignored content is excluded by construction.
+#        Cost: O(N) gitleaks invocations per ref. For the AWARE repo (a few
+#        dozen changed files per release) this is ~1s total — acceptable.
 echo "    Scanning diffs of pushed refs..."
 while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     # Skip empty lines
     [[ -z "$LOCAL_REF" ]] && continue
 
-    # New branch (no remote SHA yet) — scan the entire local tree
+    # New branch (no remote SHA yet) — compare against the most recent
+    # ancestor that already exists on the remote (so we don't re-scan
+    # every file in the tree for a new tag).
     if [[ -z "$REMOTE_SHA" || "$REMOTE_SHA" =~ ^0+$ ]]; then
-        RANGE_OR_TREE="$LOCAL_SHA"
-        RANGE_LABEL="(new ref: $LOCAL_REF)"
+        # Find the most recent commit reachable from LOCAL_SHA that exists
+        # on any remote-tracking ref. Use that as the diff base.
+        DIFF_BASE="$(git merge-base --octopus "$LOCAL_SHA" $(git for-each-ref --format='%(objectname)' refs/remotes/ 2>/dev/null) 2>/dev/null | head -1 || true)"
+        if [[ -z "$DIFF_BASE" || "$DIFF_BASE" =~ ^0+$ ]]; then
+            # No common ancestor with any remote (fully new repo / first push).
+            # Fall back to the diff vs an empty tree — this WILL scan every
+            # tracked file. Acceptable for a bootstrap push.
+            RANGE_OR_TREE="$(git hash-object -t tree /dev/null 2>/dev/null || true)"
+            [[ -z "$RANGE_OR_TREE" ]] && RANGE_OR_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # well-known empty-tree SHA
+            RANGE_OR_TREE="$RANGE_OR_TREE..$LOCAL_SHA"
+            RANGE_LABEL="(new ref: $LOCAL_REF, full diff vs empty tree)"
+        else
+            RANGE_OR_TREE="$DIFF_BASE..$LOCAL_SHA"
+            RANGE_LABEL="(new ref: $LOCAL_REF, base=$DIFF_BASE)"
+        fi
     else
         RANGE_OR_TREE="$REMOTE_SHA..$LOCAL_SHA"
         RANGE_LABEL="($REMOTE_REF..$LOCAL_REF)"
@@ -71,15 +85,43 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     echo "    -> $LOCAL_REF $RANGE_LABEL"
 
     # Get the list of changed files in this range
-    if [[ "$RANGE_OR_TREE" == *..* ]]; then
-        CHANGED_FILES="$(git diff --name-only "$RANGE_OR_TREE" 2>/dev/null || true)"
-    else
-        # New ref: list the tree
-        CHANGED_FILES="$(git ls-tree -r --name-only "$RANGE_OR_TREE" 2>/dev/null || true)"
-    fi
+    CHANGED_FILES="$(git diff --name-only "$RANGE_OR_TREE" 2>/dev/null || true)"
 
     if [[ -z "$CHANGED_FILES" ]]; then
         continue
+    fi
+
+    # Run gitleaks against only the files being pushed in this ref's diff.
+    # gitleaks 8.x ignores stdin-paths and always scans --source (or `.`)
+    # recursively. Workaround: invoke gitleaks per-file with --source so
+    # the scope is exactly the file we want to check. Gitignored files
+    # never appear in `git diff`, so they're naturally excluded.
+    #
+    # Use absolute paths for both --source and --config: when scanning
+    # `.gitleaks.toml` itself (its own rules contain the host-path/LAN-IP
+    # regex patterns), a relative-path --source would cause gitleaks to
+    # match its own rule definitions against themselves.
+    if command -v gitleaks >/dev/null 2>&1; then
+        FILE_COUNT="$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')"
+        echo "    -> gitleaks detect (per-file, $FILE_COUNT changed file(s))"
+        PER_FILE_FAILED=0
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue   # file was deleted in this diff
+            ABS_F="$REPO_ROOT/$f"
+            if ! gitleaks detect --no-git \
+                    --source "$ABS_F" \
+                    --config "$REPO_ROOT/.gitleaks.toml" \
+                    --redact --no-banner --exit-code 1 >/dev/null 2>&1; then
+                echo ""
+                echo "✗ pre-push blocked: gitleaks found a pattern in $f."
+                echo "  See .gitleaks.toml for the rule that fired."
+                PER_FILE_FAILED=1
+            fi
+        done <<< "$CHANGED_FILES"
+        if [[ $PER_FILE_FAILED -eq 1 ]]; then
+            FAILED=1
+        fi
     fi
 
     # Run the same content checks the pre-commit hook runs, against changed files only.

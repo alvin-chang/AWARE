@@ -163,11 +163,11 @@ services:
     image: aware-coordinator:0.4.5-phase4-rl-pipeline-from-internal-git
     container_name: aware-2-coordinator
     ports:
-      - "38181:8080"
+      - "18081:8080"
     environment:
       # SEC-007: bind coordinator to 0.0.0.0 inside the container.
-      # The 38181:8080 port mapping above exposes 8080 on the host; with
-      # 0.0.0.0 binding the docker-proxy can DNAT host:38181 traffic to
+      # The 18081:8080 port mapping above exposes 8080 on the host; with
+      # 0.0.0.0 binding the docker-proxy can DNAT host:18081 traffic to
       # container:8080 (the previous 127.0.0.1 binding broke host access
       # because docker-proxy connects via the container bridge IP, not
       # loopback). Only the published port path reaches the coordinator
@@ -197,6 +197,7 @@ services:
       # their shell before invoking docker compose.
       # See ADR (internal).
       - LLM_API_KEY=${LLM_API_KEY:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - PROVIDER_API_HOST=${PROVIDER_API_HOST:-}
       # [date-redacted]: OLLAMA_URL removed — no Ollama sidecar. If the
       # env var is set in the host (e.g. from a stale .env), it's

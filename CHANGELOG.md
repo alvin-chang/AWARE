@@ -212,6 +212,74 @@ All notable changes to AWARE Evolution are documented here.
 
 ---
 
+## [v2.7.3] — 2026-06-27 — coordinator LLM reachability + probe auth
+
+### Fixes
+- **`docker-compose.coordinator.yml`** — the coordinator container now receives the
+  LLM provider API key in addition to the existing `LLM_API_KEY`. The internal
+  rl-pipeline client reads its credential directly from the environment with no
+  fallback to `LLM_API_KEY`, so without this pass-through the provider client
+  constructor threw at request time and `/coordinate` returned a backend-failure
+  error. Verified live: the `/coordinate` round-trip now returns real LLM
+  responses.
+
+- **`docker-compose.coordinator.yml`** — revert the coordinator publish port from
+  `38181:8080` back to `18081:8080`. Originally introduced as part of an earlier
+  runtime-evidence update but never propagated to the schema, README, smoke
+  tests, and probe script that all hardcode `18081`. The `0.0.0.0` binding
+  rationale is preserved; only the port number changes.
+
+### Probe
+The daily AWARE plugin loadability probe was failing 4/6 because `/coordinate`
+requires an authorization credential (added in the Phase 1 security release) but
+the probe was sending none. The probe now reads the credential from the
+operator's `.env` and includes it on the request, with a no-auth fallback for
+dev mode. **The probe now passes 6/6.**
+
+### Operator actions required after upgrading to v2.7.3
+- Set the LLM provider API key in the operator's compose `.env` to match the
+  canonical credential stored in the OpenClaw gateway configuration. The prior
+  value was truncated / wrong tier and was rejected by the provider with a
+  401 authentication error.
+- Apply the matching probe script change in the operator's probe location. See
+  the v2.7.3 commit body for the full diff description.
+
+### Deferred to v2.8.x
+- **Adapter-layer bridge in `src/coordinator/index.js`** so a single credential
+  name is canonical end-to-end. Today the AWARE code reads `LLM_API_KEY` and
+  the rl-pipeline source reads a different name; the compose file passes both,
+  but the right long-term answer is one name.
+- **Move the loadability probe into `scripts/`** so it ships with every clone
+  and operators get updates automatically.
+- **Single source of truth for the LLM credential** — compose should read from
+  the OpenClaw gateway configuration directly so there is one credential
+  location, not two. The current copy-paste is fragile: if the key rotates,
+  both files must update.
+- **rl-pipeline distribution model.** The public `GoodCISO/aware` clone cannot
+  fetch the rl-pipeline source (the URL is intentionally not vendored into the
+  image; see the SEC-007/008 design notes in `Dockerfile.coordinator`). Either
+  vendor the rl-pipeline source into the public repo, or stop shipping
+  `docker-compose.coordinator.yml` to external consumers and document
+  "operator-only builds."
+- **LaunchAgent supervisor** for the `aware-2-coordinator` container. When it
+  exits, nothing restarts it.
+
+### Verification
+```
+=== aware-plugin loadability probe (2026-06-27) ===
+  ok  live install dir exists
+  ok  worktree install dir exists
+  ok  smoke-test.js passes 26/26
+  ok  AWARE coordinator /health responds
+  ok  AWARE /coordinate round-trip returns ok:true
+  ok  gateway log shows 'aware' plugin registered
+
+=== Summary: 6/6 checks passed ===
+PROBE PASSED — aware plugin loadable + AWARE coordinator live.
+```
+
+---
+
 ## [Prior] — Original AWARE (Distributed Systems Platform)
 
 Original AWARE was a distributed systems platform using ant colony-inspired algorithms for cluster coordination and resource optimization. This is now archived at `docs/legacy/README-v1.md`.
