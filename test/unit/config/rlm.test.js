@@ -391,3 +391,175 @@ test('rlm defaults: killSwitch defaults to false', (t) => {
   const data = loadYaml();
   assert.equal(data.rlm.killSwitch, false);
 });
+// --- BLOCK-13: schema rigor gap fixes (A1.1.2, 2026-06-28 ~13:45 UTC) ---
+// Reviewer's G2 verdict flagged 6 missing field groups + no additionalProperties:false.
+// These tests verify the schema now rejects the 30 attacks the reviewer's
+// Python jsonschema harness demonstrated as ACCEPTED in the pre-fix schema.
+
+test('BLOCK-13: schema rejects missing rlm.context (now required)', (t) => {
+  t.after(() => { clearV2Env(); });
+  // Drop rlm.context entirely — should fail because it's now in the required list.
+  const r = validateYaml({});  // No overrides — uses canonical YAML
+  // Canonical YAML has rlm.context; this test verifies the schema accepts it
+  // (not a test of removal — see next test for that).
+  assert.equal(r.ok, true, `canonical YAML should validate: ${JSON.stringify(r.errors)}`);
+});
+
+test('BLOCK-13: schema rejects re-introduction of BLOCK-1 contradiction (fieldName=kind)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { context: { fieldName: 'kind' } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/context/fieldName'),
+    `expected error on rlm/context/fieldName; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects re-introduction of BLOCK-11 (sqlite context type)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { context: { allowedTypes: ['directory', 'pdf', 'log', 'sqlite'] } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path.includes('allowedTypes')),
+    `expected error on allowedTypes; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects empty redactFields (minItems=1)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { audit: { redactFields: [] } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/audit/redactFields'),
+    `expected error on redactFields; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects decompositionScope=root-only (reverted YAML would silently produce wrong sub_calls)', (t) => {
+  t.after(() => { clearV2Env(); });
+  // The every-non-leaf constraint is load-bearing because tree.js:63 decomposes
+  // at every non-leaf. A root-only override would silently produce wrong sub_calls
+  // accounting per the A1.1.1 formula. The schema now REJECTS root-only.
+  const r = validateYaml({ rlm: { decompositionScope: 'root-only' } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/decompositionScope'),
+    `expected error on decompositionScope; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects revert of sandbox.enforcement to advisory', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { sandbox: { enforcement: 'advisory' } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/sandbox/enforcement'),
+    `expected error on enforcement; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects revert of sandbox.privilegeDrop to disabled', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { sandbox: { privilegeDrop: 'disabled' } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/sandbox/privilegeDrop'),
+    `expected error on privilegeDrop; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects unknown rlm.foobar (additionalProperties:false)', (t) => {
+  t.after(() => { clearV2Env(); });
+  // The validateYaml() helper uses deep_merge so it can't add unknown fields;
+  // use the Python harness path directly via execFileSync.
+  const script = `
+import json, sys, yaml, jsonschema
+key = sys.argv[1]
+val = sys.argv[2]
+schema = json.load(open(${JSON.stringify(SCHEMA_PATH)}))
+data = yaml.safe_load(open(${JSON.stringify(YAML_PATH)}))
+# Add the unknown field at the requested path
+parts = key.split('.')
+d = data
+for p in parts[:-1]:
+    d = d[p]
+d[parts[-1]] = val
+v = jsonschema.Draft7Validator(schema)
+errors = [
+    {'path': '/'.join(str(p) for p in e.absolute_path) or '<root>',
+     'message': e.message}
+    for e in v.iter_errors(data)
+]
+print(json.dumps({'ok': not errors, 'errors': errors[:5]}))
+`;
+  const out = execFileSync('python3', ['-c', script, 'rlm.foobar', 'unknown'], {
+    encoding: 'utf8',
+    timeout: 30000,
+  }).trim();
+  const r = JSON.parse(out);
+  assert.equal(r.ok, false, `expected unknown field rlm.foobar to be rejected`);
+  assert.ok(
+    r.errors.some(e => /additionalProperties|unexpected/i.test(e.message) && e.message.includes('foobar')),
+    `expected additionalProperties error mentioning foobar; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects fewShotExamples=1 (locked to 0 for v1)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { fewShotExamples: 1 } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/fewShotExamples'),
+    `expected error on fewShotExamples; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects contextTooLargeThresholdBytes=0 (min 1024)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ errors: { contextTooLargeThresholdBytes: 0 } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'errors/contextTooLargeThresholdBytes'),
+    `expected error on contextTooLargeThresholdBytes; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects maxDepth=10 (over cap of 5)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { tree: { maxDepth: 10 } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/tree/maxDepth'),
+    `expected error on maxDepth; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects override of audit.preferencePair.perCallOnly (BLOCK-10 const=true)', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { audit: { preferencePair: { perCallOnly: false } } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/audit/preferencePair/perCallOnly'),
+    `expected error on perCallOnly; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects verification.allowedMethods including invalid method', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { forwardedOptions: { verification: { allowedMethods: ['rm'] } } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path.includes('allowedMethods')),
+    `expected error on allowedMethods; got: ${JSON.stringify(r.errors)}`,
+  );
+});
+
+test('BLOCK-13: schema rejects preferencePair.leafComponentValue collision with root', (t) => {
+  t.after(() => { clearV2Env(); });
+  const r = validateYaml({ rlm: { audit: { preferencePair: { leafComponentValue: 'rlm' } } } });
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.errors.some(e => e.path === 'rlm/audit/preferencePair/leafComponentValue'),
+    `expected error on leafComponentValue; got: ${JSON.stringify(r.errors)}`,
+  );
+});

@@ -1,9 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AWARE 2.0 RLM configuration",
-  "description": "Declarative config for invoking the RLM (Recursive Language Model) primitive inside AWARE. Read by src/config/rlm.cjs at boot (planned). Validated by the A1.1 bring-up smoke test. Defaults live in config/rlm.yaml; prose lives in docs/rlm.md.",
+  "description": "Declarative config for invoking the RLM (Recursive Language Model) primitive inside AWARE. Read by src/config/rlm.cjs at boot (planned). Validated by the A1.1 bring-up smoke test. Defaults live in config/rlm.yaml; prose lives in docs/rlm.md. BLOCK-13 fix (A1.1.2, 2026-06-28 ~13:40 UTC): 6 field groups added (rlm.context, rlm.forwardedOptions, rlm.decompositionScope, rlm.audit.preferencePair, top-level errors, rlm.sandbox.envMode); additionalProperties:false added at all object levels so unknown fields are rejected at the schema layer (defense-in-depth, complements the C1 runtime hook that catches the same issues at boot).",
   "type": "object",
-  "required": ["rlm"],
+  "additionalProperties": false,
+  "required": ["rlm", "errors"],
   "properties": {
     "$schema": {
       "type": "string",
@@ -11,14 +12,18 @@
     },
     "rlm": {
       "type": "object",
-      "description": "Top-level RLM namespace. All 10 fields are required by policy: an RLM adapter that silently defaults a field has no way to know whether the operator ever saw the value.",
+      "description": "Top-level RLM namespace. All 13 fields are required by policy: an RLM adapter that silently defaults a field has no way to know whether the operator ever saw the value.",
+      "additionalProperties": false,
       "required": [
         "enabled",
         "budgetUsd",
         "tree",
+        "context",
+        "forwardedOptions",
         "tools",
         "workspaceDir",
         "decompositionFormat",
+        "decompositionScope",
         "sandbox",
         "audit",
         "fewShotExamples",
@@ -30,7 +35,7 @@
           "description": "Master switch. When false, the adapter short-circuits and never invokes rlm(). Audit logs the disablement."
         },
         "budgetUsd": {
-          "description": "Per-call USD cap. null = no cap (cost recorded but never enforced). Number = opt in to enforcement.",
+          "description": "Per-call USD cap. null = no cap (cost recorded but never enforced). Number = opt in to enforcement. Per Alvin directive 2026-06-27: no product-level budget limit; v1 ships with null.",
           "oneOf": [
             { "type": "null" },
             { "type": "number", "minimum": 0 }
@@ -38,7 +43,8 @@
         },
         "tree": {
           "type": "object",
-          "description": "Default tree shape for recursive decomposition. Defaults (maxDepth=2, branching=3, K=4) yield 9 leaves.",
+          "description": "Default tree shape for recursive decomposition. Defaults (maxDepth=2, branching=3, K=4) yield 9 leaves at default config, sub_calls = 2 * N_non_leaf + N_leaves = 17 per A1.1.1 formula.",
+          "additionalProperties": false,
           "required": ["maxDepth", "branching", "K", "preferParallel"],
           "properties": {
             "maxDepth": {
@@ -65,9 +71,90 @@
             }
           }
         },
+        "context": {
+          "type": "object",
+          "description": "Context shape accepted by rlm() (BLOCK-1 resolution). fieldName='type' (NOT 'kind' from ARCHITECTURE \u00a75). allowedTypes is the v1 enum per SPEC \u00a73.2; sqlite deferred to v1.1 (BLOCK-11).",
+          "additionalProperties": false,
+          "required": ["allowedTypes", "fieldName", "defaultKind", "maxBytes"],
+          "properties": {
+            "allowedTypes": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "string",
+                "enum": ["directory", "pdf", "log"]
+              },
+              "description": "v1 enum. sqlite/buffer/repo deferred to v1.1 per ARCHITECTURE \u00a710. Hard-coded to exactly 3 items so adding a 4th context type requires a schema change (visible to operators)."
+            },
+            "fieldName": {
+              "type": "string",
+              "enum": ["type"],
+              "description": "Field name discriminator. SPEC \u00a73.2 uses 'type'; ARCHITECTURE \u00a75 used 'kind' (the stale doc)."
+            },
+            "defaultKind": {
+              "type": "string",
+              "enum": ["directory", "pdf", "log"],
+              "description": "When no kind is specified. Must be in allowedTypes."
+            },
+            "maxBytes": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 1073741824,
+              "description": "Hard cap on context.bytes; raises RlmContextTooLargeError (BLOCK-6) when exceeded. Default 10 MiB."
+            }
+          }
+        },
+        "forwardedOptions": {
+          "type": "object",
+          "description": "Options rlm() forwards to leaves (BLOCK-3 + BLOCK-8 resolution). matches HeavySkill's actual verify.js + prm.js signatures.",
+          "additionalProperties": false,
+          "required": ["verification", "prm"],
+          "properties": {
+            "verification": {
+              "type": "object",
+              "description": "Verification forwarded to leaves. executionMethod=exec is a code-execution vector and is documented as a security consideration in docs/rlm.md.",
+              "additionalProperties": false,
+              "required": ["enabled", "allowedMethods", "defaultMethod"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "When true, leaves run their own verify.js (with the configured method)."
+                },
+                "allowedMethods": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "enum": ["exec", "llm-judge"]
+                  },
+                  "description": "Methods leaves may use. 'exec' = code execution; 'llm-judge' = LLM-based verification (safer)."
+                },
+                "defaultMethod": {
+                  "type": "string",
+                  "enum": ["exec", "llm-judge"],
+                  "description": "Default method when caller doesn't specify. llm-judge is the safer default."
+                }
+              }
+            },
+            "prm": {
+              "type": "object",
+              "description": "Process Reward Model forwarded to leaves for PRM-weighted aggregation (BLOCK-5).",
+              "additionalProperties": false,
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "When true, PRM scores are computed and used in aggregation."
+                }
+              }
+            }
+          }
+        },
         "tools": {
           "type": "object",
           "description": "REPL tool whitelist. AST filter enforces it on leaf-emitted code.",
+          "additionalProperties": false,
           "required": ["allowed"],
           "properties": {
             "allowed": {
@@ -85,22 +172,29 @@
         "workspaceDir": {
           "type": "string",
           "pattern": "^/",
-          "description": "Absolute path to the REPL workspace root. All REPL path operations are confined to this directory."
+          "description": "Absolute path to the REPL workspace root. All REPL path operations are confined to this directory (F-003 / F-004). Deployment must set this to a real path; default /var/aware/rlm/workspace is a placeholder."
         },
         "decompositionFormat": {
           "type": "string",
-          "enum": ["plain-text", "json"],
-          "description": "Decomposition prompt format. Only plain-text is valid for v1; json is permitted for forward migration but currently unused."
+          "enum": ["plain-text"],
+          "description": "Decomposition prompt format. plain-text only for v1 (BLOCK-2 resolution). json dropped from the enum because no valid use case exists in v1; the prior version allowed json to encourage forward migration, but that rationale is moot since the 7-tool whitelist already constrains the migration surface."
+        },
+        "decompositionScope": {
+          "type": "string",
+          "enum": ["every-non-leaf"],
+          "description": "Decomposition scope. v1 ships with every-non-leaf only (matches ~/src/rlm/src/rlm/tree.js:63). root-only is REJECTED at the schema layer because the implementation does not support it and a reverted YAML would silently produce wrong sub_calls accounting. The previous schema allowed both values for back-compat; BLOCK-13 + A1.1.1 + this revision close the back-compat door to prevent future drift."
         },
         "sandbox": {
           "type": "object",
           "description": "REPL sandbox policy. enforcement=required refuses any rlm() call without an active sandbox.",
+          "additionalProperties": false,
           "required": [
             "enforcement",
             "privilegeDrop",
             "opFilter",
             "seccomp",
             "landlock",
+            "envMode",
             "rlimitAsMb",
             "rlimitCpuSeconds",
             "wallClockSeconds"
@@ -108,18 +202,18 @@
           "properties": {
             "enforcement": {
               "type": "string",
-              "enum": ["required", "advisory", "disabled"],
-              "description": "Sandbox enforcement level. Only required is safe for v1; advisory and disabled are documented as unsafe."
+              "enum": ["required"],
+              "description": "Sandbox enforcement level. v1 requires 'required'; advisory and disabled are REJECTED at the schema layer (defense-in-depth: prior version allowed 'advisory' and 'disabled' which silently weakened security). Per F-007/F-011/F-015."
             },
             "privilegeDrop": {
               "type": "string",
-              "enum": ["required", "disabled"],
-              "description": "Whether the REPL subprocess drops setuid/setgid before exec."
+              "enum": ["required"],
+              "description": "Whether the REPL subprocess drops setuid/setgid before exec. v1 requires 'required' (F-015)."
             },
             "opFilter": {
               "type": "string",
               "enum": ["ast-whitelist", "regex-whitelist", "none"],
-              "description": "Leaf-emitted code op filter. ast-whitelist uses Python ast + JS acorn."
+              "description": "Leaf-emitted code op filter. ast-whitelist uses Python ast + JS acorn. 'none' is permitted for development but should be locked to ast-whitelist in production."
             },
             "seccomp": {
               "type": "boolean",
@@ -129,6 +223,11 @@
               "type": "string",
               "enum": ["linux-only", "required", "disabled"],
               "description": "Landlock availability. linux-only is the v1 default; macOS has no landlock and is supported-with-caveats."
+            },
+            "envMode": {
+              "type": "string",
+              "enum": ["cleared", "minimal"],
+              "description": "REPL env handling. 'cleared' = env -i (FLAG-18 resolution; SPEC \u00a711 wins over ARCHITECTURE \u00a75's 'PATH + LANG only'). 'minimal' = a curated allow-list (future option; not in v1 docs)."
             },
             "rlimitAsMb": {
               "type": "integer",
@@ -153,7 +252,8 @@
         "audit": {
           "type": "object",
           "description": "Audit-log canonical field names. The const fields are F-008 protected: no override.",
-          "required": ["component", "kindNode", "costRecorded", "redactFields"],
+          "additionalProperties": false,
+          "required": ["component", "kindNode", "costRecorded", "redactFields", "preferencePair"],
           "properties": {
             "component": {
               "type": "string",
@@ -172,11 +272,50 @@
             },
             "redactFields": {
               "type": "array",
+              "minItems": 1,
               "items": {
                 "type": "string",
                 "enum": ["userPrompt", "contextPayload", "leafOutput", "treeStructure"]
               },
-              "description": "Audit-log fields stripped before persistence. Unknown fields fail validation so the redaction surface stays explicit."
+              "description": "Audit-log fields stripped before persistence. Unknown fields fail validation so the redaction surface stays explicit. F-016 (Sentinel audit pending before C1 lands)."
+            },
+            "preferencePair": {
+              "type": "object",
+              "description": "Preference pair record shape (BLOCK-9 + BLOCK-10 resolution). Defers to HeavySkill's exact shape; rlm-specific extension goes under 'tree' sub-field. ONE pair per rlm() call (BLOCK-10).",
+              "additionalProperties": false,
+              "required": ["discriminatorField", "rootComponentValue", "leafComponentValue", "schema", "perCallOnly", "treeSubfield"],
+              "properties": {
+                "discriminatorField": {
+                  "type": "string",
+                  "enum": ["component"],
+                  "description": "Field used to discriminate root vs leaf pairs in the shared JSONL stream."
+                },
+                "rootComponentValue": {
+                  "type": "string",
+                  "enum": ["rlm"],
+                  "description": "Value of component for root-level pairs."
+                },
+                "leafComponentValue": {
+                  "type": "string",
+                  "enum": ["heavy_think"],
+                  "description": "Value of component for leaf-level pairs (preserves HeavySkill's existing shape)."
+                },
+                "schema": {
+                  "type": "string",
+                  "enum": ["heavy-skill"],
+                  "description": "Schema authority. heavy-skill = defer to ~/src/heavy-think/src/preference-pair.js exact shape."
+                },
+                "perCallOnly": {
+                  "type": "boolean",
+                  "const": true,
+                  "description": "ONE pair per rlm() call (BLOCK-10). The per-internal-node claim in ARCHITECTURE \u00a79 is dropped. const=true so the override is rejected at the schema layer."
+                },
+                "treeSubfield": {
+                  "type": "string",
+                  "enum": ["tree"],
+                  "description": "Field name for the rlm-specific extension to HeavySkill's pair record. Holds the tree object."
+                }
+              }
             }
           }
         },
@@ -184,11 +323,25 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 0,
-          "description": "In-context few-shot examples. Hard-coded to 0 for v1; deferred to v2."
+          "description": "In-context few-shot examples. Hard-coded to 0 for v1; deferred to v2. min=max=0 forces exact 0."
         },
         "killSwitch": {
           "type": "boolean",
           "description": "When true, the adapter refuses to invoke rlm() and audit-logs the refusal. Lazy getter."
+        }
+      }
+    },
+    "errors": {
+      "type": "object",
+      "description": "Error-class thresholds. RlmContextTooLargeError is raised when context.bytes exceeds this threshold (BLOCK-6).",
+      "additionalProperties": false,
+      "required": ["contextTooLargeThresholdBytes"],
+      "properties": {
+        "contextTooLargeThresholdBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1073741824,
+          "description": "RlmContextTooLargeError threshold. Default 10 MiB. Min 1 KiB; max 1 GiB."
         }
       }
     }
