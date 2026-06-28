@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AWARE 2.0 RLM configuration",
+  "description": "Declarative config for invoking the RLM (Recursive Language Model) primitive inside AWARE. Read by src/config/rlm.cjs at boot (planned). Validated by the A1.1 bring-up smoke test. Defaults live in config/rlm.yaml; prose lives in docs/rlm.md.",
+  "type": "object",
+  "required": ["rlm"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional reference to the schema file. Not validated."
+    },
+    "rlm": {
+      "type": "object",
+      "description": "Top-level RLM namespace. All 10 fields are required by policy: an RLM adapter that silently defaults a field has no way to know whether the operator ever saw the value.",
+      "required": [
+        "enabled",
+        "budgetUsd",
+        "tree",
+        "tools",
+        "workspaceDir",
+        "decompositionFormat",
+        "sandbox",
+        "audit",
+        "fewShotExamples",
+        "killSwitch"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch. When false, the adapter short-circuits and never invokes rlm(). Audit logs the disablement."
+        },
+        "budgetUsd": {
+          "description": "Per-call USD cap. null = no cap (cost recorded but never enforced). Number = opt in to enforcement.",
+          "oneOf": [
+            { "type": "null" },
+            { "type": "number", "minimum": 0 }
+          ]
+        },
+        "tree": {
+          "type": "object",
+          "description": "Default tree shape for recursive decomposition. Defaults (maxDepth=2, branching=3, K=4) yield 9 leaves.",
+          "required": ["maxDepth", "branching", "K", "preferParallel"],
+          "properties": {
+            "maxDepth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "Max recursion depth. Capped at 5 to prevent absurd costs even without budget enforcement."
+            },
+            "branching": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "Branching factor per node."
+            },
+            "K": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "description": "Top-level K (number of children the root spawns)."
+            },
+            "preferParallel": {
+              "type": "boolean",
+              "description": "OOS for v1; schema still types it so a future migration does not have to widen the schema."
+            }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "description": "REPL tool whitelist. AST filter enforces it on leaf-emitted code.",
+          "required": ["allowed"],
+          "properties": {
+            "allowed": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "items": {
+                "type": "string",
+                "enum": ["read", "grep", "slice", "vec_search", "len", "keys", "print"]
+              },
+              "description": "Whitelisted REPL tools. 7-tool surface per SPEC \u00a711; vec_search and len are load-bearing for the AWARE retrieval context."
+            }
+          }
+        },
+        "workspaceDir": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Absolute path to the REPL workspace root. All REPL path operations are confined to this directory."
+        },
+        "decompositionFormat": {
+          "type": "string",
+          "enum": ["plain-text", "json"],
+          "description": "Decomposition prompt format. Only plain-text is valid for v1; json is permitted for forward migration but currently unused."
+        },
+        "sandbox": {
+          "type": "object",
+          "description": "REPL sandbox policy. enforcement=required refuses any rlm() call without an active sandbox.",
+          "required": [
+            "enforcement",
+            "privilegeDrop",
+            "opFilter",
+            "seccomp",
+            "landlock",
+            "rlimitAsMb",
+            "rlimitCpuSeconds",
+            "wallClockSeconds"
+          ],
+          "properties": {
+            "enforcement": {
+              "type": "string",
+              "enum": ["required", "advisory", "disabled"],
+              "description": "Sandbox enforcement level. Only required is safe for v1; advisory and disabled are documented as unsafe."
+            },
+            "privilegeDrop": {
+              "type": "string",
+              "enum": ["required", "disabled"],
+              "description": "Whether the REPL subprocess drops setuid/setgid before exec."
+            },
+            "opFilter": {
+              "type": "string",
+              "enum": ["ast-whitelist", "regex-whitelist", "none"],
+              "description": "Leaf-emitted code op filter. ast-whitelist uses Python ast + JS acorn."
+            },
+            "seccomp": {
+              "type": "boolean",
+              "description": "Whether the library's seccomp profile (blocks socket/connect/accept/recv/send) is active."
+            },
+            "landlock": {
+              "type": "string",
+              "enum": ["linux-only", "required", "disabled"],
+              "description": "Landlock availability. linux-only is the v1 default; macOS has no landlock and is supported-with-caveats."
+            },
+            "rlimitAsMb": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 4096,
+              "description": "Per-REPL address-space cap, in MB."
+            },
+            "rlimitCpuSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 120,
+              "description": "Per-op CPU cap, in seconds."
+            },
+            "wallClockSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Per round-trip wall-clock cap, in seconds."
+            }
+          }
+        },
+        "audit": {
+          "type": "object",
+          "description": "Audit-log canonical field names. The const fields are F-008 protected: no override.",
+          "required": ["component", "kindNode", "costRecorded", "redactFields"],
+          "properties": {
+            "component": {
+              "type": "string",
+              "const": "rlm",
+              "description": "Audit component name. F-008 \u2014 no override."
+            },
+            "kindNode": {
+              "type": "string",
+              "const": "rlm_node",
+              "description": "Per-tree-node audit kind discriminator. F-008 \u2014 no override."
+            },
+            "costRecorded": {
+              "type": "string",
+              "enum": ["always", "on-budget"],
+              "description": "When cost is recorded in the audit log. always records regardless of budget enforcement; on-budget records only when enforcement is on."
+            },
+            "redactFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["userPrompt", "contextPayload", "leafOutput", "treeStructure"]
+              },
+              "description": "Audit-log fields stripped before persistence. Unknown fields fail validation so the redaction surface stays explicit."
+            }
+          }
+        },
+        "fewShotExamples": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 0,
+          "description": "In-context few-shot examples. Hard-coded to 0 for v1; deferred to v2."
+        },
+        "killSwitch": {
+          "type": "boolean",
+          "description": "When true, the adapter refuses to invoke rlm() and audit-logs the refusal. Lazy getter."
+        }
+      }
+    }
+  }
+}
