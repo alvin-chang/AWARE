@@ -89,11 +89,14 @@ rlm:
   # Resolution: zero-shot for v1; few-shot deferred to v1.1 (matches
   # rl-pipeline-bridge/ARCHITECTURE §2 #3 + SPEC §10 #3 — they agree; SPEC
   # §6.5 was the stale doc with the 3-example mandate).
-  # Decomposition scope (BLOCK-4): root-only for v1. SPEC §6.4 header
-  # is correct; the "every non-leaf" interpretation in some A1 prose
-  # was a misread.
+  # Decomposition scope (BLOCK-4): every-non-leaf for v1. Matches the
+  # actual implementation in `~/src/rlm/src/rlm/tree.js:63` (the
+  # `Decompose (EVERY non-leaf node per SPEC §6.4 / ARCH §3)` comment
+  # is correct; the original A1 prose that said "root-only" was the
+  # misread). This affects the `sub_calls` accounting: see §3.3 of
+  # task-4423/context/SPEC.md for the corrected formula.
   decompositionFormat: plain-text
-  decompositionScope: root-only
+  decompositionScope: every-non-leaf
 
   # ─── Sandbox policy (F-007, F-011, F-015, ALIGN-4) ─────────────────────
   # enforcement: required — adapter refuses to invoke rlm() without it.
@@ -158,11 +161,13 @@ rlm:
 errors:
   contextTooLargeThresholdBytes: 10485760   # 10 MiB; BLOCK-6
 
-# ─── Test-plan semantics (BLOCK-12) ─────────────────────────────────────
+# ─── Test-plan semantics (BLOCK-12 + G2 FLAG-1) ──────────────────────────
 # BLOCK-12: SPEC §9.2 sub_calls assertion was mathematically wrong.
-# Resolution documented in docs/rlm.md "Open work" — needs SPEC.md
-# revision to redefine sub_calls = "Count of all LLM calls including
-# decomposition (1 per non-leaf node), aggregation (1 per non-leaf
-# node), and leaves (1 heavy_think() per leaf)." This is a SPEC.md
-# prose issue, NOT a config issue, so it does not appear as a YAML
-# field — but it is referenced here so the next pass picks it up.
+# Resolution: SPEC §3.3 now uses the closed-form geometric series
+#   sub_calls = 1 + Σ_{i=1}^{max_depth-1} branching^i + branching^max_depth
+#   (closed form: (branching^(max_depth+1) - 1) / (branching - 1) for branching > 1)
+# verified by tree enumeration at depths 1–4, branchings 2–8 (G2 FLAG-1).
+# Round-1 close formula `1 + branching^(max_depth - 1) + branching^max_depth`
+# was correct only at max_depth=2; overcounted at max_depth=1, undercounted at max_depth≥3.
+# This is a SPEC.md prose issue, NOT a config issue, so it does not appear as
+# a YAML field — but it is referenced here so the next pass picks it up.
