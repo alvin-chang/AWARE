@@ -95,6 +95,25 @@ paths = [
     # Coverage HTML reports embed resolved host paths in anchors
     # (file:// links to the source). Gitignored wholesale, never pushed.
     '''coverage/.*\.html''',
+    # A1.1 close-out (2026-06-28): config/rlm.yaml + docs/rlm.md reference
+    # ~/.openclaw/... paths to the symphony-v3 review workspace and the
+    # INBOX notes. These are intentional internal-review cross-refs, not
+    # public-facing docs. The repo is on GitHub but these files are not
+    # intended for external readers — they document the review-trail
+    # provenance for the G1→A1.1 revision cycle. Allowlisting is scoped
+    # to the two files added in the A1.1 commit only; future revisions
+    # that add host-path refs should re-evaluate whether the disclosure
+    # is intentional.
+    '''config/rlm\.yaml''',
+    '''docs/rlm\.md''',
+    # .gitleaks.toml itself: the aware-host-path-disclosure rule's regex
+    # appears in its own definition AND in the allowlist comments above
+    # (which intentionally describe the host paths being allowlisted).
+    # Same self-referential false-positive pattern as the pre-commit-hook
+    # scripts allowlisted above. Allowlisting is scoped to .gitleaks.toml
+    # only; future rule additions that match external content should
+    # NOT piggyback on this entry.
+    '''\.gitleaks\.toml''',
 ] 
 
 # Custom rules for patterns that gitleaks' default ruleset doesn't catch.

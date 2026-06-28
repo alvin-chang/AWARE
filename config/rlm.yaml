@@ -1,0 +1,168 @@
+# ~/src/AWARE/config/rlm.yaml — AWARE 2.0 RLM configuration
+#
+# Defaults for invoking the RLM (Recursive Language Model) primitive
+# (Zhang/Kraska/Khattab 2026, arXiv:2512.24601) inside AWARE.
+#
+# The primitive itself lives at ~/src/rlm/ (library) and is exposed to
+# agents via ~/src/rlm-plugin/ (OpenClaw plugin). This file is the AWARE
+# layer that owns policy: defaults, sandbox rules, audit shape, tool
+# whitelist, and budget posture. Per the F-007 / F-011 / F-015
+# resolution: the primitive owns enforcement, AWARE owns policy.
+#
+# Status: A1.1 revision. Resolves G1 FINAL findings (12 BLOCKs + 22 FLAGs
+# + 7 ALIGNs) per ~/.openclaw/symphony-v3/workspaces/task-4423/output/findings.json.
+# See verdict.json close-out for per-finding status.
+
+rlm:
+  enabled: true
+
+  # ─── Budget posture (BLOCK: F-024, F-012; FLAG-2) ─────────────────────
+  # Default null = no cap, cost always recorded in audit log.
+  # Set to a number to opt into per-call enforcement.
+  # Per Alvin 2026-06-27: there is no product-level budget limit.
+  # This dissolves the default-budget-100%-failure finding: failure mode
+  # cannot exist when enforcement is opt-in.
+  budgetUsd: null
+
+  # ─── Tree shape (BLOCK-12; FLAG-3) ─────────────────────────────────────
+  # Default depth=2, branching=3, K=4 → 9 leaves at default.
+  # preferParallel: false (OOS for v1; ARCH §4 stale, SPEC §6 excludes).
+  tree:
+    maxDepth: 2
+    branching: 3
+    K: 4
+    preferParallel: false
+
+  # ─── Context shape (BLOCK-1, BLOCK-11) ────────────────────────────────
+  # Resolution: SPEC §3.2 wins. v1 enum: {directory, pdf, log}.
+  # The ARCHITECTURE §5 alternatives (file, dir, repo, buffer) are dropped
+  # for v1. The `sqlite` context type is dropped because ARCHITECTURE §5
+  # declares v1 IngestIndex=none; sqlite requires sqlite-vec (BLOCK-11).
+  # sqlite + repo + buffer deferred to v1.1 per ARCHITECTURE §10.
+  context:
+    allowedTypes:
+      - directory
+      - pdf
+      - log
+    fieldName: type          # 'type' per SPEC §3.2 (NOT 'kind' from ARCH)
+    defaultKind: directory  # if no kind specified
+    maxBytes: 10485760      # 10 MiB hard cap; raises RlmContextTooLargeError (BLOCK-6)
+
+  # ─── rlm() forwarded options (BLOCK-8) ────────────────────────────────
+  # ARCHITECTURE §4 forwards verification and prm to leaves (matches
+  # HeavySkill's verify.js signature). SPEC §5.1 was wrong. v1 forwards
+  # both. Block-3 verification-as-code-execution is documented in
+  # docs/rlm.md as a security consideration.
+  forwardedOptions:
+    verification:
+      enabled: true         # forwarded to leaves; leaves may run verify.js
+      allowedMethods: [exec, llm-judge]   # exec = code-execution vector; documented
+      defaultMethod: llm-judge            # safer default; opt into exec explicitly
+    prm:
+      enabled: true         # forwarded; PRM-weighted aggregation (BLOCK-5)
+
+  # ─── REPL tool whitelist (BLOCK-7) ────────────────────────────────────
+  # Resolution: union of ARCHITECTURE §5 + SPEC §11. Drop sub_lm (paper §7
+  # marks async sub-calls as future work; sub_lm surfaces here was a v2
+  # feature accidentally listed in v1 docs).
+  # Final 7-tool whitelist: read/grep/slice/vec_search/len/keys/print.
+  # vec_search is only meaningful when IngestIndex != none (v1 is none,
+  # so vec_search is a no-op in v1; documented in docs/rlm.md).
+  tools:
+    allowed:
+      - read
+      - grep
+      - slice
+      - vec_search
+      - len
+      - keys
+      - print
+
+  # ─── Workspace confinement (F-003, F-004, BLOCK-7) ────────────────────
+  # All REPL path operations are restricted to this root.
+  # Adapter rejects: absolute paths outside this root, "..", symlinks
+  # pointing outside this root. Path canonicalization is required.
+  workspaceDir: /var/aware/rlm/workspace
+
+  # ─── Decomposition prompt format (F-005, BLOCK-2, BLOCK-4) ────────────
+  # Plain-text with structured delimiters (matches ~/src/rlm/rootPrompt.js).
+  # Resolution: zero-shot for v1; few-shot deferred to v1.1 (matches
+  # rl-pipeline-bridge/ARCHITECTURE §2 #3 + SPEC §10 #3 — they agree; SPEC
+  # §6.5 was the stale doc with the 3-example mandate).
+  # Decomposition scope (BLOCK-4): root-only for v1. SPEC §6.4 header
+  # is correct; the "every non-leaf" interpretation in some A1 prose
+  # was a misread.
+  decompositionFormat: plain-text
+  decompositionScope: root-only
+
+  # ─── Sandbox policy (F-007, F-011, F-015, ALIGN-4) ─────────────────────
+  # enforcement: required — adapter refuses to invoke rlm() without it.
+  # privilegeDrop: required — REPL spawns with setuid/setgid drop.
+  # opFilter: AST-based whitelist (Python ast, JS acorn).
+  # macOS-no-landlock: documented as supported-with-caveats in docs/rlm.md.
+  # sandbox env: SPEC §11's "cleared (env -i)" wins over ARCHITECTURE §5's
+  # "PATH + LANG only" (BLOCK: FLAG-18). env -i is the safer default.
+  sandbox:
+    enforcement: required
+    privilegeDrop: required
+    opFilter: ast-whitelist
+    seccomp: true
+    landlock: linux-only       # macOS: no landlock; documented in docs/rlm.md
+    envMode: cleared           # env -i; FLAG-18 resolution
+    rlimitAsMb: 512
+    rlimitCpuSeconds: 30
+    wallClockSeconds: 2
+
+  # ─── Audit log shape (F-008, BLOCK-9, BLOCK-10) ───────────────────────
+  # Canonical field names (F-008): component=rlm, kindNode=rlm_node.
+  # costRecorded: always. Budget enforcement is opt-in.
+  # redactFields (F-016): fields stripped before audit-log persistence.
+  #   The current list is best-effort; Sentinel audits before C1 lands.
+  # preferencePair (BLOCK-9/BLOCK-10): root-level pair uses HeavySkill's
+  # exact shape (ts, problem, task_type, chosen, rejected, all_attempts,
+  # verification, cost) with `component: 'rlm'` as the discriminator and
+  # `tree: <sub-field>` as the rlm-specific extension. Leaves write
+  # `component: 'heavy_think'` (HeavySkill's existing shape).
+  # Per-call pair schema (BLOCK-10): ONE pair per rlm() call. The
+  # per-internal-node claim in ARCHITECTURE §9 is dropped.
+  audit:
+    component: rlm
+    kindNode: rlm_node
+    costRecorded: always
+    redactFields:
+      - userPrompt
+      - contextPayload
+    preferencePair:
+      discriminatorField: component
+      rootComponentValue: rlm
+      leafComponentValue: heavy_think
+      schema: heavy-skill        # defer to HeavySkill's exact shape (BLOCK-9)
+      perCallOnly: true          # ONE pair per rlm() call (BLOCK-10)
+      treeSubfield: tree         # rlm-specific extension; null for leaves
+
+  # ─── Few-shot stance (BLOCK-2) ────────────────────────────────────────
+  # v1 ships with zero in-context examples. Matches the rl-pipeline-bridge
+  # plugin's paper-faithful discipline: no async sub-calls, no guardrails.
+  fewShotExamples: 0
+
+  # ─── Kill switch ──────────────────────────────────────────────────────
+  # When true, the adapter refuses to invoke rlm() and audit-logs the
+  # refusal. Mirrors AWARE_KILL_SWITCH / AWARE_GATEWAY_KILL_SWITCH.
+  # Env var override: AWARE_RLM_KILL_SWITCH.
+  killSwitch: false
+
+# ─── Errors (BLOCK-6: RlmContextTooLargeError missing) ──────────────────
+# ARCHITECTURE §8 row F6 declares RlmContextTooLargeError but it was
+# missing from the error hierarchy. v1 adds it; raised when context.bytes
+# exceeds context.maxBytes (default 10 MiB).
+errors:
+  contextTooLargeThresholdBytes: 10485760   # 10 MiB; BLOCK-6
+
+# ─── Test-plan semantics (BLOCK-12) ─────────────────────────────────────
+# BLOCK-12: SPEC §9.2 sub_calls assertion was mathematically wrong.
+# Resolution documented in docs/rlm.md "Open work" — needs SPEC.md
+# revision to redefine sub_calls = "Count of all LLM calls including
+# decomposition (1 per non-leaf node), aggregation (1 per non-leaf
+# node), and leaves (1 heavy_think() per leaf)." This is a SPEC.md
+# prose issue, NOT a config issue, so it does not appear as a YAML
+# field — but it is referenced here so the next pass picks it up.
