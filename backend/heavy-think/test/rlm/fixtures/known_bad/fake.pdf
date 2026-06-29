@@ -1,0 +1,4 @@
+This is plain text, not a PDF. It is here to verify that loadContext rejects
+a file with a `.pdf` extension when pdftotext extraction fails (no PDF magic
+bytes → pdftotext returns an error or empty output). The test asserts that
+the failure surfaces as a clean error, not a crash.

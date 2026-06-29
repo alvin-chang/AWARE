@@ -1,0 +1,30 @@
+{
+	"name": "heavy-think",
+	"version": "0.2.2",
+	"description": "K-Parallel + Summarize reasoning primitive. System-provided library that issues K parallel reasoning attempts at the same injected LLM, scores them with a PRM judge, refines the winner, optionally verifies, and writes a (chosen, rejected) preference pair to a daily JSONL file.",
+	"type": "module",
+	"main": "./src/index.js",
+	"types": "./src/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.d.ts",
+			"import": "./src/index.js"
+		},
+		"./parallel": "./src/parallel.js",
+		"./refine": "./src/refine.js",
+		"./prm": "./src/prm.js",
+		"./verify": "./src/verify.js",
+		"./preference-pair": "./src/preference-pair.js",
+		"./config": "./src/config.js",
+		"./rlm": "./src/rlm.js"
+	},
+	"files": ["src", "seccomp"],
+	"scripts": {
+		"test": "node --test test/*.test.js 'test/rlm/*.test.js'",
+		"test:contract": "node --test test/contract.test.js",
+		"pretest": "bash scripts/check-not-stub.sh"
+	},
+	"engines": {
+		"node": ">=22"
+	}
+}

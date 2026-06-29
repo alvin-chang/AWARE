@@ -1,0 +1,136 @@
+{
+  "$schema": "https://raw.githubusercontent.com/seccomp/libseccomp-golang/main/CHANGELOG.md",
+  "name": "rlm",
+  "version": "1.0.0",
+  "description": "Sandbox profile for the rlm() REPL subprocess. Implements SPEC.md §11.",
+  "interpreter": {
+    "binary": "python3",
+    "args": ["-I", "-S", "repl.py", "${WORKSPACE}", "${SCRATCH}"],
+    "rationale": "python3 -I -S runs in isolated mode with no site-packages. argv is whitelisted — no shell expansion."
+  },
+  "env": {
+    "policy": "cleared",
+    "allow": ["PATH", "LANG"],
+    "rationale": "No secrets, no inherited env. PATH is required for python3 to resolve."
+  },
+  "rlimits": {
+    "RLIMIT_AS": {
+      "bytes": 536870912,
+      "hard": true,
+      "comment": "512MB memory cap. OOM kills subprocess with RlmSecurityError(killed_by='rlimit_as')."
+    },
+    "RLIMIT_CPU": {
+      "seconds": 30,
+      "hard": true,
+      "comment": "30s per op; raised via SIGXCPU → RlmSecurityError(killed_by='rlimit_cpu')."
+    },
+    "RLIMIT_NPROC": {
+      "value": 1,
+      "hard": true,
+      "comment": "No subprocess of subprocesses."
+    },
+    "RLIMIT_FSIZE": {
+      "bytes": 10485760,
+      "hard": true,
+      "comment": "10MB max file size (scratch only)."
+    }
+  },
+  "wallclock_ms": 120000,
+  "seccomp": {
+    "default_action": "SCMP_ACT_ALLOW",
+    "syscall_filters": [
+      {
+        "syscall": "socket",
+        "action": "SCMP_ACT_KILL_PROCESS",
+        "comment": "Block all socket creation. No network egress."
+      },
+      {
+        "syscall": "connect",
+        "action": "SCMP_ACT_KILL_PROCESS",
+        "comment": "Defense in depth: socket() already blocked."
+      },
+      {
+        "syscall": "accept",
+        "action": "SCMP_ACT_KILL_PROCESS",
+        "comment": "No inbound connections."
+      },
+      {
+        "syscall": "accept4",
+        "action": "SCMP_ACT_KILL_PROCESS",
+        "comment": "Linux-specific accept variant."
+      },
+      {
+        "syscall": "recvfrom",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      },
+      {
+        "syscall": "recvmsg",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      },
+      {
+        "syscall": "sendto",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      },
+      {
+        "syscall": "sendmsg",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      },
+      {
+        "syscall": "bind",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      },
+      {
+        "syscall": "listen",
+        "action": "SCMP_ACT_KILL_PROCESS"
+      }
+    ],
+    "rationale": "v1 uses the Python wrapper's forbidden-import filter as the trust boundary. The seccomp policy above is the v2 hardening target — Linux-only, requires CAP_SYS_ADMIN or seccomp() at install time."
+  },
+  "landlock": {
+    "fs_access": "FS scoped",
+    "rules": [
+      { "scope": "filesystem", "access": "read",  "path": "${WORKSPACE}", "recursive": true },
+      { "scope": "filesystem", "access": "write", "path": "${SCRATCH}",   "recursive": true }
+    ],
+    "comment": "Reads confined to workspace; writes confined to scratch. Reads outside workspace raise PermissionError; writes outside scratch raise PermissionError. Both propagate as RlmSecurityError."
+  },
+  "process_caps": {
+    "no_new_privs": true,
+    "drop_all": ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_SYS_ADMIN", "CAP_SYS_PTRACE", "CAP_SYS_RESOURCE"]
+  },
+  "argv_pinning": {
+    "policy": "exact_match",
+    "comment": "argv must match the interpreter.args list exactly. Any extra args → spawn refused."
+  },
+  "wrapper_filter": {
+    "description": "Python-side import/string filter (v1 trust boundary on macOS, which lacks landlock).",
+    "FORBIDDEN_PATTERNS": [
+      "\\bsocket\\b",
+      "\\burllib\\b",
+      "\\brequests\\b",
+      "\\bhttp\\.client\\b",
+      "\\b__import__\\b",
+      "\\bsubprocess\\b",
+      "\\bmultiprocessing\\b",
+      "\\bctypes\\b",
+      "\\bos\\.system\\b",
+      "\\bos\\.popen\\b",
+      "\\bos\\.exec[lv]p?[pe]?\\b"
+    ],
+    "WHITELISTED_OPS": ["read", "grep", "slice", "len", "keys", "print", "vec_search"]
+  },
+  "audit": {
+    "security_log": "~/.openclaw/audit/rlm/security.jsonl",
+    "record_shape": {
+      "ts": "ISO-8601",
+      "run_id": "UUID",
+      "audit_id": "UUID",
+      "attempted_op": "string (the forbidden op or syscall name)",
+      "killed_by": "seccomp | landlock | wrapper_filter | rlimit_as | rlimit_cpu"
+    }
+  },
+  "references": {
+    "SPEC.md_section": "§11 Sandbox Contract",
+    "ARCHITECTURE.md_section": "§5 Context-as-environment, §8 Failure modes (F3)"
+  }
+}

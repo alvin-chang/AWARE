@@ -68,6 +68,15 @@ paths = [
     # - data/prm-probe-cron*: local probe-cron log artifacts (worktree only)
     # - eval-results/daily-prm-probes/*: local PRM eval data (worktree only)
     # - SECURITY-FINDINGS-INTEGRATION-*.md: prior integration doc with file paths
+    # v2.8.0 vendor-copy of heavy-think — the vendored source legitimately
+    # references its own private-system host paths (e.g. ~/.openclaw/openclaw.json,
+    # ~/.openclaw/audit/rlm/security.jsonl) in source comments + seccomp config.
+    # These are documentation strings, not credentials; the host path is the
+    # location of openclaw's runtime config, not a secret value. Don't sanitize
+    # the vendored source — diverges from upstream. The host-path strings
+    # match the aware-host-path-disclosure rule but are intentional context.
+    # Per Archimedes verdict a633528b, the vendor is upstream-exact.
+    '''backend/heavy-think/.*''',
     '''security-audit-gitleaks\.json''',
     '''.*\.bak''',
     '''data/prm-probe-cron.*''',
