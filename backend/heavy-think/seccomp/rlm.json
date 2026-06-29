@@ -120,7 +120,7 @@
     "WHITELISTED_OPS": ["read", "grep", "slice", "len", "keys", "print", "vec_search"]
   },
   "audit": {
-    "security_log": "~/.openclaw/audit/rlm/security.jsonl",
+    "security_log": "${OPENCLAW_AUDIT_LOG}/security.jsonl",
     "record_shape": {
       "ts": "ISO-8601",
       "run_id": "UUID",

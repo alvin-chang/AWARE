@@ -77,6 +77,21 @@ paths = [
     # match the aware-host-path-disclosure rule but are intentional context.
     # Per Archimedes verdict a633528b, the vendor is upstream-exact.
     '''backend/heavy-think/.*''',
+    # v2.8.0 vendor-copy of heavy-think — VENDORED.md is the
+    # provenance/procedure record. It deliberately documents the BEFORE
+    # values (\`~/.openclaw/openclaw.json\`, \`MINIMAX_API_KEY\`) so a
+    # reviewer can see what the sanitizer changed. These are inside
+    # markdown backticks as documentation strings, NOT host-path leaks of
+    # real secrets — the rewrite is documented, not the leak.
+    '''backend/heavy-think/VENDORED\.md''',
+    # scripts/sanitize-vendor-for-gh.sh — the sanitization script itself
+    # contains the literal BEFORE-pattern strings as sed targets so it can
+    # replace them. This is the same false-positive pattern as the pre-
+    # commit hooks: the script CONTAINS its own detection patterns.
+    # Pattern: CI tool that operates on strings will trigger the rule
+    # against its own rules.
+    '''scripts/sanitize-vendor-for-gh\.sh''',
+
     '''security-audit-gitleaks\.json''',
     '''.*\.bak''',
     '''data/prm-probe-cron.*''',

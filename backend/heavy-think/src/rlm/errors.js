@@ -47,7 +47,7 @@ export class RlmTimeoutError extends RlmError {
 /**
  * REPL sandbox violation (subprocess killed for forbidden op).
  * Carries the attempted op and audit_id so the caller can cross-reference
- * ~/.openclaw/audit/rlm/security.jsonl.
+ * ${OPENCLAW_AUDIT_LOG}/security.jsonl.
  *
  * SPEC §3.5, §8.3, ARCHITECTURE.md §8 F3.
  */

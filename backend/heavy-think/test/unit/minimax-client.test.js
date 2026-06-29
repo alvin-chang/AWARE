@@ -30,25 +30,25 @@ function withEnv(overrides, fn) {
 }
 
 test('makeMinimaxClient throws when no apiKey in env and no apiKey in options', () => {
-  withEnv({ MINIMAX_API_KEY: undefined }, () => {
+  withEnv({ LLM_API_KEY: undefined }, () => {
     assert.throws(
       () => makeMinimaxClient(),
-      /MINIMAX_API_KEY is not set/
+      /LLM_API_KEY is not set/
     );
   });
 });
 
 test('makeMinimaxClient throws with helpful error message naming both options', () => {
-  withEnv({ MINIMAX_API_KEY: undefined }, () => {
+  withEnv({ LLM_API_KEY: undefined }, () => {
     assert.throws(
       () => makeMinimaxClient(),
-      /apiKey.*explicitly|MINIMAX_API_KEY/
+      /apiKey.*explicitly|LLM_API_KEY/
     );
   });
 });
 
 test('makeMinimaxClient accepts apiKey from options without reading env', () => {
-  withEnv({ MINIMAX_API_KEY: undefined }, () => {
+  withEnv({ LLM_API_KEY: undefined }, () => {
     const client = makeMinimaxClient({ apiKey: DUMMY_KEY });
     assert.equal(client.provider, 'minimax');
     assert.equal(client.model, DEFAULT_MODEL);
@@ -57,15 +57,15 @@ test('makeMinimaxClient accepts apiKey from options without reading env', () => 
 });
 
 test('makeMinimaxClient prefers options.apiKey over env when both are set', () => {
-  withEnv({ MINIMAX_API_KEY: DUMMY_KEY }, () => {
+  withEnv({ LLM_API_KEY: DUMMY_KEY }, () => {
     const client = makeMinimaxClient({ apiKey: 'options-key' });
     assert.ok(client);
     assert.equal(client.model, DEFAULT_MODEL);
   });
 });
 
-test('makeMinimaxClient reads MINIMAX_API_KEY from env when no options.apiKey', () => {
-  withEnv({ MINIMAX_API_KEY: DUMMY_KEY }, () => {
+test('makeMinimaxClient reads LLM_API_KEY from env when no options.apiKey', () => {
+  withEnv({ LLM_API_KEY: DUMMY_KEY }, () => {
     const client = makeMinimaxClient();
     assert.equal(client.provider, 'minimax');
   });

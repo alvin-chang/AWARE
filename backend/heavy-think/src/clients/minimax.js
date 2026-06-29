@@ -1,9 +1,9 @@
 // src/clients/minimax.js — minimax client for heavy_think
-// Reads MINIMAX_API_KEY from env at call time (not at module load).
+// Reads LLM_API_KEY from env at call time (not at module load).
 // Refuses to start without a key. Provides the { generate(prompt, opts) }
 // interface heavy_think expects.
 //
-// Endpoints (from ~/.openclaw/openclaw.json):
+// Endpoints (from ${OPENCLAW_CONFIG}/openclaw.json):
 //   baseUrl: https://api.minimax.io/anthropic  (Anthropic-compatible)
 //   model:   MiniMax-M3  (1M context, 131072 max output, xhigh thinking)
 //
@@ -34,13 +34,13 @@ export function makeMinimaxClient(options = {}) {
   const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
   const model = options.model || DEFAULT_MODEL;
   const maxTokens = options.maxTokens || DEFAULT_MAX_TOKENS;
-  const apiKey = options.apiKey || process.env.MINIMAX_API_KEY;
+  const apiKey = options.apiKey || process.env.LLM_API_KEY;
   const fetchImpl = options._fetch || globalThis.fetch;
 
   if (!apiKey) {
     throw new Error(
-      'makeMinimaxClient: MINIMAX_API_KEY is not set. ' +
-      'Set it in your environment (e.g. `export MINIMAX_API_KEY=*** ' +
+      'makeMinimaxClient: LLM_API_KEY is not set. ' +
+      'Set it in your environment (e.g. `export LLM_API_KEY=*** ' +
       'or pass { apiKey } explicitly. ' +
       'For tests, use a mock client instead.'
     );
