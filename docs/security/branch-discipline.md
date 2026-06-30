@@ -1,177 +1,155 @@
 # Branch Discipline — gitea vs github remotes
 
-This repo publishes to **two remotes** with very different audiences:
+The AWARE repo publishes to two remotes with different audiences. This
+document is the discipline that keeps them in sync.
 
-| Remote | URL | Audience | What it sees |
-|---|---|---|---|
-| `origin` | `http://localhost:4001/alvin/aware.git` | Internal (gitea) | The full development tree, including operator-internal markers with literal values |
-| `github` | `https://github.com/GoodCISO/aware.git` | Public (GitHub) | A sanitized subset: polished artefacts only, no operator-literal values |
+## Remotes
 
-The two remotes are NOT kept in sync by git's branch tracking. They are kept
-in sync **by humans (or agents acting on human instruction)** using the
-discipline below. This document is that discipline.
+| Remote | URL | Audience |
+|---|---|---|
+| `origin` | `http://localhost:4001/alvin/aware.git` | Internal (gitea) |
+| `github` | `https://github.com/GoodCISO/aware.git` | Public (GitHub) |
 
-## The two branches
+## Branch model
 
-| Branch | Role | Default push target | Tracking |
-|---|---|---|---|
-| `main` | Integration — every commit lands here first | `origin` (gitea) | Tracks the latest gitea-accepted commit |
-| `public/v2.X.x` | Polished-release — cherry-picked, sanitized | `github` (public) | Tracks the latest github-accepted commit, branched from a sanitized checkpoint |
+| Branch | Role | Push target |
+|---|---|---|
+| `main` | Integration — every commit lands here first | `origin` (gitea) |
+| `public/v2.X.x` | Polished release — cherry-picked, sanitized | `github` (public) |
 
-Both branches **share the same root commits** up to the most recent
-sanitization checkpoint. `main` accumulates everything since then;
-`public/v2.X.x` does not.
+Both branches share a common root up to the last sanitization
+checkpoint. `main` accumulates every commit since; `public/v2.X.x`
+advances only when a checkpoint is cherry-picked onto it. Pushes are
+manual — `main` does **not** auto-push to `github`, and `public/v2.X.x`
+does **not** auto-push to `origin`. Feature branches (e.g.
+`chore/...`, `fix/...`, `feature/...`) land into `main` first and
+follow the same gitea-only discipline.
 
-```
-github/main  ──► a2ff4b4 ──► 08a6523 (public/v2.8.x HEAD)
-                              │
-                              └──► no public-side commits past a2ff4b4
+### Current state
 
-origin/main  ──► 18b394c ──► 8b85bee ──► a2ff4b4 ──► d5acb36 (main HEAD)
-                                                  │
-                                                  └──► public-side commits cherry-picked onto public/v2.8.x
-```
+Verified at the time of writing; check with the sync commands below.
 
-## What "polished" means on the github side
+| Branch | HEAD | Remote |
+|---|---|---|
+| `main` | latest gitea-pushed commit | `origin/main` (gitea) |
+| `public/v2.8.x` | latest public-cherry-picked commit | `github/main` (public) |
 
-A commit is **public-safe** iff all of the following are true:
+## The boundary rule
+
+**A commit is public-safe iff:**
 
 1. `node scripts/check-public-boundary.mjs` exits 0 on the resulting tree.
 2. `gitleaks detect` (with `.gitleaks.toml`) reports no leaks.
 3. `bash scripts/pre-commit-check.sh` passes.
-4. No operator-literal values appear in *any* comment, doc string, or commit
-   message: localhost ports, `/Users/<name>/` paths, the operator's org
-   names (e.g. Modal workspace), the operator's GitHub handles, bearer
-   tokens, common secret prefixes, or `postgres://user:***@…` strings.
+4. No operator-literal value appears in *any* comment, doc string, or
+   commit message in the pushed diff. The list of what counts as an
+   "operator-literal value" lives in `scripts/check-public-boundary.mjs`
+   under `PATTERNS` — consult it before reviewing a cherry-pick.
 
-   **Note for the public-boundary checker:** the literals that count as
-   "operator values" are listed in `PATTERNS` in `scripts/check-public-
-   boundary.mjs`. Do NOT enumerate them in this doc — the doc would
-   trip its own checker. The pattern categories (host path, env dir,
-   LAN IP, non-default localhost, operator org, bearer, secret prefix,
-   connection string) are the stable taxonomy.
+**A commit is gitea-safe iff:**
 
-The public-boundary checker enforces (1) and (2) mechanically.
-Conditions (3) and (4) are policy — covered by the pre-commit hook and
-manual review.
+1. `git push origin main` succeeds — the 4-layer privacy filter on
+   gitea's pre-receive hook accepts it.
+2. An operator reading the commit can identify which local resources it
+   binds to (ports, paths, org names). Operator-internal marker
+   comments on `main` are allowed to enumerate these literals; that's
+   why they live on `main` and not on `public/v2.X.x`.
 
-## What "full development" means on the gitea side
-
-A commit is **gitea-safe** iff:
-
-1. `git push origin main` succeeds — the 4-layer privacy filter on gitea's
-   pre-receive hook accepts it.
-2. Operators can read the commit and understand the operator-specific
-   binding (which ports, which org, which paths). The
-   `# public-boundary: operator-internal` marker is allowed to contain
-   literal operator values here.
-
-Gitea is the canonical development record. Operator-internal scripts
-that bind to your local infrastructure live here, with their actual
-values in the comments so anyone reading the repo (or future you) knows
-what they're touching.
+Conditions (1)-(3) for public-safety are enforced mechanically by the
+pre-commit hook, the pre-push hook, and the public-boundary checker.
+Condition (4) and gitea-safety condition (2) are policy — covered by
+manual review of the staged diff.
 
 ## Workflow — committing new work
 
 ```bash
-# 1. Make your changes on main (or a feature branch that lands into main)
 git checkout main
-
-# 2. Edit, stage, commit. The pre-commit hook enforces the 4-layer filter.
-git add scripts/<file>
+# ... edit, stage ...
 git commit -m "..."
-
-# 3. Push to gitea. The pre-push hook re-runs the filter on the full diff
-#    being pushed (gitleaks + public-boundary check on changed scripts/).
-git push origin main
-
-# 4. DO NOT push to github from main. See "Cutting a public release" below.
+git push origin main   # pre-push hook re-runs gitleaks + public-boundary on the diff
 ```
+
+`main` does not push to `github` automatically. To publish a subset of
+`main` work, follow the next workflow.
 
 ## Workflow — cutting a public release
 
 ```bash
-# 1. Decide which main commits are public-ready.
+# 1. Identify which main commits are public-ready.
 #    Rule of thumb: anything that ships a feature, fix, or refactor with
 #    public-safe diff is ready. Anything that adds operator-literal
-#    markers or new operator-internal scripts is NOT ready.
+#    markers or new operator-internal scripts is NOT ready until those
+#    values are either removed or genericised.
 
-# 2. Switch to the public branch and fast-forward / cherry-pick.
+# 2. Switch to the public branch and pull the public-safe subset.
 git checkout public/v2.8.x
+git checkout main -- <public-safe-files>
 
-# 3. For each main commit you want to ship:
-#    a. Identify the public-safe files (typically everything EXCEPT
-#       operator-internal markers with literal values).
-#    b. Cherry-pick or checkout those files from main.
-git checkout main -- scripts/check-public-boundary.mjs \
-                       scripts/hooks/pre-push \
-                       scripts/run-phase4-d5.sh \
-                       .gitleaks.toml
+# 3. If the cherry-pick included scripts that have a
+#    '# public-boundary: operator-internal' marker, genericise the
+#    descriptive comment on the public branch — keep the marker line,
+#    replace literal values (port numbers, org names, container names)
+#    with placeholder language. The checker still passes; the public
+#    tree doesn't enumerate your local topology.
 
-# 4. If the cherry-pick included scripts/aware-up (or any script that
-#    has a `# public-boundary: operator-internal` marker with literal
-#    values), rewrite the marker comment to use placeholder language:
-#
-#       # public-boundary: operator-internal
-#       #   Binds to the operator's local stack topology (the docker-compose
-#       #   v2 port map + the operator's Modal workspace). Configure your
-#       #   own topology in deploy/env.example and set MODAL_PROFILE before
-#       #   running. See scripts/check-public-boundary.mjs for the convention.
-#
-#    The marker itself (the `# public-boundary: operator-internal` line)
-#    stays; only the descriptive comment is rewritten to use generic
-#    placeholders. The checker still passes.
+# 4. Verify before committing:
+node scripts/check-public-boundary.mjs    # must exit 0
+gitleaks detect --no-git --source . --config .gitleaks.toml --redact
+git diff --cached                          # manual review
 
-# 5. Verify public safety before committing:
-node scripts/check-public-boundary.mjs        # must exit 0
-git diff --cached                             # audit the staged tree
-
-# 6. Commit the public-safe subset.
-git commit -m "chore(security): add public-boundary checker (cherry-pick from main <sha>)"
-
-# 7. Push to github. The github-side CI (lint-private-data.yml) re-runs
-#    the same checks. If anything is wrong, the push is rejected.
-git push github public/v2.8.x
+# 5. Commit and push.
+git commit -m "..."
+git push github public/v2.8.x              # github-side CI re-runs the same checks
 ```
 
-## Workflow — checking the public branch is in sync
+## Workflow — checking sync state
 
 ```bash
-# Is github ahead of the public branch?
-git log --oneline public/v2.8.x..github/main
-
-# Is the public branch ahead of github?
-git log --oneline github/main..public/v2.8.x
-
-# What's on main but not yet on the public branch?
+# What's on main but not yet on the public branch (work to cherry-pick)?
 git log --oneline public/v2.8.x..main
 
-# What's the diff between branches' last sanitization checkpoint?
+# What's the latest shared ancestor (the sanitization checkpoint)?
 git merge-base public/v2.8.x main
+
+# Has github accepted the public branch's tip?
+git rev-parse github/main
 ```
+
+## Operator workflow changes
+
+When `scripts/run-phase4-d5.sh` was parameterised for public-safety, its
+`MODAL_PROFILE` default changed from the operator's workspace to
+`default`. Operator deployments now require:
+
+```bash
+MODAL_PROFILE=<your-workspace> ./scripts/run-phase4-d5.sh
+```
+
+If your workspace is the one previously hardcoded, that variable
+already lives in your shell history or shell config — but explicit
+passing keeps the script self-documenting.
 
 ## Decision log
 
-| Date | Decision | Rationale |
+| Date | Decision | Driver |
 |---|---|---|
-| 2026-06-30 | Adopted the main + public/v2.8.x split | After GH-push-prep commits 8b85bee + a2ff4b4 showed the previous approach (strip on main, no separate branch) loses operator-literal context in the internal record. The split lets gitea keep full operator-internal truth while github sees polished artefacts only. |
-| 2026-06-30 | Added scripts/check-public-boundary.mjs | The 4-layer privacy filter caught secrets but not operator-internal script binding (localhost stack topology, Modal workspace name, ~/.openclaw paths). The new checker is the missing Layer 2.5: a pre-push companion to gitleaks that flags operator binding and enforces per-file markers. |
-| 2026-06-30 | Placeholder language for public-side markers | Operator-internal markers on github can't enumerate the actual values they're marking against (that would leak them). The marker itself stays (so the checker passes and downstream readers see the boundary); only the descriptive comment is genericized. |
+| 2026-06-30 | Adopted `main` + `public/v2.X.x` split | Commits `8b85bee` (sanitize for GH push) and `a2ff4b4` (strip BEFORE strings) showed that sanitising on `main` loses operator-literal context in the internal record. The split lets gitea keep full operator-internal truth while github sees sanitised artefacts only. |
+| 2026-06-30 | Added `scripts/check-public-boundary.mjs` | The 4-layer privacy filter catches secrets but not operator-internal script binding (local stack topology, Modal workspace, operator env dirs). The checker is the missing pre-push companion to gitleaks: it flags operator binding and enforces per-file markers. See `scripts/check-public-boundary.mjs` header for the marker grammar and pattern categories. |
+| 2026-06-30 | Genericised descriptive comments in public-side markers | Operator-internal markers on github cannot enumerate the values they mark against (that would leak them). The marker line itself stays so the checker passes and downstream readers see the boundary; only the descriptive comment is genericised. |
 
 ## See also
 
-- `scripts/check-public-boundary.mjs` — file-header doc has the marker
-  grammar, pattern categories, and decision logic.
-- `.gitleaks.toml` — Layer 1 / Layer 4 secret-leak allowlist (mirror of
-  gitleaks' own rule definitions; same allowlist pattern this doc
-  follows for self-defining files).
-- `.gitea/workflows/lint-private-data.yml` — gitea-side CI mirror of
-  `.github/workflows/lint-private-data.yml` (dormant until gitea Actions
-  is enabled in the gitea container config).
-- `scripts/hooks/pre-push` — Layer 2 client-side filter that runs
-  gitleaks + the public-boundary check on the full diff being pushed.
-- `scripts/hooks/pre-commit` — Layer 1 client-side filter that runs
-  the content rules in `scripts/pre-commit-check.sh`.
-- `docs/security/filter-architecture.md` — *(missing from this checkout;
-  referenced from `scripts/hooks/pre-push`. If you need the full filter
-  spec before the next GH push, flag the release agent.)*
+- `scripts/check-public-boundary.mjs` — marker grammar, pattern
+  categories, and decision logic live in the file-header comment.
+- `scripts/hooks/pre-push` — Layer 2 client-side filter (gitleaks +
+  public-boundary check on changed `scripts/` files).
+- `scripts/hooks/pre-commit` — Layer 1 client-side filter (content
+  rules from `scripts/pre-commit-check.sh`).
+- `.gitleaks.toml` — secret-leak rules + allowlist for
+  rule-defining files (the same self-defining-file pattern
+  `check-public-boundary.mjs` uses).
+- `.github/workflows/lint-private-data.yml` — github-side CI mirror
+  of the privacy-filter checks.
+- `.gitea/workflows/lint-private-data.yml` — gitea-side mirror
+  (dormant until gitea Actions is enabled in the gitea container
+  config; reference for parity with the github workflow).
