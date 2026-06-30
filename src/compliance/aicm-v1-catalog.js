@@ -30,8 +30,8 @@
  *   TVM  Threat & Vulnerability Mgmt
  *   UEM  Universal Endpoint Mgmt
  *
- * Regenerate from /tmp/aicm-fetch/CSA_AI_Controls_Matrix.csv when the upstream is
- * refreshed — see scripts/regenerate-aicm-catalog.js for the source-of-truth conversion.
+ * Regenerate from the upstream CSV when it is refreshed — see
+ * scripts/regenerate-aicm-catalog.js for the source-of-truth conversion.
  */
 
 const AICM_V1_DOMAINS = {

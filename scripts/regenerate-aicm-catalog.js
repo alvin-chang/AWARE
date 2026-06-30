@@ -29,7 +29,9 @@ const https = require('https');
 const DEFAULT_CSV_URL =
   'https://raw.githubusercontent.com/rocklambros/TRACT/main/opencre_export/CSA_AI_Controls_Matrix.csv';
 const OUT_PATH = path.join(__dirname, '..', 'src', 'compliance', 'aicm-v1-catalog.js');
-const TMP_CSV = '/tmp/aicm-fetch/CSA_AI_Controls_Matrix.csv';
+// Use the system temp dir (not /tmp/aicm-fetch, which leaks the operator's
+// local fetch directory naming convention into the public script).
+const TMP_CSV = path.join(require('os').tmpdir(), 'CSA_AI_Controls_Matrix.csv');
 
 const AICM_DOMAIN_NAMES = {
   'A&A': 'Audit & Accountability',
