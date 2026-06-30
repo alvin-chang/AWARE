@@ -58,6 +58,7 @@ paths = [
     '''scripts/hooks/pre-push''',
     '''scripts/hooks/pre-receive''',
     '''scripts/pre-commit-check\.sh''',
+    '''scripts/check-public-boundary\.mjs''',
     '''\.gitea/workflows/lint-private-data\.yml''',
     # Working-tree-only artifacts that can never be pushed (gitignored
     # or git-internal) but still get scanned by the Layer 2 pre-push

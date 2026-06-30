@@ -167,6 +167,28 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     done <<< "$CHANGED_FILES"
 done
 
+# ── Public-boundary check (operator-internal deploy/recover scripts) ─────
+# Catches scripts that bind to the operator's stack topology, org name, or
+# secrets paths — the class of leak the [date-redacted] audit flagged.
+# Companion to gitleaks (which catches secrets); this catches operator-binding.
+#
+# Run as a single batch over the changed scripts (cheap: <100ms typical).
+# Skipped entirely if no scripts/ files changed in this push.
+PUBLIC_BOUNDARY_CHECK="$REPO_ROOT/scripts/check-public-boundary.mjs"
+SCRIPTS_CHANGED="$(echo "$CHANGED_FILES" | grep -E '^scripts/' || true)"
+if [[ -n "$SCRIPTS_CHANGED" && -f "$PUBLIC_BOUNDARY_CHECK" ]]; then
+    echo ""
+    echo "==> [Layer 2/3] public-boundary check on changed scripts/"
+    # Pass each changed script as a positional arg; the checker only verifies
+    # files that exist on disk, so deletions are naturally ignored.
+    if ! node "$PUBLIC_BOUNDARY_CHECK" $SCRIPTS_CHANGED; then
+        echo ""
+        echo "✗ pre-push blocked: public-boundary violations in scripts/."
+        echo "  See scripts/check-public-boundary.mjs and scripts/AGENTS.md."
+        FAILED=1
+    fi
+fi
+
 if [[ $FAILED -eq 1 ]]; then
     echo ""
     echo "✗ pre-push blocked. See docs/security/filter-architecture.md for the full filter spec."

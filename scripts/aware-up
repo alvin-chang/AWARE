@@ -3,6 +3,12 @@
 # Per the AWARE 2.0 Architecture ADR (internal) Phase 5 deliverable 1 ("operator bring-up ergonomics"):
 #   `deploy/env.example`, single command boot, README quickstart.
 #
+# public-boundary: operator-internal
+#   This script binds to the operator's local stack topology (the docker-compose
+#   v2 port map + the operator's Modal workspace). Configure your own topology
+#   in deploy/env.example and set MODAL_PROFILE before running. See
+#   scripts/check-public-boundary.mjs for the convention.
+#
 # This is the SUPER-WRAPPER around `docker compose -f docker-compose.coordinator.yml
 # -p aware-2 up -d`. It does four things the bare compose invocation does not:
 #
