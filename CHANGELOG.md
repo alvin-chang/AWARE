@@ -2,6 +2,36 @@
 
 All notable changes to AWARE Evolution are documented here.
 
+## [Unreleased]
+
+### 2026-06-30 — CSA AICM v1 support (real control IDs)
+
+**Status:** Phase 1 of compliance mapping upgrade. Real AICM v1 control IDs replace the previous placeholders.
+
+**Replaces:** placeholder control IDs (`AI.ID-*`, `AI.OPS-*`, `AI.MT-*`, `AI.OT-*`) that did not exist in the AICM spec with real CSA AICM v1 control IDs (`IAM-*`, `MDS-*`, `DSP-*`, `LOG-*`, `SEF-*`, `TVM-*`, `GRC-*`, `AIS-*`, `UEM-*`, `CEK-*`, `A&A-*`).
+
+**Coverage:** 184 verified control IDs across all 18 AICM v1 domains (76% of CSA's published 243-control universe).
+
+**Added:**
+- `src/compliance/aicm-v1-catalog.js` — generated AICM v1 control catalog (184 controls × 18 domains)
+- `scripts/regenerate-aicm-catalog.js` — regeneration script that pulls from the OpenCRE TRACT CSV mirror
+- `docs/compliance/aicm-v1.md` — coverage documentation, sources, gap analysis
+
+**Changed:**
+- `src/compliance/framework-mapper.js` — `CSA_AI_CM` framework now backed by the real AICM v1 catalog; all 10 AWARE component mappings updated to use real control IDs
+- `src/compliance/evidence-collector.js` — 5 default collectors re-keyed from placeholder IDs to real AICM v1 IDs (`IAM-01`, `IAM-04`, `LOG-03`, `SEF-03`, `IAM-08`)
+- `tests/compliance/compliance-mapping.test.js` — 16 placeholder references updated; framework-name assertion corrected to `"CSA AI Controls Matrix"` (plural, matching CSA's official name)
+- `README.md` — CSA row in the frameworks table updated to reflect v1 / 18 domains / 184 controls
+
+**Testing:** 34/34 compliance-mapping tests pass; 18/18 tool-access-control tests pass.
+
+**Sources:** AICM v1 spec at https://cloudsecurityalliance.org/artifacts/ai-controls-matrix ; control IDs verified against the OpenCRE TRACT public CSV mirror (https://github.com/rocklambros/TRACT).
+
+**Note:** No `package.json` version bump per Alvin 2026-06-30 — AICM coverage is a feature addition, not a release milestone. Version remains `1.0.0-phase4-complete`.
+
+**Open items:**
+- Close the 76% → 100% coverage gap (184 → 243 controls) when CSA publishes a non-gated full mirror or OpenCRE updates their TRACT export. See `docs/compliance/aicm-v1.md` § "Closing the coverage gap".
+
 ## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
 **All 4 phases complete:**

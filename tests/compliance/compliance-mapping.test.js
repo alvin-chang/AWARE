@@ -10,13 +10,13 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
       FrameworkMapper = require('../../src/compliance/framework-mapper').FrameworkMapper;
     });
 
-    it('F-1: maps components to CSA AI CM controls', () => {
+    it('F-1: maps components to CSA AI Controls Matrix (AICM v1) controls', () => {
       const mapper = new FrameworkMapper();
       const mapping = mapper.getComponentMapping('identity-provider');
 
       expect(mapping).not.toBeNull();
-      expect(mapping.CSA_AI_CM).toContain('AI.ID-01');
-      expect(mapping.CSA_AI_CM).toContain('AI.ID-02');
+      expect(mapping.CSA_AI_CM).toContain('IAM-04');
+      expect(mapping.CSA_AI_CM).toContain('IAM-09');
     });
 
     it('F-2: maps components to NIST AI RMF controls', () => {
@@ -33,7 +33,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
       expect(matrix['identity-provider']).not.toBeUndefined();
       expect(matrix['identity-provider'].CSA_AI_CM).not.toBeUndefined();
-      expect(matrix['identity-provider'].CSA_AI_CM.frameworkName).toBe('CSA AI Control Matrix');
+      expect(matrix['identity-provider'].CSA_AI_CM.frameworkName).toBe('CSA AI Controls Matrix');
     });
 
     it('T2: returns framework controls', () => {
@@ -45,7 +45,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
     it('T3: componentCoversControl returns true for mapped control', () => {
       const mapper = new FrameworkMapper();
-      const result = mapper.componentCoversControl('identity-provider', 'CSA_AI_CM', 'AI.ID-01');
+      const result = mapper.componentCoversControl('identity-provider', 'CSA_AI_CM', 'IAM-04');
 
       expect(result).toBe(true);
     });
@@ -199,7 +199,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
     it('F-1: collects evidence for registered controls', async () => {
       const collector = new EvidenceCollector();
-      const evidence = await collector.collectEvidence('AI.ID-01');
+      const evidence = await collector.collectEvidence('IAM-01');
 
       expect(evidence.status).toBe('COLLECTED');
       expect(evidence.data).not.toBeUndefined();
@@ -215,11 +215,11 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
     it('T1: gets latest evidence for control', async () => {
       const collector = new EvidenceCollector();
-      await collector.collectEvidence('AI.ID-01');
+      await collector.collectEvidence('IAM-01');
 
-      const latest = collector.getLatestEvidence('AI.ID-01');
+      const latest = collector.getLatestEvidence('IAM-01');
       expect(latest).not.toBeNull();
-      expect(latest.controlId).toBe('AI.ID-01');
+      expect(latest.controlId).toBe('IAM-01');
     });
 
     it('T2: registers custom collector', async () => {
@@ -245,7 +245,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
     it('F-1: calculates framework posture score', () => {
       const calculator = new PostureCalculator();
-      calculator.recordAssessment('AI.ID-01', 'CSA_AI_CM', {
+      calculator.recordAssessment('IAM-01', 'CSA_AI_CM', {
         status: ComplianceStatus.COMPLIANT
       });
 
@@ -256,7 +256,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
     it('F-2: records compliance gaps', () => {
       const calculator = new PostureCalculator();
       calculator.recordGap({
-        controlId: 'AI.ID-01',
+        controlId: 'IAM-01',
         frameworkId: 'CSA_AI_CM',
         severity: 'HIGH',
         description: 'Test gap'
@@ -269,7 +269,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
 
     it('T1: calculates overall posture', () => {
       const calculator = new PostureCalculator();
-      calculator.recordAssessment('AI.ID-01', 'CSA_AI_CM', {
+      calculator.recordAssessment('IAM-01', 'CSA_AI_CM', {
         status: ComplianceStatus.COMPLIANT
       });
 
@@ -303,7 +303,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
     it('F-1: creates and tracks gaps', () => {
       const tracker = new GapTracker();
       const gapId = tracker.createGap({
-        controlId: 'AI.ID-01',
+        controlId: 'IAM-01',
         frameworkId: 'CSA_AI_CM',
         severity: 'HIGH',
         title: 'Test Gap'
@@ -316,7 +316,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
     it('F-2: updates gap status', () => {
       const tracker = new GapTracker();
       const gapId = tracker.createGap({
-        controlId: 'AI.ID-01',
+        controlId: 'IAM-01',
         frameworkId: 'CSA_AI_CM',
         severity: 'MEDIUM',
         title: 'Test Gap'
@@ -331,7 +331,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
     it('T1: assigns gap to owner', () => {
       const tracker = new GapTracker();
       const gapId = tracker.createGap({
-        controlId: 'AI.ID-01',
+        controlId: 'IAM-01',
         frameworkId: 'CSA_AI_CM',
         severity: 'LOW',
         title: 'Test Gap'
@@ -346,7 +346,7 @@ describe('ADR (internal): Compliance Mapping & Reporting', () => {
     it('T2: marks gap as remediated', () => {
       const tracker = new GapTracker();
       const gapId = tracker.createGap({
-        controlId: 'AI.ID-01',
+        controlId: 'IAM-01',
         frameworkId: 'CSA_AI_CM',
         severity: 'MEDIUM',
         title: 'Test Gap'

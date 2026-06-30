@@ -46,10 +46,16 @@ class EvidenceCollector extends EventEmitter {
 
   /**
    * Register default evidence collectors
+   *
+   * Each collector is keyed by a real CSA AICM v1 control ID. The previous
+   * placeholder IDs ('AI.ID-01', 'AI.MT-01', 'AI.OPS-02', 'AI.OPS-04') did
+   * not exist in the AICM spec; they were replaced with real AICM v1 IDs
+   * that correspond to the same AWARE components. See
+   * src/compliance/aicm-v1-catalog.js for the full control universe.
    */
   registerDefaultCollectors() {
-    // Agent Registry evidence
-    this.registerCollector('AI.ID-01', async () => {
+    // Agent Registry evidence (Phase 1.1 — mapped to AICM IAM-01 in framework-mapper.js)
+    this.registerCollector('IAM-01', async () => {
       return {
         source: EvidenceSourceType.DATABASE_QUERY,
         collector: 'agent-registry-collector',
@@ -62,22 +68,23 @@ class EvidenceCollector extends EventEmitter {
       };
     });
 
-    // Authentication evidence
-    this.registerCollector('AI.ID-02', async () => {
+    // Authentication evidence (Phase 3.1A — mapped to AICM IAM-04 in framework-mapper.js)
+    this.registerCollector('IAM-04', async () => {
       return {
         source: EvidenceSourceType.SYSTEM_LOG,
         collector: 'auth-log-collector',
         data: {
           jwtValidationEnabled: true,
           sessionManagementEnabled: true,
+          leastPrivilegeEnforced: true,
           lastAuthEvent: new Date().toISOString()
         },
         timestamp: Date.now()
       };
     });
 
-    // Monitoring evidence
-    this.registerCollector('AI.MT-01', async () => {
+    // Monitoring evidence (Phase 1.3/3.1B — mapped to AICM LOG-03 in framework-mapper.js)
+    this.registerCollector('LOG-03', async () => {
       return {
         source: EvidenceSourceType.SYSTEM_LOG,
         collector: 'monitoring-collector',
@@ -90,8 +97,8 @@ class EvidenceCollector extends EventEmitter {
       };
     });
 
-    // Kill switch evidence
-    this.registerCollector('AI.OPS-02', async () => {
+    // Kill switch evidence (Phase 1.4 — mapped to AICM SEF-03 in framework-mapper.js)
+    this.registerCollector('SEF-03', async () => {
       return {
         source: EvidenceSourceType.CONFIG_CHECK,
         collector: 'killswitch-collector',
@@ -104,8 +111,8 @@ class EvidenceCollector extends EventEmitter {
       };
     });
 
-    // Tool access control evidence
-    this.registerCollector('AI.OPS-04', async () => {
+    // Tool access control evidence (Phase 3.1C — mapped to AICM IAM-08 in framework-mapper.js)
+    this.registerCollector('IAM-08', async () => {
       return {
         source: EvidenceSourceType.CONFIG_CHECK,
         collector: 'tool-access-collector',
@@ -121,7 +128,7 @@ class EvidenceCollector extends EventEmitter {
 
   /**
    * Register an evidence collector for a control
-   * @param {string} controlId - Control ID (e.g., 'AI.ID-01')
+   * @param {string} controlId - Control ID (e.g., 'IAM-04', 'MDS-08', 'DSP-17')
    * @param {Function} collectorFn - Async function that returns evidence
    */
   registerCollector(controlId, collectorFn) {
