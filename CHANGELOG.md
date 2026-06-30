@@ -66,6 +66,18 @@ configuration that are not shipped to github; see
   pre-push hook on `public/v2.8.x` together enforce that no
   operator-literal value reaches the github tree at any commit.
 
+### AICM v1 support (cherry-picked from main, 2026-06-30)
+
+Real CSA AICM v1 control IDs replace the previous placeholders. 184 verified control IDs across all 18 AICM v1 domains (76% of CSA's published 243-control universe).
+
+- `src/compliance/aicm-v1-catalog.js` — generated AICM v1 control catalog (184 controls × 18 domains)
+- `scripts/regenerate-aicm-catalog.js` — regeneration script that pulls from the OpenCRE TRACT public CSV mirror
+- `docs/compliance/aicm-v1.md` — coverage documentation, sources, gap analysis
+- `src/compliance/framework-mapper.js` — `CSA_AI_CM` framework now backed by the real AICM v1 catalog; all 10 AWARE component mappings updated to use real control IDs
+- `src/compliance/evidence-collector.js` — 5 default collectors re-keyed from placeholder IDs to real AICM v1 IDs
+
+Note: no `package.json` version bump — AICM coverage is a feature addition, not a release milestone.
+
 ## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
 **All 4 phases complete:**

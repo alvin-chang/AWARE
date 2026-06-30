@@ -44,7 +44,7 @@ AWARE ships with built-in mapping to five major AI and security compliance frame
 
 | Framework | Version | Coverage |
 |---|---|---|
-| **CSA AI Control Matrix** | 2026 | AI Identity, AI Operations, AI Maintenance — full mapping via `AI.ID`, `AI.OT`, `AI.OPS`, `AI.MT` |
+| **CSA AI Controls Matrix (AICM)** | v1 | All 18 domains / 184 verified control IDs (`IAM-*`, `MDS-*`, `DSP-*`, `GRC-*`, …) — see `src/compliance/aicm-v1-catalog.js` |
 | **NIST AI Risk Management Framework** | 1.0 | Govern, Map, Measure, Manage — full mapping via `GOVERN`, `MAP`, `MEASURE`, `MANAGE` |
 | **ISO/IEC 27001** | 2022 | Access Control (A.9), Operations Security (A.12), Incident Management (A.16) — control-level mapping |
 | **DORA** (Digital Operational Resilience Act) | 2022 | Internal Control Frameworks (Art. 12), ICT Incidents (Art. 26), Threat Intelligence (Art. 27) |
