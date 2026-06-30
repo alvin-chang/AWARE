@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # scripts/run-phase4-d5.sh — Phase 4 Deliverable 5: real benchmark delta.
 #
+# public-boundary: ok
+#   This script is operator-org-agnostic — it deploys to your Modal workspace
+#   (set MODAL_PROFILE), not to a hardcoded one. Safe to ship to github.
+#
 # What this does (and doesn't):
 #   - Preflights the local environment (Modal auth, Docker, config keys).
 #   - Deploys the trainer image to Modal (`aware-trainer` app).
@@ -13,8 +17,8 @@
 # What this does NOT do:
 #   - Run the eval harness. Use scripts/eval-delta.sh for that.
 #   - Rotate credentials. The Modal token must already be in
-#     ~/.modal.toml under the `goodciso` profile (run `modal token set`
-#     once if not).
+#     ~/.modal.toml under the profile named in $MODAL_PROFILE (run
+#     `modal token set --profile <name>` once if not).
 #   - Tear down the trainer container or the Modal app. Operator decides.
 #
 # PGPASSWORD convention: this script reads AWARE_DB_PWD from the
@@ -41,11 +45,12 @@
 #   ./scripts/run-phase4-d5.sh --preflight     # just the preflight checks
 #   ./scripts/run-phase4-d5.sh --no-deploy     # preflight + boot only (skip modal deploy)
 #   AWARE_TRAINER_TIMEOUT_MIN=300 ./scripts/run-phase4-d5.sh --timeout=300
+#   MODAL_PROFILE=myworkspace ./scripts/run-phase4-d5.sh   # use a non-default Modal workspace
 #
 # Env vars (all optional, with defaults):
 #   AWARE_TRAINER_TIMEOUT_MIN   default: 360  (how long to wait for the training run)
 #   AWARE_TRAINER_POLL_SEC      default: 30   (how often to poll aware_training_runs)
-#   MODAL_PROFILE               default: goodciso  (the workspace name)
+#   MODAL_PROFILE               default: default  (Modal workspace name; set to your own)
 #   AWARE_DB_HOST               default: 127.0.0.1
 #   AWARE_DB_PORT               default: 18432  (v2 port, per ADR (internal))
 #   AWARE_TRAINER_AZR_CORPUS_PATH  default: /root/aware-weights/corpus.jsonl
@@ -58,7 +63,7 @@ set -euo pipefail
 # ─── Defaults ──────────────────────────────────────────────────────────
 TIMEOUT_MIN="${AWARE_TRAINER_TIMEOUT_MIN:-360}"
 POLL_SEC="${AWARE_TRAINER_POLL_SEC:-30}"
-MODAL_PROFILE="${MODAL_PROFILE:-goodciso}"
+MODAL_PROFILE="${MODAL_PROFILE:-default}"
 DB_HOST="${AWARE_DB_HOST:-127.0.0.1}"
 DB_PORT="${AWARE_DB_PORT:-18432}"
 DB_NAME="${AWARE_DB_NAME:-aware2}"
