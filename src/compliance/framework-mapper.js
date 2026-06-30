@@ -2,20 +2,37 @@
 // Framework Mapper — Maps AWARE components to compliance framework controls
 // ADR (internal): Compliance Mapping & Reporting
 
+const { AICM_V1_DOMAINS, AICM_V1_CONTROL_IDS } = require('./aicm-v1-catalog');
+
 /**
  * Compliance Framework Definitions
  */
 const FRAMEWORKS = {
   CSA_AI_CM: {
     id: 'CSA_AI_CM',
-    name: 'CSA AI Control Matrix',
-    version: '2026',
-    categories: {
-      'AI.ID': { name: 'AI Identity', description: 'Identity management for AI systems' },
-      'AI.OT': { name: 'AI Operations', description: 'Operational technology controls' },
-      'AI.OPS': { name: 'AI Operations', description: 'AI operational procedures' },
-      'AI.MT': { name: 'AI Maintenance', description: 'Model and system maintenance' }
-    }
+    name: 'CSA AI Controls Matrix',
+    version: 'v1',
+    source: 'https://cloudsecurityalliance.org/artifacts/ai-controls-matrix',
+    catalogRef: './aicm-v1-catalog',
+    // AICM v1 uses domain-grouped control IDs (e.g. 'IAM-01', 'MDS-03', 'DSP-17').
+    // The full 184-control subset lives in aicm-v1-catalog.js; we expose it
+    // through `controls` so the existing getFrameworkControls() path works
+    // uniformly across CSA_AI_CM, NIST_AI_RMF, ISO_27001, and OWASP_LLM_TOP_10.
+    controls: AICM_V1_DOMAINS,
+    controlIds: AICM_V1_CONTROL_IDS,
+    // Legacy `categories` view preserved for any caller still iterating by
+    // domain. Each domain is exposed with its full name and a count of
+    // controls so the existing iteration pattern (catId -> cat.name) still
+    // works without forcing a refactor of downstream callers.
+    categories: Object.fromEntries(
+      Object.entries(AICM_V1_DOMAINS).map(([domId, ctrls]) => [
+        domId,
+        {
+          name: domId,
+          description: `CSA AICM v1 ${domId} domain — ${Object.keys(ctrls).length} controls`,
+        },
+      ])
+    )
   },
   NIST_AI_RMF: {
     id: 'NIST_AI_RMF',
@@ -93,92 +110,98 @@ const FRAMEWORKS = {
 
 /**
  * AWARE Component to Control Mappings
+ *
+ * AICM v1 mappings below use real CSA AICM v1 control IDs (e.g. 'IAM-04',
+ * 'MDS-08', 'DSP-17'). They were previously placeholders ('AI.ID-01' etc.)
+ * that did not exist in the AICM spec. See src/compliance/aicm-v1-catalog.js
+ * for the full control universe and scripts/regenerate-aicm-catalog.js for
+ * the regeneration source.
  */
 const AWARE_COMPONENT_MAPPINGS = {
-  // Phase 1.1: Agent Registry
+  // Phase 1.1: Agent Registry — register AI agents, track metadata, lifecycle.
   'agent-registry': {
-    'CSA_AI_CM': ['AI.ID-01', 'AI.ID-02'],
+    'CSA_AI_CM': ['IAM-01', 'GRC-02'],
     'NIST_AI_RMF': ['PR.AC', 'DE.CM'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM05', 'LLM10']
   },
 
-  // Phase 1.2: Per-Agent Sandbox Policies
+  // Phase 1.2: Per-Agent Sandbox Policies — execution isolation, input validation.
   'sandbox-policies': {
-    'CSA_AI_CM': ['AI.OPS-04', 'AI.OPS-05'],
+    'CSA_AI_CM': ['AIS-08', 'DSP-17', 'UEM-13'],
     'NIST_AI_RMF': ['PR.IP', 'DE.AE'],
     'ISO_27001': ['A.12.1', 'A.12.4'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM04', 'LLM07', 'LLM08']
   },
 
-  // Phase 1.3: Behavioural Baseline
+  // Phase 1.3: Behavioural Baseline — per-agent behavioural baseline for anomaly scoring.
   'behavioral-baseline': {
-    'CSA_AI_CM': ['AI.MT-01'],
+    'CSA_AI_CM': ['LOG-03', 'MDS-05'],
     'NIST_AI_RMF': ['DE.CM', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.26', 'Art.27'],
     'OWASP_LLM_TOP_10': ['LLM03', 'LLM09']
   },
 
-  // Phase 1.4: Kill Switch
+  // Phase 1.4: Kill Switch — emergency termination of misbehaving agents.
   'kill-switch': {
-    'CSA_AI_CM': ['AI.OPS-02', 'AI.OPS-03'],
+    'CSA_AI_CM': ['SEF-03', 'LOG-13'],
     'NIST_AI_RMF': ['RS.MI', 'RS.RP'],
     'ISO_27001': ['A.16.1'],
     'DORA': ['Art.26'],
     'OWASP_LLM_TOP_10': ['LLM04', 'LLM08']
   },
 
-  // Phase 2.1: Pheromone Specialists
+  // Phase 2.1: Pheromone Specialists — specialised detection heuristics (per Good CISO SimuRA).
   'pheromone-specialists': {
-    'CSA_AI_CM': ['AI.OT-02'],
+    'CSA_AI_CM': ['TVM-08', 'MDS-08'],
     'NIST_AI_RMF': ['PR.IP'],
     'ISO_27001': ['A.12.1'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM09']
   },
 
-  // Phase 2.2: Security-Weighted Heuristic
+  // Phase 2.2: Security-Weighted Heuristic — risk-weighted decision routing.
   'security-heuristic': {
-    'CSA_AI_CM': ['AI.OT-01', 'AI.OT-02'],
+    'CSA_AI_CM': ['TVM-01', 'GRC-09'],
     'NIST_AI_RMF': ['RA-1', 'RA-3'],
     'ISO_27001': ['A.12.1'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM01', 'LLM02']
   },
 
-  // Phase 3.1A: Agent Identity & Authentication
+  // Phase 3.1A: Agent Identity & Authentication — agent identity, authN, authZ.
   'identity-provider': {
-    'CSA_AI_CM': ['AI.ID-01', 'AI.ID-02'],
+    'CSA_AI_CM': ['IAM-04', 'IAM-09', 'CEK-21'],
     'NIST_AI_RMF': ['PR.AC', 'PR.AA'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM05', 'LLM06', 'LLM07', 'LLM10']
   },
 
-  // Phase 3.1B: Behavioural Anomaly Detection
+  // Phase 3.1B: Behavioural Anomaly Detection — detect anomalous AI agent behaviour.
   'anomaly-detection': {
-    'CSA_AI_CM': ['AI.MT-01', 'AI.OPS-01'],
+    'CSA_AI_CM': ['LOG-05', 'MDS-09', 'SEF-06'],
     'NIST_AI_RMF': ['DE.CM', 'DE.AE', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.26', 'Art.27'],
     'OWASP_LLM_TOP_10': ['LLM01', 'LLM03', 'LLM06', 'LLM09', 'LLM10']
   },
 
-  // Phase 3.1C: Tool Access Control
+  // Phase 3.1C: Tool Access Control — fine-grained tool invocation control.
   'tool-access-control': {
-    'CSA_AI_CM': ['AI.OPS-04', 'AI.OPS-05'],
+    'CSA_AI_CM': ['IAM-08', 'DSP-05', 'AIS-07'],
     'NIST_AI_RMF': ['PR.AC', 'PR.IP'],
     'ISO_27001': ['A.9.4'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM01', 'LLM02', 'LLM04', 'LLM05', 'LLM07', 'LLM08']
   },
 
-  // Phase 3.2: Compliance Mapping
+  // Phase 3.2: Compliance Mapping — cross-framework mapping + posture reporting.
   'compliance-mapping': {
-    'CSA_AI_CM': ['AI.ID-01', 'AI.MT-01'],
+    'CSA_AI_CM': ['GRC-04', 'A&A-05'],
     'NIST_AI_RMF': ['GV.PO', 'GV.RM'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.12', 'Art.26'],
@@ -240,22 +263,19 @@ class FrameworkMapper {
 
     const controls = [];
 
-    // CSA AI CM has categories with controls
+    // CSA AICM v1: iterate the real control universe from aicm-v1-catalog.js.
+    // Each control ID is a domain-prefixed code (e.g. 'IAM-01', 'MDS-08', 'DSP-17').
     if (frameworkId === 'CSA_AI_CM') {
-      for (const [catId, cat] of Object.entries(framework.categories || {})) {
-        // Add AI.ID-01, AI.ID-02 style controls
-        controls.push({
-          id: `${catId}-01`,
-          category: catId,
-          categoryName: cat.name,
-          description: cat.description
-        });
-        controls.push({
-          id: `${catId}-02`,
-          category: catId,
-          categoryName: cat.name,
-          description: cat.description
-        });
+      for (const [domId, domainCtrls] of Object.entries(framework.controls || {})) {
+        for (const [ctrlId, ctrl] of Object.entries(domainCtrls)) {
+          controls.push({
+            id: ctrlId,
+            category: domId,
+            categoryName: domId,
+            name: ctrl.name,
+            description: ctrl.description,
+          });
+        }
       }
     }
 
