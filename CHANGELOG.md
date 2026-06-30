@@ -2,6 +2,70 @@
 
 All notable changes to AWARE Evolution are documented here.
 
+## [2.8.0] — 2026-06-30 — Public release
+
+Public-safe changes from this release. The internal development tree
+(`main` on gitea) includes additional operator-internal markers and
+configuration that are not shipped to github; see
+`docs/security/branch-discipline.md` for the dual-remote discipline.
+
+### Added
+
+- **`scripts/check-public-boundary.mjs`** — companion to the existing
+  4-layer privacy filter. Detects operator-internal script binding
+  (host paths, operator env dirs, LAN IPs, non-default localhost
+  ports, operator org literals, bearer tokens, common secret prefixes,
+  connection strings with credentials). Enforces a per-file
+  `# public-boundary:` marker convention (`ok`, `operator-internal`,
+  `test-fixture`). Pure-analysis scripts are exempt by default. Wire
+  it in via `scripts/hooks/pre-push` for Layer 2 coverage on every
+  push; the marker grammar and decision logic live in the file-header
+  comment.
+
+- **`docs/security/branch-discipline.md`** — documents the dual-remote
+  workflow (gitea vs github), the public-boundary rule, and the
+  cherry-pick procedure for cutting public releases. Covers the four
+  conditions a commit must satisfy to be public-safe and the
+  operator-internal marker convention.
+
+- **`.gitleaks.toml` allowlist** — added `scripts/check-public-
+  boundary.mjs` to the rule-definition allowlist (its regex literals
+  match its own patterns; same self-defining-file pattern as the
+  existing hook scripts).
+
+### Changed
+
+- **`scripts/run-phase4-d5.sh`** — `MODAL_PROFILE` default changed
+  from the operator's workspace name to `default`. The script is now
+  operator-org-agnostic: deploys to whatever Modal workspace is
+  named in `$MODAL_PROFILE`. Marked `# public-boundary: ok`.
+
+- **`scripts/aware-up`** — added `# public-boundary: operator-internal`
+  marker. The script binds to the operator's local stack topology and
+  is not public-safe in this form. See the marker comment for the
+  generic placeholder language; the operator-specific values live
+  only on the internal `main` branch.
+
+### Fixed
+
+- **`CHANGELOG.md`** — sanitised the v2.7-era historical port-mapping
+  reference (line 227 in the prior version) to remove the literal
+  coordinator publish port. The internal `main` branch retains the
+  historical record; this public copy documents the change
+  generically.
+
+### Notes
+
+- This is the first release cut under the new dual-remote discipline.
+  The internal gitea repository (`origin`) tracks `main` on every
+  push; the public github repository tracks `public/v2.8.x` only at
+  release checkpoints. See `docs/security/branch-discipline.md` for
+  the procedure future releases follow.
+
+- The public-boundary checker, the 4-layer privacy filter, and the
+  pre-push hook on `public/v2.8.x` together enforce that no
+  operator-literal value reaches the github tree at any commit.
+
 ## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
 **All 4 phases complete:**
@@ -223,11 +287,12 @@ All notable changes to AWARE Evolution are documented here.
   error. Verified live: the `/coordinate` round-trip now returns real LLM
   responses.
 
-- **`docker-compose.coordinator.yml`** — revert the coordinator publish port from
-  `38181:8080` back to `18081:8080`. Originally introduced as part of an earlier
-  runtime-evidence update but never propagated to the schema, README, smoke
-  tests, and probe script that all hardcode `18081`. The `0.0.0.0` binding
-  rationale is preserved; only the port number changes.
+- **`docker-compose.coordinator.yml`** — revert the coordinator publish
+  port mapping to the schema's documented value. Originally introduced
+  as part of an earlier runtime-evidence update but never propagated
+  to the schema, README, smoke tests, and probe script that all
+  hardcode the same value. The `0.0.0.0` binding rationale is
+  preserved; only the port mapping changes.
 
 ### Probe
 The daily AWARE plugin loadability probe was failing 4/6 because `/coordinate`

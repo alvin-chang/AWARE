@@ -1,6 +1,6 @@
 {
   "name": "aware",
-  "version": "1.0.0-phase4-complete",
+  "version": "2.8.0",
   "description": "AWARE - Autonomous Compliance Infrastructure for AI Agents",
   "main": "src/index.js",
   "scripts": {
