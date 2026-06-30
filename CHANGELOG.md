@@ -4,6 +4,14 @@ All notable changes to AWARE Evolution are documented here.
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-06-30 — CSA AICM v1 support
+
+**Release type:** minor. Promotes the AICM v1 work from a feature addition to a release milestone.
+
+**Version-bump policy reversal:** An earlier in-session note in this CHANGELOG (under the now-removed "[Unreleased] — AICM v1 support" entry) said there would be no `package.json` version bump because AICM coverage was "a feature addition, not a release milestone." That note was wrong — 184 real AICM v1 control IDs across all 18 domains is a release milestone. Policy reversed; `package.json` is bumped to `2.9.0` and the work is tagged `v2.9.0` (post-v2.8.0; consistent with the github tag pattern).
+
+**Note on github tag pattern:** AWARE's github-side tag pattern is `v2.X.x` (see `v2.7.0`, `v2.7.3`, `v2.8.0` in `git tag --list`). `package.json` was at `1.0.0-phase4-complete` before this release, so there is a one-time inconsistency: `package.json` says `2.9.0` but the codebase line of releases is `v2.7.0 → v2.7.3 → v2.8.0 → v2.9.0`. Future releases should keep `package.json` and github tags aligned on the `2.x` line.
+
 ### 2026-06-30 — CSA AICM v1 support (real control IDs)
 
 **Status:** Phase 1 of compliance mapping upgrade. Real AICM v1 control IDs replace the previous placeholders.
@@ -23,11 +31,11 @@ All notable changes to AWARE Evolution are documented here.
 - `tests/compliance/compliance-mapping.test.js` — 16 placeholder references updated; framework-name assertion corrected to `"CSA AI Controls Matrix"` (plural, matching CSA's official name)
 - `README.md` — CSA row in the frameworks table updated to reflect v1 / 18 domains / 184 controls
 
+**Privacy fix (95f1c25):** `scripts/regenerate-aicm-catalog.js` no longer hardcodes `/tmp/aicm-fetch/` (an operator-machine directory name); uses `os.tmpdir()` for OS-portable temp paths. Caught during the post-commit privacy audit.
+
 **Testing:** 34/34 compliance-mapping tests pass; 18/18 tool-access-control tests pass.
 
 **Sources:** AICM v1 spec at https://cloudsecurityalliance.org/artifacts/ai-controls-matrix ; control IDs verified against the OpenCRE TRACT public CSV mirror (https://github.com/rocklambros/TRACT).
-
-**Note:** No `package.json` version bump per Alvin 2026-06-30 — AICM coverage is a feature addition, not a release milestone. Version remains `1.0.0-phase4-complete`.
 
 **Open items:**
 - Close the 76% → 100% coverage gap (184 → 243 controls) when CSA publishes a non-gated full mirror or OpenCRE updates their TRACT export. See `docs/compliance/aicm-v1.md` § "Closing the coverage gap".
