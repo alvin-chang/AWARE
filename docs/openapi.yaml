@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: AWARE API
-  description: API documentation for the AWARE - Autonomous Warehouse Automated Resource Engine system
+  description: API documentation for the AWARE - Adaptive Workflow Agent with Recursive Evolution system
   version: 1.0.0
   contact:
     name: AWARE Team

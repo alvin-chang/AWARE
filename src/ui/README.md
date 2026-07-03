@@ -1,6 +1,6 @@
 # AWARE — Security Control Plane UI
 
-The web-based user interface for AWARE (Autonomous Warehouse Automated Resource Engine) — repositioned from cluster management to **Security Control Plane**.
+The web-based user interface for AWARE (**Adaptive Workflow Agent with Recursive Evolution**) — operating across compliance, customer support, and software engineering domains.
 
 ## Overview
 
