@@ -61,6 +61,7 @@ COPY src/config/index.cjs ./src/config/index.cjs
 COPY src/db ./src/db
 COPY src/budget ./src/budget
 COPY src/trainer ./src/trainer
+COPY src/audit ./src/audit
 COPY db ./db
 # Bake the Modal training config into the image so the trainer's
 # default `config.trainer.configPath` (`config/modal-training.json`,
@@ -98,7 +99,7 @@ RUN mkdir -p /opt/aware/weights/active && chown -R aware:aware /opt/aware
 # cause EACCES when the AWARE process (running as `aware`, uid 100)
 # tries to open the JSONL file. Pre-creating + chowning here means
 # the first write succeeds without operator intervention.
-RUN mkdir -p /data/awareness-pairs && chown -R aware:aware /data
+RUN mkdir -p /data/awareness-pairs && mkdir -p /data/audit && chown -R aware:aware /data
 # Carry the Modal training config (baked in the build stage) into the
 # runtime image. The build stage's `COPY config/modal-training.json
 # ./config/modal-training.json` lands the file at

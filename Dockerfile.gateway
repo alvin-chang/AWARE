@@ -6,21 +6,32 @@
 # Build with:
 #   DOCKER_BUILDKIT=1 docker build \
 #     -f Dockerfile.gateway \
-#     -t aware-gateway:0.1.0-phase-1-gateway \
+#     -t aware-gateway:0.2.0-ollama-removed \
 #     .
+#
+# Source-tree closure (verified by python3 walk from src/gateway + src/api seeds):
+#   gateway needs:  agents, api, audit, compliance, config, election,
+#                   gateway, kill-switch, monitoring, policies, routing
+#   gateway does NOT need:  coordinator, budget, trainer, db, training, ui, data
+# Keeping the gateway image minimal (no coordinator ESM service, no training
+# pipeline, no UI bundle) keeps the attack surface small AND avoids loading
+# modules that would crash with their native deps (pg, modal, etc.).
+#
+# We use the coordinator's package.json (not package.gateway.json) because
+# the gateway's audit.js / kill-switch.js routes now share the same dep tree
+# as the coordinator. The coordinator's package.json has all the runtime
+# deps needed by the gateway, none missing.
 
 # ─── Builder ────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
 WORKDIR /build
 
-# Copy only the gateway's package manifest. Use a separate file
-# (package.gateway.json -> package.json) so we don't pull in the
-# full v1 dependency tree (express-validator, jsonwebtoken, uuid, etc.).
-COPY package.gateway.json ./package.json
+# Copy the AWARE package manifest (NOT package.gateway.json — we share deps).
+COPY package.json ./package.json
 
-# Install production deps only. The runtime image copies node_modules
-# wholesale, so we don't need to worry about dev deps.
+# Install production deps. The runtime image copies node_modules wholesale,
+# so we don't need to worry about dev deps.
 RUN npm install --omit=dev --no-audit --no-fund --loglevel=error
 
 # ─── Runtime ────────────────────────────────────────────────────────
@@ -37,14 +48,27 @@ WORKDIR /app
 # Copy the built node_modules from the builder stage.
 COPY --from=builder --chown=aware:aware /build/node_modules ./node_modules
 
-# Copy the gateway source plus the shared config module it imports.
-# We do not copy the rest of the repo so the gateway image has the
-# minimum attack surface. The config is .cjs so the ESM coordinator
-# can import it as a CJS module (the host package.json is "type":"module"
-# in the coordinator image).
-COPY --chown=aware:aware src/gateway ./src/gateway
-COPY --chown=aware:aware src/config/index.cjs ./src/config/index.cjs
-COPY --chown=aware:aware package.gateway.json ./package.json
+# Copy package.json (so child src/audit/package.json with type:commonjs finds
+# its parent's package.json no — actually src/audit/package.json stands alone
+# with {"type":"commonjs"}, but the runtime also needs the top-level package.json
+# for the npm-installed binary resolution).
+COPY --chown=aware:aware package.json ./package.json
+
+# Copy the gateway source plus every shared module it transitively requires.
+# Source tree closure derived by recursive require/import walk from
+# src/gateway and src/api entry points.
+COPY --chown=aware:aware src/gateway      ./src/gateway
+COPY --chown=aware:aware src/api          ./src/api
+COPY --chown=aware:aware src/config       ./src/config
+COPY --chown=aware:aware src/audit        ./src/audit
+COPY --chown=aware:aware src/agents       ./src/agents
+COPY --chown=aware:aware src/compliance   ./src/compliance
+COPY --chown=aware:aware src/election     ./src/election
+COPY --chown=aware:aware src/kill-switch  ./src/kill-switch
+COPY --chown=aware:aware src/monitoring   ./src/monitoring
+COPY --chown=aware:aware src/policies     ./src/policies
+COPY --chown=aware:aware src/routing      ./src/routing
+COPY --chown=aware:aware src/engine-secret.js ./src/engine-secret.js
 
 # T0-T4 enforcement defaults. The gateway does not enforce T0-T4 itself
 # (the coordinator does that) but the kill-switch env var is read on
