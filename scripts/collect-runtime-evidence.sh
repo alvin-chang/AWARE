@@ -4,12 +4,22 @@
 # Standardized transcript generator for the AWARE v2.5.0 rollout SOP.
 # Run AFTER the bring-up script has confirmed all services healthy.
 # Produces:
-#   evidence/v2.5.0-staging-bringup-<date>.md  — operator checklist evidence
+#   ${AWARE_RUNTIME_DIR:-../runtime}/evidence/v2.5.0-staging-bringup-<date>.md
+#     — operator checklist evidence (lives in deployed runtime per §16.4 rule 2,
+#       not in the source tree; resolves to ../runtime/evidence/ by default).
 #
 # Requirements:
 #   - AWARE stack running on default ports (18081 = coordinator, 3000 = gateway)
 #   - AWARE_BRINGUP_OK=1 already set in your bring-up env
 #   - AWARE_COORDINATOR_TOKEN set in env (for /coordinate auth)
+#
+# Output path resolution:
+#   - Default:   ../runtime/evidence/   (relative to the repo root)
+#   - Override:  AWARE_RUNTIME_DIR=/some/path   (must be absolute or relative to
+#                                              the repo root, not to the cwd)
+#   - The script creates the runtime + evidence directories on first run
+#     (mkdir -p). If the operator's runtime is read-only or otherwise
+#     unwritable, mkdir fails fast under set -e with a clear errno.
 #
 # This script does NOT require a live the primary LLM provider API key for item 19
 # (audit-log HTTP query). For item 18 (real /coordinate call),
@@ -18,7 +28,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EVIDENCE_DIR="$REPO_ROOT/evidence"
+# §16.4 rule 2: runtime artefacts (including bringup evidence) live in
+# ../runtime/, not in the source tree. AWARE_RUNTIME_DIR lets the operator
+# redirect (e.g. for staging hosts where the runtime lives elsewhere).
+RUNTIME_DIR="${AWARE_RUNTIME_DIR:-$REPO_ROOT/../runtime}"
+EVIDENCE_DIR="$RUNTIME_DIR/evidence"
 mkdir -p "$EVIDENCE_DIR"
 DATE_TAG="$(date -u +%Y-%m-%d)"
 OUT="$EVIDENCE_DIR/v2.5.0-staging-bringup-${DATE_TAG}.md"
