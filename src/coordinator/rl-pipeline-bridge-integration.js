@@ -143,6 +143,15 @@ export async function awareRlPipeline(options) {
       pair_path: result.pair_path || pairPath || null,
       autonomy_level,
     };
+    // Sum __retriedAttempts across every upstream call in the pipeline:
+    // K parallel reasoning attempts + K PRM scores + 1 refinement. Each
+    // path attaches the metadata additively to its return object
+    // (see parallel.js, prm.js, refine.js — t_22a34f6d design §3.4.2).
+    // If the total is zero we omit the field for clean envelopes.
+    const totalRetried = sumRetriedAttempts(result);
+    if (totalRetried > 0) {
+      envelope.retried_attempts_total = totalRetried;
+    }
     // Echo the validated pluginConfig + validation result in the
     // envelope. The HTTP layer can read these for audit logging and
     // the OC shim can confirm the K that was actually used. Never
@@ -177,12 +186,45 @@ function buildPairPath(pairsDir) {
 
 function classifyError(err) {
   const msg = err.message || '';
+  // Structured-code first (set by minimax.js's withRateLimitRetry on a 429
+  // that exhausted retries). Falls through to the message regex for older
+  // callers that pre-date the retry layer. The `statusCode === 429` branch
+  // is belt-and-suspenders for any future caller that surfaces the HTTP
+  // status on the error without going through withRateLimitRetry.
+  if (err && err.code === 'upstream_rate_limited') return 'upstream_rate_limited';
+  if (err && err.statusCode === 429) return 'upstream_rate_limited';
   if (/problem is required/.test(msg)) return 'invalid_input';
   if (/K must be >= 1/.test(msg)) return 'invalid_input';
   if (/\b(upstream|api).*\b\d{3}\b/i.test(msg) || /\b\d{3}\b.*(gateway|service|upstream|api)/i.test(msg)) {
     return 'upstream_error';
   }
   return 'internal_error';
+}
+
+// Walk the pipeline result shape and sum __retriedAttempts across the
+// three call paths. All three attach the metadata additively (parallel.js,
+// prm.js, refine.js); a missing key contributes 0. Return shape is opaque
+// enough that we walk defensively rather than assume a fixed schema.
+function sumRetriedAttempts(result) {
+  if (!result || typeof result !== 'object') return 0;
+  let total = 0;
+  if (Array.isArray(result.attempts)) {
+    for (const a of result.attempts) {
+      if (a && typeof a === 'object' && typeof a.__retriedAttempts === 'number') {
+        total += a.__retriedAttempts;
+      }
+    }
+  }
+  // rl-pipeline returns refinement under both `refined_*` keys and a
+  // `selected` / `refined` shape depending on the config; we don't try to
+  // introspect every variant. The bridge only sees the normalised
+  // envelope from rl-pipeline's main export — if `__retriedAttempts` was
+  // surfaced at the top level (e.g. refine was called directly), we add
+  // it. Otherwise zero contributes cleanly.
+  if (typeof result.__retriedAttempts === 'number') {
+    total += result.__retriedAttempts;
+  }
+  return total;
 }
 
 export { DEFAULT_PAIRS_DIR, buildPairPath, classifyError };

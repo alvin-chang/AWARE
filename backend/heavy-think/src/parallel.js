@@ -27,7 +27,15 @@ export async function parallelReasoning({ problem, K, task_type, context, client
       if (i >= K) return;
       const attempt = await client.generate(prompt, { task_type, attempt_index: i, K });
       const reasoning = attempt.reasoning || attempt.text || '';
-      attempts[i] = { reasoning, attempt_index: i };
+      // Additive: preserve retry metadata from the provider client so the
+      // AWARE bridge can sum `retried_attempts_total`. Existing destructuring
+      // of `.reasoning` / `.cost_usd` elsewhere still works — this is a
+      // sibling key. See t_22a34f6d design §3.4.2.
+      attempts[i] = {
+        reasoning,
+        attempt_index: i,
+        __retriedAttempts: attempt.__retriedAttempts || 0,
+      };
       cost_usd += attempt.cost_usd || 0;
     }
   }

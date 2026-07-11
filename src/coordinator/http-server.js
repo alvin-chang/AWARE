@@ -542,9 +542,10 @@ async function handleHealth(req, res, router, requestId) {
  *
  * The coordinator returns `{ok: false, error: {type, message}}` on failure (does not throw).
  * We map `error.type` to HTTP status:
- *   - 'invalid_input'  → 400
- *   - 'upstream_error' → 503 (the upstream model API failed)
- *   - 'internal_error' → 500
+ *   - 'invalid_input'         → 400
+ *   - 'upstream_rate_limited' → 503 (NEW: 429 after retries exhausted — t_22a34f6d)
+ *   - 'upstream_error'        → 503 (the upstream model API failed non-429)
+ *   - 'internal_error'        → 500
  * A thrown error is treated as 500 unless the message matches a known pattern.
  *
  * T0-T4 enforcement:
@@ -703,7 +704,10 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
     const errType = (result.error && result.error.type) || 'internal_error';
     const errMessage = (result.error && result.error.message) || 'coordinate failed';
     log({ problem: body.problem, taskType: body.task_type, k: body.K, sessionId: body.sessionId, agentId: body.agentId, result, errorKind: errType, errorMessage: errMessage });
-    const status = errType === 'invalid_input' ? 400 : errType === 'upstream_error' ? 503 : 500;
+    const status = errType === 'invalid_input' ? 400
+                 : errType === 'upstream_rate_limited' ? 503
+                 : errType === 'upstream_error' ? 503
+                 : 500;
     return sendJson(res, status, { error: errMessage, kind: errType, request_id: requestId });
   }
 
@@ -738,6 +742,13 @@ async function handleCoordinate(req, res, router, coordinateFn, requestId) {
       success: !!(result && result.ok !== false),
       latencyMs: Date.now() - startMs,
       errorMessage: result && result.ok === false ? (result.error && result.error.message) || 'coordinate returned ok=false' : null,
+      // Additive audit fields for upstream 429 retry visibility (t_22a34f6d).
+      // The hash chain re-hashes the row so additive keys are safe; existing
+      // readers ignore unknown keys. `retriesExhausted` only true when this
+      // call surfaced a fresh `upstream_rate_limited` — earlier transient
+      // 429s that recovered within the retry budget do NOT set it.
+      retriedAttempts: (result && typeof result.retried_attempts_total === 'number') ? result.retried_attempts_total : 0,
+      retriesExhausted: !!(result && result.ok === false && result.error && result.error.type === 'upstream_rate_limited'),
     },
   });
 
