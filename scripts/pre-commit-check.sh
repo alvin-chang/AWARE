@@ -55,26 +55,72 @@ for f in src/data/users.json src/data/agents.json; do
 done
 
 # 4. ADR numbering check (docs/adr/ADR-NNN-*.md)
-# Catches the 2026-07-13 incident where three ADRs all claimed ADR-044 in
-# the same 5-minute drafting window. Enforces:
+#
+# Catches the 2026-07-13 incident: three ADRs all claimed the same number
+# in a 5-minute drafting window. The check enforces:
 #   (a) Filename uniqueness — no two files in docs/adr/ share the same ADR-NNN
 #   (b) Filename pattern — every ADR file must match ADR-NNN-<slug>.md
-#       (the un-prefixed form "foo-coverage.md" was a 2026-07-13 failure mode)
+#       (un-prefixed form "foo-coverage.md" is a known failure mode)
 #   (c) Stale-name check — staged content must not reference the old
-#       un-prefixed filename (e.g. AISVS-coverage.md) after a rename
-#   (d) Stale-number check — staged content in docs/adr/ and src/ must not
-#       reference the old ADR-NNN (e.g. ADR-044) when the file was renamed
-#   (e) H1 <-> filename consistency — the "# ADR-NNN" H1 in each ADR file
-#       must match the ADR-NNN in its filename
+#       un-prefixed filename after a rename
+#   (d) Stale-number check — no file in the working tree (except the
+#       check script itself and the historical fix doc) may reference
+#       any retired ADR number
+#   (e) H1 <-> filename consistency — the "# ADR-NNN" H1 must match
+#       the ADR-NNN in its filename
 #
-# Catches the 2026-07-13 incident: three ADRs all claimed ADR-044, sed
-# renames in src/ were left half-done, and the AISVS file self-referenced
-# its own old un-prefixed name in three places.
+# The retired numbers list is data, not hard-coded. New retirements get
+# appended to RETIRED_ADR_NUMBERS below. The historical fix record at
+# docs/adr/AWARE-FIX-2026-07-13.md documents the original incident and
+# is the only place where a retired number may legitimately appear in
+# the working tree (it's exempted by the file path glob).
 #
-# Reference: 2026-07-13 ADR-renumber incident, see AWARE-FIX-2026-07-13
-# (and the re-fix that this script would have caught at the gate).
+# Reference: 2026-07-13 ADR-renumber incident, see
+# docs/adr/AWARE-FIX-2026-07-13.md for the full history.
 if [[ -d docs/adr ]]; then
     echo "🔍 Checking docs/adr/ for ADR number uniqueness and consistency..."
+
+    # ── Retired ADR numbers ───────────────────────────────────────────
+    # Add new retirements here, one per line. The format is "NNN" (the
+    # numeric part only; the "ADR-" prefix is added by the rule).
+    #
+    # Currently retired:
+    #   044 — 2026-07-13 three-way collision (ASI06/AISVS/ATLAS);
+    #          see docs/adr/AWARE-FIX-2026-07-13.md
+    RETIRED_ADR_NUMBERS=(
+        "044"
+    )
+
+    # The check script itself is the only file in scripts/ that may
+    # contain a reference to a retired number (because the rule's grep
+    # pattern is the retired number). The fix-history doc is the
+    # canonical place where retired numbers are documented.
+    RETIRED_EXEMPT_FILES=(
+        "scripts/pre-commit-check.sh"
+        "docs/adr/AWARE-FIX-2026-07-13.md"
+    )
+    # Build the grep alternation for the retired numbers
+    RETIRED_GREP_ALT=""
+    for n in "${RETIRED_ADR_NUMBERS[@]}"; do
+        if [[ -n "$RETIRED_GREP_ALT" ]]; then
+            RETIRED_GREP_ALT+="|"
+        fi
+        RETIRED_GREP_ALT+="ADR-${n}"
+    done
+    # Build the basename alternation for the find -not -name args
+    RETIRED_EXEMPT_BASENAMES=()
+    for f in "${RETIRED_EXEMPT_FILES[@]}"; do
+        RETIRED_EXEMPT_BASENAMES+=(-not -name "$(basename "$f")")
+    done
+    # Build the find -name filters for the staged-content exempt
+    # (matched against the diff --git a/ path)
+    RETIRED_STAGED_EXEMPT_RE=""
+    for f in "${RETIRED_EXEMPT_FILES[@]}"; do
+        if [[ -n "$RETIRED_STAGED_EXEMPT_RE" ]]; then
+            RETIRED_STAGED_EXEMPT_RE+="|"
+        fi
+        RETIRED_STAGED_EXEMPT_RE+="a/$(basename "$f")"
+    done
 
     # (a) + (b): filename uniqueness and pattern
     # Use the working tree (not git ls-files) because the ADRs in this repo
@@ -83,8 +129,8 @@ if [[ -d docs/adr ]]; then
     # files and untracked-but-present files.
     ADR_FILES=$( (git ls-files docs/adr/ 2>/dev/null || true) | grep -E "^docs/adr/.*\.md$" || true)
     # Also include any .md files in docs/adr/ that exist on disk but are
-    # not yet tracked. This is the 2026-07-13 case: the 4 ADR files
-    # (043/045/046/047) are untracked in git but present on disk.
+    # not yet tracked. The 2026-07-13 case: 4 ADR files were untracked
+    # in git but present on disk when the original collision happened.
     ADR_DISK=$( (find docs/adr -maxdepth 1 -type f -name "*.md" 2>/dev/null || true) | sort || true)
     ALL_ADR_FILES=$(printf "%s\n%s\n" "$ADR_FILES" "$ADR_DISK" | sort -u | grep -v '^$' || true)
 
@@ -129,8 +175,6 @@ if [[ -d docs/adr ]]; then
             echo "$f"
         fi
     done || true)
-    # Note: the inner while loop uses ":" and explicit echo so set -e
-    # does not abort on the empty case (no unprefixed files).
     if [[ -n "$UNPREFIXED" ]]; then
         echo "❌ ADR file(s) missing the ADR-NNN- prefix:"
         echo "$UNPREFIXED" | sed 's/^/    /'
@@ -142,7 +186,6 @@ if [[ -d docs/adr ]]; then
     # (e): H1 <-> filename consistency
     # For each ADR file, the "# ADR-NNN" H1 must match the ADR-NNN in its filename
     for f in $ALL_ADR_FILES; do
-        # Only check files that have the ADR-NNN- prefix
         if echo "$f" | grep -qE "ADR-[0-9]+"; then
             file_num=$(basename "$f" | grep -oE "ADR-[0-9]+" | head -1)
             h1_num=$(head -3 "$f" 2>/dev/null | grep -oE "ADR-[0-9]+" | head -1 || echo "")
@@ -156,38 +199,55 @@ if [[ -d docs/adr ]]; then
         fi
     done
 
-    # (c) + (d): staged content must not reference old names or numbers
-    # Look at the staged diff (new + modified) for stale references
+    # (c) Stale-name check: staged content must not reference the
+    # un-prefixed filenames that resulted from the original collision.
+    # Built from the retired numbers list (any file named
+    # "ADR-NNN-<slug>.md" that was renamed, plus the AISVS un-prefixed
+    # form that was the original failure mode).
+    #
+    # The regex is tight: ADR-NNN- followed by a lowercase word then
+    # .md. This avoids matching prose like "ADR-044-aware-atlas" that
+    # appears in a comment or commit message (the comment doesn't end
+    # in .md, so it's not a filename reference).
+    STALE_NAME_PATTERNS=(
+        "AISVS-coverage\.md"
+    )
+    for n in "${RETIRED_ADR_NUMBERS[@]}"; do
+        STALE_NAME_PATTERNS+=("ADR-${n}-[a-z][a-z0-9-]*\.md")
+    done
+    STALE_NAME_GREP=$(printf "%s|" "${STALE_NAME_PATTERNS[@]}")
+    STALE_NAME_GREP="${STALE_NAME_GREP%|}"
+
+    # (c) + (d) need to look at staged content too, to catch the
+    # half-done sed case. We exclude exempted files from the scan.
+    # We only look at ADDED lines (+) of the diff, not removed (-)
+    # lines: the (c) rule is about new code that still references old
+    # filenames; old code being deleted is fine and would otherwise
+    # produce false positives when this script itself is being refactored.
     STAGED_CONTENT=$(git diff --cached --diff-filter=AM 2>/dev/null || true)
     if [[ -n "$STAGED_CONTENT" ]]; then
-        # (c) Stale un-prefixed filename in any tracked file
-        if echo "$STAGED_CONTENT" | grep -qE "AISVS-coverage\.md|ADR-044-asi06-coverage\.md|ADR-044-aware-atlas"; then
+        # Strip exempted files out of the staged diff
+        STAGED_CONTENT_FILTERED=$(echo "$STAGED_CONTENT" | awk -v exempt="$RETIRED_STAGED_EXEMPT_RE" '
+            /^diff --git/ {
+                skip = ($0 ~ ("a/(" exempt ") b/")) ? 1 : 0
+            }
+            !skip
+        ')
+        # Only added lines (start with "+" but not "+++" which is the
+        # diff header)
+        STAGED_ADDED=$(echo "$STAGED_CONTENT_FILTERED" | grep -E "^\+[^+]" || true)
+        # (c) Stale filename in staged content
+        if echo "$STAGED_ADDED" | grep -qE "$STALE_NAME_GREP"; then
             echo "❌ Stale ADR filename reference in staged content."
-            echo "   Found one of: AISVS-coverage.md, ADR-044-asi06-coverage.md,"
-            echo "   ADR-044-aware-atlas*. Update refs to the current filenames."
+            echo "   Found one of the retired un-prefixed filenames."
+            echo "   Update refs to the current filenames."
             FAILED=1
         fi
     fi
 
-    # (d) Stale ADR-NNN in tracked content. We grep the WORKING TREE
-    # (not git ls-files) so we catch uncommitted changes that left
-    # stale ADR-044 text. The check looks at all files in the repo
-    # minus a small exemption list (this check script itself, fix-history
-    # docs that legitimately cite the historical number).
-    #
-    # The exemption is a file path glob, not a content match — keeps
-    # the rule auditable.
-    # Grep the working tree (find on disk, not git ls-files). We include:
-    #   - the repo root (CONTRIBUTING.md, AGENTS.md, README.md, etc. —
-    #     these frequently reference ADRs and need to be checked)
-    #   - docs/ (especially docs/adr/)
-    #   - src/ (the AWARE source)
-    #   - test/ and tests/ (unit tests)
-    #   - scripts/ (the check itself)
-    # and exclude node_modules, .git, dist, coverage.
-    # Use -maxdepth 1 for the root to avoid recursing into directories
-    # we already enumerate explicitly below.
-    # Default to empty string so set -u doesn't trip on a no-match.
+    # (d) Stale-number check: any file in the working tree (except
+    # exempted files) may NOT contain a reference to a retired number.
+    # Default to empty so set -u doesn't trip.
     STALE_FILES=""
     while IFS= read -r f; do
         [[ -n "$f" ]] || continue
@@ -195,8 +255,7 @@ if [[ -d docs/adr ]]; then
     done < <(find . -maxdepth 1 -type f \
         -not -path "*/node_modules/*" \
         -not -path "*/.git/*" \
-        -not -name "pre-commit-check.sh" \
-        -not -name "AWARE-FIX-2026-07-13.md" \
+        "${RETIRED_EXEMPT_BASENAMES[@]}" \
         2>/dev/null; \
         find docs src test tests scripts \
         -type f \
@@ -204,22 +263,21 @@ if [[ -d docs/adr ]]; then
         -not -path "*/.git/*" \
         -not -path "*/dist/*" \
         -not -path "*/coverage/*" \
-        -not -name "pre-commit-check.sh" \
-        -not -name "AWARE-FIX-2026-07-13.md" \
+        "${RETIRED_EXEMPT_BASENAMES[@]}" \
         2>/dev/null)
-    # Now grep the gathered list. If empty, grep returns nothing and
-    # STALE_FILES stays empty. Use grep -l to print filenames only.
     if [[ -n "$STALE_FILES" ]]; then
-        STALE_FILES=$(echo "$STALE_FILES" | xargs grep -lE "ADR-044" 2>/dev/null || true)
+        STALE_FILES=$(echo "$STALE_FILES" | xargs grep -lE "$RETIRED_GREP_ALT" 2>/dev/null || true)
     fi
-    # Trim trailing whitespace
     STALE_FILES="${STALE_FILES%$'\n'}"
     if [[ -n "$STALE_FILES" ]]; then
-        echo "❌ Stale ADR-044 reference(s) found in working tree:"
+        echo "❌ Stale retired-ADR reference(s) found in working tree:"
         echo "$STALE_FILES" | head -20 | sed 's/^/    /'
-        echo "   ADR-044 was the 2026-07-13 collision; renumber to the"
-        echo "   current ADR-NNN for that spec (e.g. ADR-045 for ASI06,"
-        echo "   ADR-046 for AISVS, ADR-047 for ATLAS)."
+        echo "   The following ADR numbers are retired (no new file may claim them):"
+        for n in "${RETIRED_ADR_NUMBERS[@]}"; do
+            echo "     - ADR-${n}"
+        done
+        echo "   See docs/adr/AWARE-FIX-2026-07-13.md for the history."
+        echo "   Update the file to use a current ADR-NNN."
         FAILED=1
     fi
 fi
