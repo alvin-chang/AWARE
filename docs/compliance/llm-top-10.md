@@ -39,6 +39,7 @@ joints with AST10 AST05, etc.), see ADR-050 §7.
 | AWARE risks with observation-only (L) coverage | 2 — LLM04, LLM09 |
 | Net-new in 2025 vs. v1.1 (require new control logic) | 4 — LLM07, LLM08, LLM09 (partial), LLM10 (partial) |
 | Coder follow-up cards filed from ADR-050 | 4 — `GAP-1`, `GAP-4`, `GAP-6`, `GAP-7` |
+| Coder follow-up cards closed from ADR-050 | 1 — `GAP-6` (LLM09 review-loop event landed, behind `AWARE_LLM09_DETECTION_ENABLED` gate) |
 | Architect spikes / follow-up ADRs from ADR-050 | 3 — `GAP-2`, `GAP-3`, `GAP-5` |
 | AWARE components mapped to LLM Top 10 | 10 (agent-registry, sandbox-policies, behavioral-baseline, kill-switch, pheromone-specialists, security-heuristic, identity-provider, anomaly-detection, tool-access-control, compliance-mapping) |
 
@@ -270,16 +271,67 @@ either integration path.
 because the model produced it (hallucination, stale training) or because the
 user / downstream system overrelied on it without verification.
 
-**AWARE coverage: L — partial (overreliance side only).** v1.1's LLM09 was
-the consumer-side "overreliance" risk; 2025's LLM09 is the
+**AWARE coverage: L — partial (overreliance side + review-loop event).** v1.1's
+LLM09 was the consumer-side "overreliance" risk; 2025's LLM09 is the
 producer-side-plus-consumer-side misinformation risk. The behavioural-baseline
-flags low-confidence outputs (anomaly-detection), but no review-loop event
-type exists today.
+flags low-confidence outputs (anomaly-detection), and as of `GAP-6` the
+**review-loop event** lands as `review_required` on the audit chain — the
+reviewer is the operator, not the model.
 
-**Gap (ADR-050 GAP-6):** a new `review_required` annotation event type in
-`decision-logger.js`, with a corresponding `GET /api/compliance/llm-top-10/misinformation-review`
-route. The reviewer is the operator, not the model — this is a workflow, not
-a deny path.
+**Review-loop control surface (GAP-6):**
+
+- **Event type:** `review_required` (action.type on the decision-chain record).
+  Carries `triggerSource` ∈ {`LLM09_2025_LOW_CONFIDENCE`,
+  `LLM09_2025_FACTUAL_CONFLICT`, `LLM09_2025_CITATION_MISSING`,
+  `LLM09_2025_UNSUPPORTED_ENTITY`, `LLM09_2025_RELATIVE_DATE`,
+  `LLM09_2025_MANUAL`}, `confidenceScore` (0.0–1.0), `outputHash` (SHA-256 of
+  the model output text), `agentId`, `parentDecisionId` (the source
+  model-output event's decisionId). Each `review_required` chains to its
+  source model-output event via `parentDecisionId` per ADR-043's annotation
+  discipline.
+- **Resolution event type:** `review_required_resolved` chains via
+  `parentDecisionId` to the original `review_required` decisionId. The
+  resolved record carries `resolvedBy` (operator agentId) and a free-text
+  `resolution` note. Audit chain is append-only — the resolution is a new
+  record, not a state mutation.
+- **Read side:** `GET /api/compliance/llm-top-10/misinformation-review`
+  filters the decision-chain segment between two decisionIds and joins each
+  `review_required` with its `review_required_resolved` child to derive
+  `status=open|resolved`. Paginated by `[fromDecisionId, toDecisionId]`
+  window; filterable by `status`.
+- **Detector:** `src/policies/output-confidence.js` — a v0 heuristic that
+  scores a model output's claim confidence. Three rule families:
+  (a) numeric claims without source citation;
+  (b) date claims against current date (within ±1 year tolerance, beyond
+  that → `LLM09_2025_FACTUAL_CONFLICT`; relative-date phrases like
+  "today"/"yesterday" → `LLM09_2025_RELATIVE_DATE`);
+  (c) entity claims not in the retrieval result set
+  → `LLM09_2025_UNSUPPORTED_ENTITY`.
+  Detector ships behind `AWARE_LLM09_DETECTION_ENABLED=true`, default off
+  (matches the AST10 enableWrites pattern).
+- **Mapper:** `src/compliance/llm09-mapper.js` wraps the detector and writes
+  `review_required` / `review_required_resolved` annotations via
+  `decision-logger.logDecision()`. Read-only on the source event;
+  write-only on the annotation chain. Fail-open: a logDecision failure does
+  NOT block the originating tool call.
+
+**Audit surface:** every `review_required` annotation lives on the
+`decision-chain.jsonl` log alongside AST10/ASI06/ATLAS annotations, with
+`action.type === 'review_required'`. The chain-integrity test at
+`test/unit/audit/review-required-event.test.js` pins the parent/prevHash
+contract; the route test at
+`test/integration/api/compliance-misinformation-review.test.js` pins the
+read-side shape and open/resolved derivation.
+
+**Operational contract:** the reviewer is the operator, not the model.
+The event is a flag for an operator-driven review-loop workflow; AWARE does
+NOT block model output on the basis of a heuristic flag. This is the
+producer-side-plus-consumer-side reading per ADR-050 §6 LLM09:2025.
+
+**Gap closure status:** `GAP-6` (ADR-050 §5) — closed. v0 of the
+review-loop control is shipped behind the env-var gate; the operator's
+deployment-decision on enabling `AWARE_LLM09_DETECTION_ENABLED` is the
+remaining production-grade validation step.
 
 ### LLM10:2025 — Unbounded Consumption
 
@@ -323,11 +375,30 @@ that audit-log readers will see most often.
 ## Follow-up work (out of scope for this doc)
 
 This document assumes `GAP-1` (`GAP-1` rebinds framework-mapper IDs to 2025),
-`GAP-4` (LLM07 detection rule), `GAP-6` (LLM09 review-loop event), and
-`GAP-7` (LLM10 budget meter) will land as coder child cards filed under
-`t_5983a687` (ADR-050). Until each lands, the corresponding section above
-documents the gap rather than the production control. The follow-up ADRs
-explicit in ADR-050 are:
+`GAP-4` (LLM07 detection rule), and `GAP-7` (LLM10 budget meter) will land as
+coder child cards filed under `t_5983a687` (ADR-050). Until each lands, the
+corresponding section above documents the gap rather than the production
+control.
+
+**Closed as of `t_4ebbf45d`:**
+
+- **`GAP-6`** — LLM09:2025 misinformation review-loop event landed:
+  - `src/audit/decision-logger.js` — emits `review_required` /
+    `review_required_resolved` chain annotations via `logDecision()`. No
+    changes to the chain-integrity contract (the new action.type rides on
+    the existing hash-chaining machinery).
+  - `src/compliance/llm09-mapper.js` — write-side mapper for the new event
+    type. Read-only on source events; write-only on annotations; fail-open.
+  - `src/api/routes/compliance.js` — `GET /api/compliance/llm-top-10/misinformation-review`
+    route, paginated by `[fromDecisionId, toDecisionId]`, filterable by
+    `status=open|resolved`. Open/resolved derived from chain topology
+    (parent/child linkage of the two event types).
+  - `src/policies/output-confidence.js` — v0 heuristic with three rule
+    families (numeric-no-citation, date-vs-current, entity-not-in-retrieval).
+    Behind `AWARE_LLM09_DETECTION_ENABLED`, default off.
+  - 51 tests across 3 new test files; full chain-integrity coverage.
+
+The follow-up ADRs explicit in ADR-050 are:
 
 - **`GAP-2`** — Training-data provenance attestation (separate ADR; trainer
   swap scope per ADR-049 §3).
