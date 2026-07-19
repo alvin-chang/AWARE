@@ -135,4 +135,41 @@ describe('DonkAI harness: LLM07 + LLM09 special projections (GAP-4 + GAP-6)', ()
       assert.ok(fired.has('LLM09'));
     });
   });
+
+  describe('LLM10 (Unbounded Consumption) projection', () => {
+    function consumptionCheckEvent(opts = {}) {
+      return {
+        decisionId: opts.decisionId || 'evt-test',
+        parentDecisionId: null,
+        timestamp: '2026-07-19T00:00:00.000Z',
+        actor: { agentId: 'donkai-agent', role: 'coder', trustScore: 0.8 },
+        action: {
+          type: 'consumption_check',
+          toolId: 'modelInvoke',
+          parameters: { modelId: 'gpt-4', inputTokens: 12000, outputTokens: 8000, costUsd: 0.42, wallMs: 5500, requestId: 'r-test' },
+          classification: { rule: 'consumption-threshold-breach', confidence: 'H',
+            breach: { dimension: 'costUsd', ratio: 1.4 } }
+        },
+        context: { policyId: 'donkai-lab-10', policyVersion: '1', componentId: 'policies' },
+        outcome: { success: false, latencyMs: 0, errorMessage: 'consumption threshold breached' }
+      };
+    }
+
+    test('fires on consumption_check event', () => {
+      const { fired, llmAnnotations } = replay(consumptionCheckEvent());
+      assert.ok(fired.has('LLM10'));
+      const llm10 = llmAnnotations.find((a) => a.llmId === 'LLM10');
+      assert.ok(llm10);
+      assert.equal(llm10.component, 'policies');
+      assert.equal(llm10.ast10Rule, 'consumption-threshold-breach');
+      assert.equal(llm10.gapId, null);
+    });
+
+    test('does NOT fire on unrelated action types', () => {
+      const event = consumptionCheckEvent();
+      event.action.type = 'tool_dispatch';
+      const { fired } = replay(event);
+      assert.ok(!fired.has('LLM10'));
+    });
+  });
 });

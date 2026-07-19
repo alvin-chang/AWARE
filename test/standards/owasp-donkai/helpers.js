@@ -287,6 +287,25 @@ function replay(event, opts = {}) {
     fired.add('LLM09');
   }
 
+  // Special projection: LLM10 (Unbounded Consumption). The detection
+  // event type `consumption_check` is emitted by a future
+  // src/policies/consumption-budget.js event source (out-of-scope for
+  // this card; the day-one coverage ships the projection so the harness
+  // can drive the canonical event shape). Per ADR-050 §5 GAP-7.
+  if (actionType === 'consumption_check' && !fired.has('LLM10')) {
+    llmAnnotations.push({
+      sourceDecisionId: event.decisionId,
+      eventType: actionType,
+      llmId: 'LLM10',
+      llmName: LLM_TOP_10_2025.LLM10.name,
+      ast10Rule: 'consumption-threshold-breach',
+      ast10Confidence: 'H',
+      component: 'policies',
+      gapId: null
+    });
+    fired.add('LLM10');
+  }
+
   return { ast10Annotations, llmAnnotations, fired };
 }
 

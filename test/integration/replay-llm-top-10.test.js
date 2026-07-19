@@ -195,12 +195,28 @@ const LAB_EVENTS = {
     actor: { agentId: 'donkai-agent', role: 'coder', trustScore: 0.8 },
     action: {
       type: 'consumption_check',
-      toolId: 'consumption_check',
-      target: 'token_spend_window',
-      parameters: { tokens_used: 1_000_000, window_seconds: 60, limit: 100_000 }
+      toolId: 'modelInvoke',
+      target: 'cost_usd_overrun',
+      reason: 'consumption-threshold-breach',
+      parameters: {
+        modelId: 'gpt-4',
+        inputTokens: 12000,
+        outputTokens: 8000,
+        costUsd: 0.42,
+        wallMs: 5500,
+        requestId: 'r-donkai-10-int'
+      },
+      classification: {
+        rule: 'consumption-threshold-breach',
+        confidence: 'H',
+        reference: 'ADR-050#GAP-7',
+        budget: { limitUsd: 0.30, limitTokens: 16000, limitWallMs: 5000 },
+        observed: { costUsd: 0.42, inputTokens: 12000, outputTokens: 8000, wallMs: 5500 },
+        breach: { dimension: 'costUsd', ratio: 1.4 }
+      }
     },
-    context: { policyId: 'donkai-lab-10', policyVersion: '1', componentId: 'sandbox-policies' },
-    outcome: { success: true, latencyMs: 1, errorMessage: null }
+    context: { policyId: 'donkai-lab-10', policyVersion: '1', componentId: 'policies' },
+    outcome: { success: false, latencyMs: 0, errorMessage: 'consumption threshold breached' }
   }
 };
 
@@ -270,27 +286,27 @@ describe('DonkAI LLM Top 10 (2025) end-to-end replay', () => {
     }
   });
 
-  test('coverage matrix: 7 fires / 3 misses after GAP-1+4+6 plumbing lands', () => {
+  test('coverage matrix: 8 fires / 2 misses after GAP-7 consumption-budget projection lands', () => {
     const sarif = replayAllLabs();
     const firedCount = sarif.runs[0].results.filter((r) => r.properties.fired).length;
     const missed = sarif.runs[0].results.filter((r) => !r.properties.fired).map((r) => r.ruleId).sort();
 
-    // 7 fires: LLM01 (AST05 cascade), LLM02 (credential-classifier
+    // 8 fires: LLM01 (AST05 cascade), LLM02 (credential-classifier
     // projection), LLM03 (AST02/AST07 cascade), LLM05 (AST09 cascade),
     // LLM06 (AST03 cascade), LLM07 (system-prompt-elicit projection),
-    // LLM09 (review_required projection). 3 misses: LLM04 (architect
-    // GAP-3), LLM08 (architect GAP-5), LLM10 (coder GAP-7).
-    assert.equal(firedCount, 7, `expected 7 fires, got ${firedCount}`);
-    assert.deepEqual(missed, ['LLM04', 'LLM08', 'LLM10']);
+    // LLM09 (review_required projection), LLM10 (consumption_check
+    // projection). 2 misses: LLM04 (architect GAP-3), LLM08 (architect
+    // GAP-5).
+    assert.equal(firedCount, 8, `expected 8 fires, got ${firedCount}`);
+    assert.deepEqual(missed, ['LLM04', 'LLM08']);
 
-    // LLM07 + LLM09 now fire — their gap_id drops to null. LLM04 +
-    // LLM08 + LLM10 still carry their GAP card ids.
-    const llm07 = sarif.runs[0].results.find((r) => r.ruleId === 'LLM07');
-    assert.equal(llm07.properties.fired, true);
-    assert.equal(llm07.properties.gap_id, null, 'GAP-4 closed');
-    const llm09 = sarif.runs[0].results.find((r) => r.ruleId === 'LLM09');
-    assert.equal(llm09.properties.fired, true);
-    assert.equal(llm09.properties.gap_id, null, 'GAP-6 closed');
+    // LLM07 + LLM09 + LLM10 now fire — their gap_id drops to null.
+    // LLM04 + LLM08 still carry their GAP card ids.
+    for (const llmId of ['LLM07', 'LLM09', 'LLM10']) {
+      const row = sarif.runs[0].results.find((r) => r.ruleId === llmId);
+      assert.equal(row.properties.fired, true, `${llmId} must fire`);
+      assert.equal(row.properties.gap_id, null, `${llmId} gap_id must drop to null`);
+    }
 
     // Remaining misses still carry GAP card ids.
     for (const r of sarif.runs[0].results.filter((x) => !x.properties.fired)) {
