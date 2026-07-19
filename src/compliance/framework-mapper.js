@@ -92,21 +92,64 @@ const FRAMEWORKS = {
   OWASP_LLM_TOP_10: {
     id: 'OWASP_LLM_TOP_10',
     name: 'OWASP Top 10 for Large Language Model Applications',
-    version: 'v1.1',
+    // ADR-050 §2 (Decision 1): the bound spec is OWASP-Top-10-LLM-2025
+    // (published 2025-03-12). The framework identity `OWASP_LLM_TOP_10`
+    // is stable across AWARE releases; the rebinding from v1.1 (2023)
+    // to 2025 happened via ADR-050 §5 GAP-1. Per-control descriptions
+    // paraphrase the 2025 spec; the canonical source-of-truth list
+    // lives in docs/compliance/llm-top-10.md §"Per-risk coverage" and
+    // ADR-050 §1.1 (drift table). The deprecated 2023 (v1.1) ID set
+    // is preserved at the framework ID `OWASP_LLM_TOP_10_v1_1` (not
+    // wired into AWARE_COMPONENT_MAPPINGS) for traceability.
+    version: '2025',
     controls: {
       'LLM01': { name: 'Prompt Injection', description: 'Manipulating LLMs via crafted inputs can lead to unauthorised access, data breaches, and compromised decision-making.' },
-      'LLM02': { name: 'Insecure Output Handling', description: 'Neglecting to validate LLM outputs may lead to downstream security exploits, including code execution that compromises systems and exposes data.' },
-      'LLM03': { name: 'Training Data Poisoning', description: 'Tampered training data can impair LLM models leading to responses that may compromise security, accuracy, or ethical behaviour.' },
-      'LLM04': { name: 'Model Denial of Service', description: 'Overloading LLMs with resource-heavy operations can cause service disruptions and increased costs.' },
-      'LLM05': { name: 'Supply Chain Vulnerabilities', description: 'Depending upon compromised components, services or datasets undermines system integrity, causing data breaches and system failures.' },
-      'LLM06': { name: 'Sensitive Information Disclosure', description: 'Failure to protect against disclosure of sensitive information in LLM outputs can result in legal consequences or a loss of competitive advantage.' },
-      'LLM07': { name: 'Insecure Plugin Design', description: 'LLM plugins processing untrusted inputs and having insufficient access control risk severe exploits like remote code execution.' },
-      'LLM08': { name: 'Excessive Agency', description: 'Granting LLMs unchecked autonomy to take action can lead to unintended consequences, jeopardising reliability, privacy, and trust.' },
-      'LLM09': { name: 'Overreliance', description: 'Failing to critically assess LLM outputs can lead to compromised decision making, security vulnerabilities, and legal liabilities.' },
-      'LLM10': { name: 'Model Theft', description: 'Unauthorised access to proprietary large language models risks theft, competitive advantage, and dissemination of sensitive information.' }
+      'LLM02': { name: 'Sensitive Information Disclosure', description: 'Failure to protect against disclosure of sensitive information in LLM outputs can result in legal consequences or a loss of competitive advantage.' },
+      'LLM03': { name: 'Supply Chain', description: 'Depending upon compromised components, services or datasets undermines system integrity, causing data breaches and system failures.' },
+      'LLM04': { name: 'Data and Model Poisoning', description: 'Tampered training data or model weights can impair LLM models leading to responses that may compromise security, accuracy, or ethical behaviour.' },
+      'LLM05': { name: 'Improper Output Handling', description: 'Neglecting to validate LLM outputs may lead to downstream security exploits, including code execution that compromises systems and exposes data.' },
+      'LLM06': { name: 'Excessive Agency', description: 'Granting LLMs unchecked autonomy to take action can lead to unintended consequences, jeopardising reliability, privacy, and trust.' },
+      'LLM07': { name: 'System Prompt Leakage', description: 'Exposing the system prompt to user input or to logs can reveal security policy, role, or allowed tools to parties who should not see them.' },
+      'LLM08': { name: 'Vector and Embedding Weaknesses', description: 'Attacks on the RAG / embedding store layer (injection via stored documents, embedding inversion, cross-tenant retrieval contamination) compromise the integrity of retrieved context.' },
+      'LLM09': { name: 'Misinformation', description: 'LLM-originated false content AND downstream overreliance on it lead to compromised decision making, security vulnerabilities, and legal liabilities.' },
+      'LLM10': { name: 'Unbounded Consumption', description: 'Volumetric (DoS), cost (token spend), and scraping (model theft by sampling) abuse vectors against the LLM application.' }
     }
-  }
-};
+  },
+  // ADR-043 — OWASP Agentic Skills Top 10 (AST10) v1.0-2026.
+    // The control list is sourced from src/compliance/ast10-catalog.js (the
+    // pinned JSON-style JS module shipped with this AWARE release) so the
+    // control claim is reproducible across re-deploys. The risk-class
+    // descriptions, severity strings, and IDs MUST match ast10-catalog.js
+    // — any divergence is a bug.
+    //
+    // Rationale for adding this as a fifth supported framework lives in
+    // ADR-043 ("Decision") and docs/compliance/ast10.md. AST10 is the only
+    // published control catalogue that names the *behaviour-layer* attack
+    // surface (skills themselves, not MCP or the model) that AWARE 2.0's
+    // hook-based auto-interception sits in front of.
+    OWASP_AST10: {
+      id: 'OWASP_AST10',
+      name: 'OWASP Agentic Skills Top 10',
+      version: 'v1.0-2026',
+      source: 'https://github.com/OWASP/www-project-agentic-skills-top-10',
+      catalogRef: './ast10-catalog',
+      // Flat AST01..AST10 control list. Severity is pinned to upstream;
+      // descriptions are short — full per-class coverage lives in
+      // docs/compliance/ast10.md.
+      controls: {
+        'AST01': { name: 'Malicious Skills', severity: 'Critical', description: 'Skill whose prose or behaviour instructs the agent to perform an attack (e.g. exfiltrate secrets, drop malware).' },
+        'AST02': { name: 'Supply Chain Compromise', severity: 'Critical', description: 'Compromise of a skill, dependency, or publisher upstream of the agent.' },
+        'AST03': { name: 'Over-Privileged Skills', severity: 'High', description: 'Skill requests permissions broader than its functionality requires.' },
+        'AST04': { name: 'Insecure Metadata', severity: 'High', description: 'Skill manifest metadata parsed by an unsafe loader, allowing deserialization or template injection.' },
+        'AST05': { name: 'Untrusted External Instructions', severity: 'High', description: 'Skill fetches and follows instructions from a host not on the agent allowlist.' },
+        'AST06': { name: 'Weak Isolation', severity: 'High', description: 'Skill shares memory, FS, or process namespace with the host/agent without a sandbox boundary.' },
+        'AST07': { name: 'Update Drift', severity: 'Medium', description: 'Skill installed without a content-hash pin; updates may silently change behaviour.' },
+        'AST08': { name: 'Poor Scanning', severity: 'Medium', description: 'No behavioural or content scan before install; static-pattern scanners miss semantic attacks.' },
+        'AST09': { name: 'No Governance', severity: 'Medium', description: 'Decisions are not centrally logged with an execution-receipt vector; no human review trail.' },
+        'AST10': { name: 'Cross-Platform Reuse', severity: 'Medium', description: 'Skill loaded from one manifest format is reused on another platform with lossy translation.' }
+      }
+    }
+  };
 
 /**
  * AWARE Component to Control Mappings
@@ -124,7 +167,10 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['PR.AC', 'DE.CM'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
     'DORA': ['Art.12'],
-    'OWASP_LLM_TOP_10': ['LLM05', 'LLM10']
+    // ADR-050 §3: LLM05 (v1.1 Supply Chain) → LLM03:2025; LLM10 (v1.1 Model Theft) → LLM02:2025.
+    'OWASP_LLM_TOP_10': ['LLM03', 'LLM02'],
+    // ADR-043: agent-registry covers AST02 (supply-chain, via publisher-key machinery).
+    'OWASP_AST10': ['AST02']
   },
 
   // Phase 1.2: Per-Agent Sandbox Policies — execution isolation, input validation.
@@ -133,7 +179,10 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['PR.IP', 'DE.AE'],
     'ISO_27001': ['A.12.1', 'A.12.4'],
     'DORA': ['Art.12'],
-    'OWASP_LLM_TOP_10': ['LLM04', 'LLM07', 'LLM08']
+    // ADR-050 §3: LLM04 (v1.1 Model DoS) → LLM10:2025; LLM07 (v1.1 Plugin Design) → LLM05:2025; LLM08 (v1.1 Excessive Agency) → LLM06:2025.
+    'OWASP_LLM_TOP_10': ['LLM10', 'LLM05', 'LLM06'],
+    // ADR-043: sandbox-policies covers AST06 (weak isolation) directly.
+    'OWASP_AST10': ['AST06']
   },
 
   // Phase 1.3: Behavioural Baseline — per-agent behavioural baseline for anomaly scoring.
@@ -142,7 +191,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['DE.CM', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.26', 'Art.27'],
-    'OWASP_LLM_TOP_10': ['LLM03', 'LLM09']
+    // ADR-050 §3: LLM03 (v1.1 Training Data Poisoning) → LLM04:2025 (Data and Model Poisoning); LLM09 stays.
+    'OWASP_LLM_TOP_10': ['LLM04', 'LLM09'],
+    // ADR-043: behavioral-baseline flags anomalous skill behaviour post-call,
+    // which is the AST05 (untrusted external instructions) defence surface.
+    'OWASP_AST10': ['AST05']
   },
 
   // Phase 1.4: Kill Switch — emergency termination of misbehaving agents.
@@ -151,16 +204,25 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['RS.MI', 'RS.RP'],
     'ISO_27001': ['A.16.1'],
     'DORA': ['Art.26'],
-    'OWASP_LLM_TOP_10': ['LLM04', 'LLM08']
+    // ADR-050 §3: LLM04 (v1.1 Model DoS) → LLM10:2025; LLM08 (v1.1 Excessive Agency) → LLM06:2025.
+    'OWASP_LLM_TOP_10': ['LLM10', 'LLM06'],
+    // ADR-043: kill-switch is the AST06 (weak isolation) blast-radius terminator.
+    'OWASP_AST10': ['AST06']
   },
 
   // Phase 2.1: Pheromone Specialists — specialised detection heuristics (per Good CISO SimuRA).
+  // ADR-043 §1 does NOT enumerate an AST10 row for pheromone-specialists
+  // (the heuristic scoring it does is captured under anomaly-detection /
+  // security-heuristic instead). Per docs/compliance/ast10.md this is
+  // explicit: "(none — ADR-043 §1 does not enumerate this row)".
   'pheromone-specialists': {
     'CSA_AI_CM': ['TVM-08', 'MDS-08'],
     'NIST_AI_RMF': ['PR.IP'],
     'ISO_27001': ['A.12.1'],
     'DORA': ['Art.12'],
     'OWASP_LLM_TOP_10': ['LLM09']
+    // No 'OWASP_AST10' key — by design. Cross-checked against
+    // docs/compliance/ast10.md §"AWARE component → AST10 coverage".
   },
 
   // Phase 2.2: Security-Weighted Heuristic — risk-weighted decision routing.
@@ -169,7 +231,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['RA-1', 'RA-3'],
     'ISO_27001': ['A.12.1'],
     'DORA': ['Art.12'],
-    'OWASP_LLM_TOP_10': ['LLM01', 'LLM02']
+    // ADR-050 §3: LLM02 (v1.1 Insecure Output Handling) → LLM05:2025 (Improper Output Handling); LLM01 stays.
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM05'],
+    // ADR-043: security-heuristic scores behavioural anomalies — the AST08
+    // (poor scanning) defence surface, partial coverage.
+    'OWASP_AST10': ['AST08']
   },
 
   // Phase 3.1A: Agent Identity & Authentication — agent identity, authN, authZ.
@@ -178,7 +244,14 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['PR.AC', 'PR.AA'],
     'ISO_27001': ['A.9.2', 'A.9.4'],
     'DORA': ['Art.12'],
-    'OWASP_LLM_TOP_10': ['LLM05', 'LLM06', 'LLM07', 'LLM10']
+    // ADR-050 §3: v1.1 LLM07 (Plugin Design) drops — AST10 covers the plugin provenance
+    // class per ADR-043. v1.1 LLM05/06/10 (Supply Chain / Sensitive Disclosure / Model Theft)
+    // collapse into LLM02:2025 (Sensitive Information Disclosure, the broader 2025 scope).
+    // v1.1 LLM05 also → LLM03:2025 (Supply Chain). Net: [LLM03, LLM02, LLM02, LLM02].
+    'OWASP_LLM_TOP_10': ['LLM03', 'LLM02', 'LLM02', 'LLM02'],
+    // ADR-043: identity-provider signing-key machinery covers AST01
+    // (malicious skills) + AST02 (supply-chain, publisher keys).
+    'OWASP_AST10': ['AST01', 'AST02']
   },
 
   // Phase 3.1B: Behavioural Anomaly Detection — detect anomalous AI agent behaviour.
@@ -187,7 +260,13 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['DE.CM', 'DE.AE', 'RS.MA'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.26', 'Art.27'],
-    'OWASP_LLM_TOP_10': ['LLM01', 'LLM03', 'LLM06', 'LLM09', 'LLM10']
+    // ADR-050 §3: v1.1 LLM03 (Training Data Poisoning) → LLM04:2025 (Data and Model Poisoning);
+    // v1.1 LLM06 (Sensitive Disclosure) + LLM10 (Model Theft) → LLM02:2025 (Sensitive Information
+    // Disclosure, broader 2025 scope); LLM01/LLM09 stay.
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM04', 'LLM02', 'LLM09', 'LLM02'],
+    // ADR-043: anomaly-detection covers AST01/AST05/AST08 (behavioural
+    // observations) and AST09 (audit-chain governance).
+    'OWASP_AST10': ['AST01', 'AST05', 'AST08', 'AST09']
   },
 
   // Phase 3.1C: Tool Access Control — fine-grained tool invocation control.
@@ -196,7 +275,14 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['PR.AC', 'PR.IP'],
     'ISO_27001': ['A.9.4'],
     'DORA': ['Art.12'],
-    'OWASP_LLM_TOP_10': ['LLM01', 'LLM02', 'LLM04', 'LLM05', 'LLM07', 'LLM08']
+    // ADR-050 §3: v1.1 LLM02 (Insecure Output Handling) → LLM05:2025; v1.1 LLM04 (Model DoS) → LLM10:2025;
+    // v1.1 LLM05 (Supply Chain) → LLM03:2025; v1.1 LLM07 (Plugin Design) drops — AST10 covers;
+    // v1.1 LLM08 (Excessive Agency) → LLM06:2025; LLM01 stays.
+    'OWASP_LLM_TOP_10': ['LLM01', 'LLM05', 'LLM10', 'LLM03', 'LLM03', 'LLM06'],
+    // ADR-043: tool-access-control is the central surface for AST01/AST03/AST04/AST07.
+    // AST03 (over-privilege) is enforced by permission-model.js; the AST10 mapper's
+    // over-privilege-write rule (sensitive target → AST03 H) is fed from here.
+    'OWASP_AST10': ['AST01', 'AST03', 'AST04', 'AST07']
   },
 
   // Phase 3.2: Compliance Mapping — cross-framework mapping + posture reporting.
@@ -205,7 +291,10 @@ const AWARE_COMPONENT_MAPPINGS = {
     'NIST_AI_RMF': ['GV.PO', 'GV.RM'],
     'ISO_27001': ['A.12.4'],
     'DORA': ['Art.12', 'Art.26'],
-    'OWASP_LLM_TOP_10': ['LLM09']
+    'OWASP_LLM_TOP_10': ['LLM09'],
+    // ADR-043: compliance-mapping emits the AST09 (no governance) audit
+    // surface — the OWASP "execution-receipt" vector that AST09 calls for.
+    'OWASP_AST10': ['AST09']
   }
 };
 
@@ -298,6 +387,21 @@ class FrameworkMapper {
           id: ctrlId,
           category: ctrlId,
           categoryName: ctrl.name,
+          description: ctrl.description
+        });
+      }
+    }
+
+    // OWASP AST10 has flat AST01-AST10 controls (same shape as LLM Top 10).
+    // Per ADR-043 — the framework entry here is the structural surface;
+    // the per-rule annotations live in src/compliance/ast10-mapper.js.
+    if (frameworkId === 'OWASP_AST10') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          severity: ctrl.severity || null,
           description: ctrl.description
         });
       }
