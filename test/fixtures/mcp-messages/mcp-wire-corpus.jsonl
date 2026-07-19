@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// test/fixtures/mcp-messages/mcp-wire-corpus.jsonl
+//
+// Synthetic MCP JSON-RPC envelope corpus. Per ADR-051 §4 F2:
+// "Tests must parse the corpus, not synthetic strings." This file is
+// the canonical test surface until the researcher SPIKE
+// (t_<researcher-card>) produces a live capture from a real MCP server.
+//
+// One JSON object per line. Each line is a self-contained JSON-RPC 2.0
+// envelope that the mcp adapter must recognise. Coverage:
+//   - 7 message types (initialize, tools/list, tools/call,
+//     resources/read, prompts/get, notifications/*, completion/*)
+//   - 4 envelope shapes (request, notification, response, error)
+//   - A batched envelope
+//   - An oversize params payload
+//   - A malformed envelope (mixed-shape — has BOTH method AND result)
+//
+// All IDs and timestamps are deterministic so the test suite does not
+// depend on randomness.
+{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"aware-fixture","version":"2.0.0"},"capabilities":{}}}
+{"jsonrpc":"2.0","id":"tlist-1","method":"tools/list","params":{"cursor":""}}
+{"jsonrpc":"2.0","id":"tcall-1","method":"tools/call","params":{"name":"read_file","arguments":{"path":"/etc/hosts"}}}
+{"jsonrpc":"2.0","id":"rread-1","method":"resources/read","params":{"uri":"file:///etc/hostname"}}
+{"jsonrpc":"2.0","id":"pget-1","method":"prompts/get","params":{"name":"summarize","arguments":{"text":"fixture"}}}
+{"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{}}}
+{"jsonrpc":"2.0","id":"compl-1","method":"completion/complete","params":{"ref":{"type":"ref/prompt","name":"summarize"},"argument":{"name":"text","value":"hello"}}}
+{"jsonrpc":"2.0","id":"tlist-2","result":{"tools":[{"name":"read_file","description":"Read a file","inputSchema":{"type":"object"}}],"nextCursor":""}}
+{"jsonrpc":"2.0","id":"tcall-2","error":{"code":-32601,"message":"Method not found"}}
+{"jsonrpc":"2.0","id":"tlist-3","result":{"tools":[{"name":"echo","description":"Echo input","inputSchema":{"type":"object"}}]}}

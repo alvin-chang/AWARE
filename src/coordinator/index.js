@@ -126,16 +126,41 @@ export async function coordinate({ problem, task_type, context, K, client, sessi
 // matches a small set of high-confidence patterns. False positives are
 // possible; the caller can inspect `category: 'prompt_injection_suspected'`
 // to decide whether to retry with sanitized input.
+//
+// TIGHTENED 2026-07-15 (Issue 4, t_76b69066): patterns were over-flagging
+// ordinary business narrative. Four rules now require injection-shaped
+// CONTEXT (not just a bare keyword) so that:
+//   - "DAN LOWES MEETING" / "Dan Lowes" no longer trips the DAN rule
+//   - "you are now expected to..." no longer trips the role-play rule
+//   - "ignore previous instructions from the prior standup" no longer trips
+//     when used in business-narrative framing
+//   - "system prompt: please ensure..." no longer trips when "system prompt"
+//     is being *referenced*, not *set* (now requires assignment-shaped follow-up)
+// The `act as (?:a|an|the)` rule is intentionally UNCHANGED: dropping `the`
+// would create a privilege-escalation false-negative (real "act as the
+// admin" injections). Operator decision 1b on t_76b69066.
 const PROMPT_INJECTION_PATTERNS = [
-  /\bignore (?:all )?previous (?:instructions|prompts|rules)\b/i,
-  /\bdisregard (?:all )?(?:prior|previous|above) (?:instructions|prompts|rules)\b/i,
-  /\byou are now\b/i,
+  // "ignore previous instructions" — require imperative framing with output verb
+  /\bignore (?:all )?previous (?:instructions|prompts|rules)\b[^.\n]{0,40}(?:and|to)\b/i,
+  // "disregard prior instructions" — same imperative framing
+  /\bdisregard (?:all )?(?:prior|previous|above) (?:instructions|prompts|rules)\b[^.\n]{0,40}(?:and|to)\b/i,
+  // "you are now" — require role/identity assignment (a/an/the/my/in)
+  /\byou are now (?:a|an|the|my|in)\b/i,
+  // "forget everything" — unchanged, rare in business text
   /\bforget everything\b/i,
+  // "act as" — UNCHANGED. Keep `the` to catch "act as the admin" injections.
   /\bact as (?:a|an|the)\b/i,
+  // "pretend to be/you are" — unchanged
   /\bpretend (?:to be|you are)\b/i,
+  // "jailbreak" — unchanged, rare in business text
   /\bjailbreak\b/i,
-  /\bDAN\b/,
-  /\bsystem\s*prompt\s*[:=]/i,
+  // "DAN" — require DAN-style jailbreak context (DAN mode / DAN jailbreak),
+  // not bare DAN token (which matches names like "Dan Lowes")
+  /\bDAN\b[^.\n]{0,30}\b(?:mode|jailbreak|prompt|unrestricted|unlock)\b/i,
+  // "system prompt" — require assignment colon followed by imperative,
+  // not a reference phrase like "system prompt: please ensure..."
+  /\bsystem\s*prompt\s*[:=]\s*(?:ignore|disregard|forget|override|you are)\b/i,
+  // ChatML token smuggling — unchanged (high-confidence signal)
   /<\|im_start\|>/i,
   /<\|im_end\|>/i,
 ];
@@ -228,12 +253,36 @@ function buildDefaultOllamaClient(baseUrl) {
     offline: true,
     healthy: makeOllamaHealth({ baseUrl }),
     async generate(prompt, opts = {}) {
-      const model = opts.model || 'qwen2.5:7b';
+      // Default model: the AWARE-tuned qwen3.5-9b that lives in Ollama as
+      // `aware-qwen35-9b:latest` (Q4_K_M, AWARE-LoRA merged at create time).
+      // Override via opts.model for tests or alternate surfaces.
+      //
+      // t_aa407e5e (architect, 2026-07-12) moved us off the generic qwen2.5:7b
+      // baseline: same Ollama daemon hosts the AWARE-flavored model, and the
+      // downstream coordinator pair-generator expects `reasoning` to come back
+      // without a "Thinking Process:" preamble. The `think: false` body field
+      // (added 2026-07-12) is what suppresses that preamble for qwen3.5 in
+      // Ollama 0.31.x — `num_think` / Modelfile PARAMETER think don't work.
+      const model = opts.model || 'aware-qwen35-9b:latest';
+      // v2026-07-12 fix: default timeout tightened from 60s to 5s. A stuck Ollama
+      // inference (e.g. GPU held by a prior zombie request) used to block AWARE
+      // /coordinate for 60s, producing `kind=unreachable` floods in the gateway
+      // plugin. 5s is generous for Qwen3.5-9B inference on Apple Silicon (typically
+      // <2s) but short enough to fail fast and let the router's circuit-breaker
+      // mark Ollama unhealthy so the next call skips it via `model-router.js`.
+      // Override via opts.timeout_ms when needed (e.g. large prompts, slow GPUs).
       const res = await fetch(`${baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model, prompt, stream: false }),
-        signal: AbortSignal.timeout(opts.timeout_ms || 60_000),
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: false,
+          // Suppress qwen3.5 chain-of-thought preamble (per-request, not Modelfile).
+          // Ollama 0.31.x: this boolean toggles thinking-mode for qwen3.5.
+          think: opts.think === undefined ? false : opts.think,
+        }),
+        signal: AbortSignal.timeout(opts.timeout_ms || 5_000),
       });
       if (!res.ok) {
         const body = await res.text();
@@ -251,3 +300,65 @@ function buildDefaultOllamaClient(baseUrl) {
 export { makeModelRouter, makeOllamaHealth, buildDefaultOllamaClient };
 export { makeLoraReloader, resolveActiveTarget, shouldReload, buildModelfile, postOllamaCreate } from './lora-reloader.js';
 export { awareRlPipeline } from './rl-pipeline-bridge-integration.js';
+
+// APTS-MR-019 (T1 GAP from ADR-049 §5): credential classifier re-export.
+// The actual tool-output interception lives in src/policies/tool-observation-proxy.js
+// — every tool-output payload crosses that proxy on its way back to the
+// coordinator / model, and the proxy invokes the classifier before
+// returning the result. Re-exporting from the coordinator surfaces the
+// classifier as a first-class MR-domain API (per ADR-049 §3, MR is
+// mapped to src/coordinator/index.js) and lets tests / callers
+// import it from a single canonical location.
+export {
+  classify,
+  redact,
+  buildDecisionRecord,
+  CLASSIFIER_VERSION,
+} from '../policies/credential-classifier.js';
+
+// ADR-051 — OWASP MCP Top 10 (2025) protocol adapter entry point.
+//
+// The MCP wire-protocol parser (`src/coordinator/adapters/mcp.js`) does
+// not own a network transport — it parses JSON-RPC 2.0 envelopes that
+// AWARE observes in front of any MCP client/server. Per ADR-040 the
+// adapter is fail-open: parse errors and audit-write failures are
+// logged to stderr and never propagated to the caller, so a busted
+// adapter cannot break the originating MCP traffic flow.
+//
+// `observeMcpMessage(envelope, actor)` is the single coordinator-shell
+// entry point. The MCP adapter is lazy-required on first call so a
+// missing adapter module does not break coordinator require-time. The
+// adapter's own MCPAdapter class is re-exported for tests and for the
+// downstream classifier card (separate kanban) that will read
+// `mcp_message` source events and emit MCP0N:2025 annotations.
+let _mcpAdapterModule = null;
+function _loadMcpAdapter() {
+  if (_mcpAdapterModule) return _mcpAdapterModule;
+  // eslint-disable-next-line global-require
+  _mcpAdapterModule = require('./adapters/mcp.js');
+  return _mcpAdapterModule;
+}
+
+/**
+ * Parse + emit a single MCP JSON-RPC envelope (or batched array of
+ * envelopes — see JSON-RPC 2.0 §6). Per ADR-040 fail-open: returns
+ * `{ ok, error? }` and never throws.
+ *
+ * @param {Object|Array} envelope
+ * @param {Object} actor  { agentId, trustScore?, role? }
+ * @returns {Promise<{ok: boolean, error?: Error}>}
+ */
+export async function observeMcpMessage(envelope, actor) {
+  try {
+    const mod = _loadMcpAdapter();
+    const adapter = new mod.MCPAdapter();
+    const result = await adapter.emitMessage(envelope, actor);
+    return { ok: result.ok, error: result.error };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[coordinator/observeMcpMessage] adapter failed: ${err.code || err.message}`);
+    return { ok: false, error: err };
+  }
+}
+
+export { MCPAdapter as MCPAdapterClass } from './adapters/mcp.js';
