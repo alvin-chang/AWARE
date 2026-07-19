@@ -273,6 +273,17 @@ function replay(event, opts = {}) {
   // a dedicated mapper that emits `review_required` annotations chained
   // to the source model-output event. The AST10 mapper has no rule for
   // that event type either, so the projection is at the harness layer.
+  //
+  // Gate: action.type === 'review_required' (type-keyed). The mapper
+  // emits these with outcome.success === true on the audit-chain side
+  // (the annotation was successfully written; the review-loop
+  // triggered because of a breach detected upstream). The
+  // resolution/close-loop event is a different action.type
+  // ('review_required_resolved'), so the type-gate alone cleanly
+  // distinguishes "needs review" from "resolved". A breach-signal
+  // gate (e.g. action.target starts with 'LLM09_2025_') would be
+  // defensive but the type-gate matches the mapper's actual
+  // contract (verified at src/compliance/llm09-mapper.js:127-154).
   if (actionType === 'review_required' && !fired.has('LLM09')) {
     llmAnnotations.push({
       sourceDecisionId: event.decisionId,
@@ -292,7 +303,16 @@ function replay(event, opts = {}) {
   // src/policies/consumption-budget.js event source (out-of-scope for
   // this card; the day-one coverage ships the projection so the harness
   // can drive the canonical event shape). Per ADR-050 §5 GAP-7.
-  if (actionType === 'consumption_check' && !fired.has('LLM10')) {
+  //
+  // Gate: action.type === 'consumption_check' AND outcome.success === false.
+  // A within-budget consumption report would carry success === true and
+  // would not fire. The emitter contract (TBD, follow-up card) is to
+  // only emit `consumption_check` events on breach with success === false.
+  if (
+    actionType === 'consumption_check' &&
+    event.outcome && event.outcome.success === false &&
+    !fired.has('LLM10')
+  ) {
     llmAnnotations.push({
       sourceDecisionId: event.decisionId,
       eventType: actionType,

@@ -155,7 +155,7 @@ describe('DonkAI harness: LLM07 + LLM09 special projections (GAP-4 + GAP-6)', ()
       };
     }
 
-    test('fires on consumption_check event', () => {
+    test('fires on consumption_check event with outcome.success=false', () => {
       const { fired, llmAnnotations } = replay(consumptionCheckEvent());
       assert.ok(fired.has('LLM10'));
       const llm10 = llmAnnotations.find((a) => a.llmId === 'LLM10');
@@ -163,6 +163,21 @@ describe('DonkAI harness: LLM07 + LLM09 special projections (GAP-4 + GAP-6)', ()
       assert.equal(llm10.component, 'policies');
       assert.equal(llm10.ast10Rule, 'consumption-threshold-breach');
       assert.equal(llm10.gapId, null);
+    });
+
+    test('does NOT fire on consumption_check with outcome.success=true (within-budget report)', () => {
+      const event = consumptionCheckEvent();
+      event.outcome.success = true;
+      event.outcome.errorMessage = null;
+      const { fired } = replay(event);
+      assert.ok(!fired.has('LLM10'));
+    });
+
+    test('does NOT fire when outcome is missing', () => {
+      const event = consumptionCheckEvent();
+      delete event.outcome;
+      const { fired } = replay(event);
+      assert.ok(!fired.has('LLM10'));
     });
 
     test('does NOT fire on unrelated action types', () => {

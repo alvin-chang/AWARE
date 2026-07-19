@@ -114,18 +114,14 @@ describe('LLM10:2025 — Unbounded Consumption (DonkAI lab-10)', () => {
     assert.equal(sarif.level, 'note', 'covered risks surface as SARIF notes');
   });
 
-  test('projection is type-keyed: any consumption_check event fires LLM10 (emitter contract gates emission in production)', () => {
-    // The LLM10 projection fires on action.type === 'consumption_check'
-    // alone — it does not key on outcome.success or
-    // classification.breach. This is intentional: the future
-    // src/policies/consumption-budget.js emitter is responsible for
-    // only emitting consumption_check events when a budget breach
-    // occurs (and carrying outcome.success === false on them). The
-    // harness projection is a shape-matcher, not a value evaluator.
-    //
-    // This test asserts that contract: the projection treats every
-    // consumption_check event as LLM10-relevant. The production
-    // emitter's job is to never emit a within-budget event.
+  test('defence: within-budget consumption_check (outcome.success=true) does NOT fire LLM10', () => {
+    // Per the tightened projection gate (commit-followup to
+    // t_b1976c2d): a consumption_check event with outcome.success ===
+    // true is a within-budget report, not a breach, and must NOT fire
+    // LLM10. The production emitter (follow-up card) only emits
+    // consumption_check events on breach with success === false; this
+    // test verifies the projection is gated correctly even if a
+    // within-budget event ever leaks through.
     const event = {
       decisionId: 'lab10-evt-3-within',
       parentDecisionId: null,
@@ -142,6 +138,6 @@ describe('LLM10:2025 — Unbounded Consumption (DonkAI lab-10)', () => {
     };
 
     const { fired } = replay(event);
-    assert.ok(fired.has('LLM10'), 'projection is type-keyed; emitter contract gates emission in production');
+    assert.ok(!fired.has('LLM10'), 'within-budget reports must NOT fire LLM10');
   });
 });
