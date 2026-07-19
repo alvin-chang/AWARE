@@ -240,6 +240,53 @@ function replay(event, opts = {}) {
     fired.add('LLM02');
   }
 
+  // Special projection: LLM07 (System Prompt Leakage). The detection
+  // lives at src/policies/tool-observation-proxy.js::observeModelInput()
+  // (commit 3d299d6, ADR-050 §5 GAP-4) and emits
+  // `model_input_classification` source events with
+  // `action.classification.rule === 'system-prompt-elicit'`. The AST10
+  // mapper has no rule for that event type (per ADR-043 read-only
+  // contract on the audit-chain surface), so the projection is at the
+  // harness layer — same shape as the LLM02 projection above.
+  const actionType = event.action && event.action.type;
+  const classification = event.action && event.action.classification;
+  if (
+    actionType === 'model_input_classification' &&
+    classification && classification.rule === 'system-prompt-elicit' &&
+    !fired.has('LLM07')
+  ) {
+    llmAnnotations.push({
+      sourceDecisionId: event.decisionId,
+      eventType: actionType,
+      llmId: 'LLM07',
+      llmName: LLM_TOP_10_2025.LLM07.name,
+      ast10Rule: 'system-prompt-elicit',
+      ast10Confidence: (classification && classification.confidence) || 'M',
+      component: 'tool-observation-proxy',
+      gapId: null
+    });
+    fired.add('LLM07');
+  }
+
+  // Special projection: LLM09 (Misinformation). The detection lives at
+  // src/compliance/llm09-mapper.js (commit 4abdc20, ADR-050 §5 GAP-6) as
+  // a dedicated mapper that emits `review_required` annotations chained
+  // to the source model-output event. The AST10 mapper has no rule for
+  // that event type either, so the projection is at the harness layer.
+  if (actionType === 'review_required' && !fired.has('LLM09')) {
+    llmAnnotations.push({
+      sourceDecisionId: event.decisionId,
+      eventType: actionType,
+      llmId: 'LLM09',
+      llmName: LLM_TOP_10_2025.LLM09.name,
+      ast10Rule: 'review_required',
+      ast10Confidence: 'H',
+      component: 'tool-observation-proxy',
+      gapId: null
+    });
+    fired.add('LLM09');
+  }
+
   return { ast10Annotations, llmAnnotations, fired };
 }
 
@@ -320,11 +367,23 @@ function buildSarifResults({ labId, llmAnnotations, fired, expectedLlmId }) {
   const llmAnnotationsForLab = llmAnnotations.filter((a) => a.llmId === expectedLlmId);
   const firedHere = fired.has(expectedLlmId);
 
-  // SARIF level: an unmitigated coverage gap is "error" severity for the
-  // compliance consumer. For risks AWARE covers today (LLM01/05/06) the
-  // annotation firing is informational ("note").
+  // SARIF level: a risk that fires is informational ("note"). A GAP-
+  // gated risk that does NOT fire surfaces as "error" so the compliance
+  // consumer can distinguish covered vs uncovered. Risks that aren't in
+  // LLM_TO_GAP (LLM04 is architect-track, not GAP-card-gated) are
+  // surfaced as "note" regardless because their remediation is not
+  // tracked via a coder card.
   const isGapRisk = LLM_TO_GAP[expectedLlmId] != null;
-  const level = isGapRisk ? 'error' : 'note';
+  const level = (firedHere || !isGapRisk) ? 'note' : 'error';
+
+  // gap_id: when the risk fires, the actual annotation's gapId (null
+  // when the GAP closed) is the authoritative source. When it doesn't
+  // fire, fall back to the LLM_TO_GAP lookup so the researcher SPIKE
+  // can correlate the miss with the gating card.
+  const firedGapId = llmAnnotationsForLab[0] ? llmAnnotationsForLab[0].gapId : null;
+  const gapId = firedHere
+    ? (firedGapId !== undefined ? firedGapId : null)
+    : (LLM_TO_GAP[expectedLlmId] || null);
 
   const message = firedHere
     ? `AWARE's audit chain fires ${expectedLlmId}:2025 on the ${labId} stimulus via AST10 cascade.`
@@ -335,7 +394,7 @@ function buildSarifResults({ labId, llmAnnotations, fired, expectedLlmId }) {
     risk_class: `${expectedLlmId}:2025`,
     risk_name: LLM_TOP_10_2025[expectedLlmId].name,
     fired: firedHere,
-    gap_id: LLM_TO_GAP[expectedLlmId] || null,
+    gap_id: gapId,
     ast10_cascade: Array.from(new Set(llmAnnotationsForLab.map((a) => a.ast10Rule).filter(Boolean))),
     aware_component: llmAnnotationsForLab[0] ? llmAnnotationsForLab[0].component : null,
     lab_id: labId,

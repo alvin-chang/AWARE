@@ -3,6 +3,7 @@
 // ADR (internal): Compliance Mapping & Reporting
 
 const { AICM_V1_DOMAINS, AICM_V1_CONTROL_IDS } = require('./aicm-v1-catalog');
+const { MCP_TOP_10_CONTROLS, MCP_TOP_10_CONTROL_IDS } = require('./mcp-top10-catalog');
 
 /**
  * Compliance Framework Definitions
@@ -148,6 +149,27 @@ const FRAMEWORKS = {
         'AST09': { name: 'No Governance', severity: 'Medium', description: 'Decisions are not centrally logged with an execution-receipt vector; no human review trail.' },
         'AST10': { name: 'Cross-Platform Reuse', severity: 'Medium', description: 'Skill loaded from one manifest format is reused on another platform with lossy translation.' }
       }
+    },
+    // ADR-051 — OWASP MCP Top 10 (2025). Spec pinned to upstream commit
+    // 1b369f3270be0fc09f8d406537ec9a2195ca2e6a (2026-07-19 fetch). The
+    // control list is sourced from src/compliance/mcp-top10-catalog.js
+    // (the pinned JSON-style JS module shipped with this AWARE release)
+    // so the control claim is reproducible across re-deploys. The
+    // risk-class descriptions, severity strings, and IDs MUST match
+    // mcp-top10-catalog.js — any divergence is a bug.
+    //
+    // Rationale for adding this as a sixth supported framework lives in
+    // ADR-051 ("Decision") and docs/compliance/mcp-top-10.md. MCP Top 10
+    // is the protocol-layer threat model; AST10 (behaviour), LLM Top 10
+    // (model), and AISVS (verification) are the adjacent layers.
+    OWASP_MCP_TOP_10: {
+      id: 'OWASP_MCP_TOP_10',
+      name: 'OWASP Top 10 for Model Context Protocol',
+      version: '2025',
+      source: 'https://github.com/OWASP/www-project-mcp-top-10',
+      catalogRef: './mcp-top10-catalog',
+      controls: MCP_TOP_10_CONTROLS,
+      controlIds: MCP_TOP_10_CONTROL_IDS,
     }
   };
 
@@ -182,7 +204,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-050 §3: LLM04 (v1.1 Model DoS) → LLM10:2025; LLM07 (v1.1 Plugin Design) → LLM05:2025; LLM08 (v1.1 Excessive Agency) → LLM06:2025.
     'OWASP_LLM_TOP_10': ['LLM10', 'LLM05', 'LLM06'],
     // ADR-043: sandbox-policies covers AST06 (weak isolation) directly.
-    'OWASP_AST10': ['AST06']
+    'OWASP_AST10': ['AST06'],
+    // ADR-051 §2.2: sandbox policies deny shell=True / eval / exec, which is
+    // the runtime defence for MCP05 (Command Injection & Execution) regardless
+    // of whether the call originated from an MCP-derived tool call.
+    'OWASP_MCP_TOP_10': ['MCP05']
   },
 
   // Phase 1.3: Behavioural Baseline — per-agent behavioural baseline for anomaly scoring.
@@ -251,7 +277,12 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM03', 'LLM02', 'LLM02', 'LLM02'],
     // ADR-043: identity-provider signing-key machinery covers AST01
     // (malicious skills) + AST02 (supply-chain, publisher keys).
-    'OWASP_AST10': ['AST01', 'AST02']
+    'OWASP_AST10': ['AST01', 'AST02'],
+    // ADR-051 §2.2: identity-provider signing-key machinery is shape-compatible
+    // with MCP-server signing (JWS / COSE); the publisher-key surface covers
+    // MCP01 (token / secret exposure), MCP04 (supply-chain, pending identity
+    // header SPIKE), and MCP07 (mTLS).
+    'OWASP_MCP_TOP_10': ['MCP01', 'MCP04', 'MCP07']
   },
 
   // Phase 3.1B: Behavioural Anomaly Detection — detect anomalous AI agent behaviour.
@@ -266,7 +297,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM01', 'LLM04', 'LLM02', 'LLM09', 'LLM02'],
     // ADR-043: anomaly-detection covers AST01/AST05/AST08 (behavioural
     // observations) and AST09 (audit-chain governance).
-    'OWASP_AST10': ['AST01', 'AST05', 'AST08', 'AST09']
+    'OWASP_AST10': ['AST01', 'AST05', 'AST08', 'AST09'],
+    // ADR-051 §2.2: anomaly-detection fires on MCP03 (tool/schema poisoning
+    // attempts) and MCP06 (intent flow subversion) once the new MCP adapter
+    // starts emitting mcp_message source events.
+    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06']
   },
 
   // Phase 3.1C: Tool Access Control — fine-grained tool invocation control.
@@ -282,7 +317,37 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-043: tool-access-control is the central surface for AST01/AST03/AST04/AST07.
     // AST03 (over-privilege) is enforced by permission-model.js; the AST10 mapper's
     // over-privilege-write rule (sensitive target → AST03 H) is fed from here.
-    'OWASP_AST10': ['AST01', 'AST03', 'AST04', 'AST07']
+    'OWASP_AST10': ['AST01', 'AST03', 'AST04', 'AST07'],
+    // ADR-051 §2.2: tool-access-control is the central runtime gate for the
+    // MCP-protocol surface — MCP02 (scope creep / per-call authZ),
+    // MCP03 (tool/schema poisoning observation), MCP05 (parameter validation),
+    // MCP07 (per-call authorization). The same per-call RBAC pipeline that
+    // backs AST01/AST03/AST04/AST07 also fires on MCP-derived tool calls.
+    'OWASP_MCP_TOP_10': ['MCP02', 'MCP03', 'MCP05', 'MCP07']
+  },
+
+  // Phase 3.x: Tool Observation Proxy — observes model-input classifications
+  // (LLM07 system-prompt-elicit) and review-loop annotations (LLM09
+  // misinformation). Per ADR-050 §5 GAP-4 + GAP-6.
+  //
+  // The proxy's two emission paths both ride the existing audit chain:
+  //   - src/policies/tool-observation-proxy.js::observeModelInput() emits
+  //     `model_input_classification` source events with
+  //     action.classification.rule === 'system-prompt-elicit' (commit 3d299d6).
+  //   - src/compliance/llm09-mapper.js emits `review_required` annotations
+  //     chained to the source model-output event (commit 4abdc20).
+  //
+  // Both project to LLMNN:2025 IDs via the DonkAI replay harness's
+  // componentToLlm projection (test/standards/owasp-donkai/helpers.js).
+  'tool-observation-proxy': {
+    'CSA_AI_CM': ['LOG-05', 'MDS-09', 'SEF-06'],
+    'NIST_AI_RMF': ['DE.CM', 'DE.AE', 'RS.MI'],
+    'ISO_27001': ['A.12.4'],
+    'DORA': ['Art.26', 'Art.27'],
+    // ADR-050 §5 GAP-4 + GAP-6 — closes LLM07 + LLM09 coverage.
+    'OWASP_LLM_TOP_10': ['LLM07', 'LLM09'],
+    // ADR-043: observation participation in the audit-chain governance surface.
+    'OWASP_AST10': ['AST09']
   },
 
   // Phase 3.2: Compliance Mapping — cross-framework mapping + posture reporting.
@@ -294,7 +359,57 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM09'],
     // ADR-043: compliance-mapping emits the AST09 (no governance) audit
     // surface — the OWASP "execution-receipt" vector that AST09 calls for.
-    'OWASP_AST10': ['AST09']
+    'OWASP_AST10': ['AST09'],
+    // ADR-051 §2.2: compliance-mapping surfaces MCP08 (audit/telemetry —
+    // the compliance-report output is part of the audit evidence chain)
+    // and MCP09 (shadow MCP — the report answers "which MCP servers
+    // are we compliant against?").
+    'OWASP_MCP_TOP_10': ['MCP08', 'MCP09']
+  },
+
+  // ADR-051 §2.2 — AWARE components not yet in the framework-mapper
+  // component list. These four exist as real source files in src/policies/
+  // but were not previously enumerated as AWARE components. ADR-051 §2.2
+  // requires OWASP_MCP_TOP_10 mappings for them; other frameworks'
+  // mappings will land in subsequent cards (cross-walk effort is not
+  // this card's scope).
+
+  // Per-call tool observation: every tool call AWARE sees passes through
+  // src/policies/tool-observation-proxy.js, regardless of whether the
+  // call originated from an MCP-derived tool call. ADR-051 §2.2 maps
+  // this to MCP03 (schema/description poisoning observation),
+  // MCP06 (intent-flow subversion, MCP resources/read content),
+  // MCP08 (audit/telemetry surface), MCP10 (cross-session context).
+  'tool-observation-proxy': {
+    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06', 'MCP08', 'MCP10']
+  },
+
+  // Per-call RBAC: src/policies/permission-model.js evaluates
+  // deny-by-default permissions per request. ADR-051 §2.2 maps this to
+  // MCP02 (scope creep — static enforcement only; drift detection
+  // deferred to AWARE 2.2) and MCP07 (per-call authorization).
+  'permission-model': {
+    'OWASP_MCP_TOP_10': ['MCP02', 'MCP07']
+  },
+
+  // Tool-level shadow detection: src/policies/shadow-detector.js flags
+  // unregistered tool calls after 3 in a 5-min window. ADR-051 §2.2
+  // maps this to MCP09 (Shadow MCP Servers) — the tool-level surface
+  // is a partial mitigation; protocol-level MCP-server-instance
+  // allowlist is a follow-up (deferred).
+  'shadow-detector': {
+    'OWASP_MCP_TOP_10': ['MCP09']
+  },
+
+  // Tool-output credential classifier:
+  // src/policies/credential-classifier.js scans every tool-output
+  // payload for known credential patterns (APTS-MR-019). ADR-051 §2.2
+  // maps this to MCP01 (Token Mismanagement & Secret Exposure) — the
+  // tool-output layer is the only MCP01 surface wired today; env-var /
+  // MCP-config / prompt-template secret coverage requires the new MCP
+  // adapter and is deferred.
+  'credential-classifier': {
+    'OWASP_MCP_TOP_10': ['MCP01']
   }
 };
 
@@ -396,6 +511,22 @@ class FrameworkMapper {
     // Per ADR-043 — the framework entry here is the structural surface;
     // the per-rule annotations live in src/compliance/ast10-mapper.js.
     if (frameworkId === 'OWASP_AST10') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          severity: ctrl.severity || null,
+          description: ctrl.description
+        });
+      }
+    }
+
+    // OWASP MCP Top 10 has flat MCP01-MCP10 controls (same shape as AST10
+    // and LLM Top 10). Per ADR-051 — the framework entry here is the
+    // structural surface; per-rule annotations will live in
+    // src/compliance/mcp-top10-classifier.js (separate kanban card).
+    if (frameworkId === 'OWASP_MCP_TOP_10') {
       for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
         controls.push({
           id: ctrlId,
