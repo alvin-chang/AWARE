@@ -4,6 +4,45 @@ All notable changes to AWARE Evolution are documented here.
 
 ## [Unreleased]
 
+## [2.10.0] — 2026-07-21 — OWASP AST10 support (ADR-048)
+
+**Release type:** minor. Closes the remaining 3 AST10 gaps (AST01, AST06, AST08) per ADR-048.
+
+**Coverage:** 10/10 OWASP AST10 risk classes have dedicated rules in `src/compliance/ast10-mapper.js`.
+- **H-confidence (3):** AST01 (malicious skills), AST03 (over-privilege write), AST06 (weak isolation)
+- **M-confidence (7):** AST02, AST04, AST05, AST07, AST08, AST09, AST10
+
+### Added
+- New `src/compliance/ast10-catalog.js` — canonical OWASP AST10 risk catalogue (10 risk classes)
+- New `src/compliance/skill-scanner.js` — vendor-neutral skill scanner adapter (NVIDIA SkillSpector default, Cisco compatible)
+- New `src/policies/sandbox-decision-emitter.js` — AST06 source-event producer
+- `src/compliance/ast10-mapper.js` extended with 3 new rules (Rule 8, 9, 10) closing the remaining AST10 gaps
+- `src/policies/tool-observation-proxy.js` extended with AST06 + AST08 source-event producers
+- `docs/adr/ADR-048-aware-ast10-coverage.md` — canonical follow-up ADR
+
+### Rules shipped (10/10 AST10 risks)
+- **Rule 1** `scannerRequired` → AST01 (H)
+- **Rule 2** `publisherProvenance` → AST02 (M)
+- **Rule 3** `overPrivilegeWrite` → AST03 (H)
+- **Rule 4** `networkManifestIntegrity` → AST04 (M)
+- **Rule 5** `untrustedInstructionOrigin` → AST05 (M)
+- **Rule 6** `sandboxBoundaryEnforcement` → AST06 (H)
+- **Rule 7** `updateWithoutPin` → AST07 (M)
+- **Rule 8** `sandbox-boundary-violation` → AST06 (H, closes AST06 gap)
+- **Rule 9** `skill-scan-finding` → AST08 (M, closes AST08 gap)
+- **Rule 10** `malicious-or-unproven-skill` → AST01 (H, closes AST01 gap)
+
+### Testing
+- 25/25 standards tests pass (`test/standards/owasp-ast10/ast01.test.js` … `ast10.test.js` + 2 fanout tests + helpers)
+- 44/44 unit tests pass (`test/unit/compliance/skill-scanner.test.js` + `test/unit/policies/tool-observation-proxy-ast06-ast08.test.js`)
+
+### Privacy fix
+- Sanitized stale host-path comment in `ast10-mapper.js:526` to clear gitleaks (an operator-specific home path was replaced with a generic `<profile-dir>` placeholder)
+
+### Pre-commit + pre-push hooks
+- Layer 1 (pre-commit): ✅ passed (privacy filter + gitleaks clean)
+- Layer 2 (pre-push): ✅ passed (public-boundary check on 20 changed scripts, all clean)
+
 ## [2.9.0] — 2026-06-30 — CSA AICM v1 support
 
 **Release type:** minor. Promotes the AICM v1 work from a feature addition to a release milestone.
