@@ -331,11 +331,12 @@ export {
 // adapter's own MCPAdapter class is re-exported for tests and for the
 // downstream classifier card (separate kanban) that will read
 // `mcp_message` source events and emit MCP0N:2025 annotations.
+import { createRequire as _createRequire } from 'node:module';
+const _require = _createRequire(import.meta.url);
 let _mcpAdapterModule = null;
 function _loadMcpAdapter() {
   if (_mcpAdapterModule) return _mcpAdapterModule;
-  // eslint-disable-next-line global-require
-  _mcpAdapterModule = require('./adapters/mcp.js');
+  _mcpAdapterModule = _require('./adapters/mcp.js');
   return _mcpAdapterModule;
 }
 
@@ -361,4 +362,15 @@ export async function observeMcpMessage(envelope, actor) {
   }
 }
 
-export { MCPAdapter as MCPAdapterClass } from './adapters/mcp.js';
+/**
+ * Lazily expose the MCPAdapter class for tests + downstream wiring.
+ * Returns the class without instantiating it. Use this in preference
+ * to importing mcp.js directly when going through the coordinator
+ * shell is appropriate.
+ *
+ * @returns {Function}
+ */
+export function getMCPAdapter() {
+  const mod = _loadMcpAdapter();
+  return mod.MCPAdapter;
+}

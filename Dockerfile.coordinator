@@ -62,6 +62,16 @@ COPY src/db ./src/db
 COPY src/budget ./src/budget
 COPY src/trainer ./src/trainer
 COPY src/audit ./src/audit
+# t_cc0b54c2 / APTS-MR-019: src/coordinator/index.js eagerly imports
+# credential-classifier (APTS-MR-019 re-export at line 317) at module
+# load time. ESM `export { ... } from` evaluates the imported module
+# synchronously during parse, so a missing src/policies/ at container
+# start produces ERR_MODULE_NOT_FOUND before the http-server bound.
+# src/policies/ also carries tool-observation-proxy.js (already
+# shipped), permission-model.js, store.js, etc. — copying the whole
+# directory is consistent with the per-tree COPY style used above and
+# keeps each tree independent of the others' file lists.
+COPY src/policies ./src/policies
 COPY db ./db
 # Bake the Modal training config into the image so the trainer's
 # default `config.trainer.configPath` (`config/modal-training.json`,

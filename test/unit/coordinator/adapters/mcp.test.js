@@ -24,6 +24,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const {
   MCPAdapter,
@@ -524,10 +525,50 @@ test('parses the JSONL corpus end-to-end (every recognised envelope)', () => {
 // observeMcpMessage — coordinator shell entry point
 // ----------------------------------------------------------------------------
 
-test('coordinator/index.js exports observeMcpMessage wired to MCPAdapter', () => {
-  // Use a fresh require so we don't depend on module-cache ordering.
-  const coordPath = path.resolve(__dirname, '..', '..', '..', '..', 'src', 'coordinator', 'index.js');
-  delete require.cache[require.resolve(coordPath)];
-  const coord = require(coordPath);
+test('coordinator/index.js exports observeMcpMessage wired to MCPAdapter', async () => {
+  // index.js is an ESM module; dynamic import is required (not require()).
+  const coordUrl = pathToFileURL(
+    path.resolve(__dirname, '..', '..', '..', '..', 'src', 'coordinator', 'index.js')
+  ).href;
+  const coord = await import(coordUrl);
   assert.strictEqual(typeof coord.observeMcpMessage, 'function');
+  assert.strictEqual(typeof coord.getMCPAdapter, 'function');
+  const MCPAdapterClass = coord.getMCPAdapter();
+  assert.strictEqual(typeof MCPAdapterClass, 'function');
+  const inst = new MCPAdapterClass();
+  assert.strictEqual(typeof inst.parse, 'function');
+  assert.strictEqual(typeof inst.emitMessage, 'function');
+});
+
+test('observeMcpMessage end-to-end: parses + emits one mcp_message record', async () => {
+  const coordUrl = pathToFileURL(
+    path.resolve(__dirname, '..', '..', '..', '..', 'src', 'coordinator', 'index.js')
+  ).href;
+  const coord = await import(coordUrl);
+
+  // Point AUDIT_DIR at a tmp dir so the shell-level observeMcpMessage
+  // does not clobber /data/audit/decision-chain.jsonl on this host.
+  const os = await import('node:os');
+  const tmpAudit = fs.mkdtempSync(path.join(os.default.tmpdir(), 'aware-mcp-test-'));
+  process.env.AUDIT_DIR = tmpAudit;
+  try {
+    const result = await coord.observeMcpMessage(
+      { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+      { agentId: 'shell-test', trustScore: 1 }
+    );
+    assert.strictEqual(result.ok, true);
+    const chainFile = path.join(tmpAudit, 'decision-chain.jsonl');
+    assert.ok(fs.existsSync(chainFile), 'audit chain file not written');
+    const lines = fs.readFileSync(chainFile, 'utf8').trim().split('\n').filter(Boolean);
+    assert.ok(lines.length >= 1, 'audit chain is empty');
+    const record = JSON.parse(lines[lines.length - 1]);
+    assert.strictEqual(record.action.type, 'mcp_message');
+    assert.strictEqual(record.action.parameters.messageType, 'tools/list');
+    assert.strictEqual(record.action.parameters.shape, 'request');
+  } finally {
+    delete process.env.AUDIT_DIR;
+    try {
+      fs.rmSync(tmpAudit, { recursive: true, force: true });
+    } catch (_) { /* best-effort */ }
+  }
 });
