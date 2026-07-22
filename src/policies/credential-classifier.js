@@ -32,7 +32,18 @@
 
 'use strict';
 
-const CLASSIFIER_VERSION = '0.0.0-stub';
+// NOTE: this module is consumed by the ESM coordinator at
+// src/coordinator/index.js (named imports: `classify`, `redact`,
+// `buildDecisionRecord`, `CLASSIFIER_VERSION`). Per the prior coder
+// run (83d40f4) the host dynamic-import test passed because Node
+// treats `.js` as ESM under the project's `"type": "module"` package
+// boundary — but the *in-image* load failed because the runtime
+// package.json (`{"type":"module","name":"aware-coordinator",...}`,
+// written by Dockerfile line 196) re-classifies the module as ESM,
+// rejecting `module.exports = {...}`. Use ESM `export` syntax so the
+// same source satisfies both load paths.
+
+export const CLASSIFIER_VERSION = '0.0.0-stub';
 
 /**
  * Classify a tool-output payload for credential-bearing content.
@@ -40,7 +51,7 @@ const CLASSIFIER_VERSION = '0.0.0-stub';
  * @param {*} _payload
  * @returns {{ classifications: Array<{ kind: string, span: [number, number] }>, version: string }}
  */
-function classify(_payload) {
+export function classify(_payload) {
   return { classifications: [], version: CLASSIFIER_VERSION };
 }
 
@@ -51,7 +62,7 @@ function classify(_payload) {
  * @param {*} payload
  * @returns {*}
  */
-function redact(payload) {
+export function redact(payload) {
   return payload;
 }
 
@@ -62,13 +73,6 @@ function redact(payload) {
  * @param {Object} _actor
  * @returns {Object|null}
  */
-function buildDecisionRecord(_finding, _actor) {
+export function buildDecisionRecord(_finding, _actor) {
   return null;
 }
-
-module.exports = {
-  classify,
-  redact,
-  buildDecisionRecord,
-  CLASSIFIER_VERSION,
-};
