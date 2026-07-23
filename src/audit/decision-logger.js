@@ -178,7 +178,18 @@ function loadIndex() {
 }
 
 /**
- * Persist index to disk.
+ * Persist index to disk (synchronous, full rewrite).
+ *
+ * ARCHITECTURAL FIX (Phase 9.2): The previous implementation rewrote the
+ * entire index file on EVERY decision via fs.writeFileSync. With 20k+
+ * decisions this serialized ~1.2MB per call, blocked the event loop, and
+ * caused every AWARE hook to exceed its 60s timeout (HookTimeoutError).
+ *
+ * The fix: persistIndex now only runs on graceful shutdown via
+ * scheduleIndexFlush() (debounced 5s) or shutdown handler. Per-decision
+ * work is now O(1) memory + O(1) async — no fs.writeFileSync in the hot
+ * path. Trade-off: ~5s of decisions may be lost on crash (acceptable for
+ * an audit log; chain integrity is preserved by the JSONL append-only log).
  */
 function persistIndex() {
   const entries = {};
@@ -186,6 +197,56 @@ function persistIndex() {
     entries[decisionId] = hash;
   }
   fs.writeFileSync(AUDIT_INDEX_FILE, JSON.stringify(entries));
+}
+
+/**
+ * Schedule an async flush of the index to disk. Debounced: collapses
+ * bursts of decisions into a single fs.writeFile call.
+ *
+ * @param {number} delayMs - milliseconds to wait before flushing
+ */
+let flushScheduled = null;
+let flushInProgress = false;
+function scheduleIndexFlush(delayMs = 5000) {
+  if (flushScheduled) return;
+  flushScheduled = setTimeout(async () => {
+    flushScheduled = null;
+    if (flushInProgress) return;
+    flushInProgress = true;
+    try {
+      await new Promise((resolve, reject) => {
+        const entries = {};
+        for (const [decisionId, hash] of index) {
+          entries[decisionId] = hash;
+        }
+        // Write to a tmp file then rename for atomic replace
+        const tmpFile = AUDIT_INDEX_FILE + '.tmp';
+        fs.writeFile(tmpFile, JSON.stringify(entries), (err) => {
+          if (err) return reject(err);
+          fs.rename(tmpFile, AUDIT_INDEX_FILE, (err2) => {
+            if (err2) return reject(err2);
+            resolve();
+          });
+        });
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[decision-logger] async flush failed: ${err.message}`);
+    } finally {
+      flushInProgress = false;
+    }
+  }, delayMs);
+}
+
+/**
+ * Force an immediate synchronous flush (for shutdown + tests).
+ */
+function flushIndexSync() {
+  if (flushScheduled) {
+    clearTimeout(flushScheduled);
+    flushScheduled = null;
+  }
+  persistIndex();
 }
 
 /**
@@ -261,14 +322,19 @@ function readFromLog(hash) {
 
 /**
  * Update index with new decision.
- * 
+ *
+ * ARCHITECTURAL FIX (Phase 9.2): previously called persistIndex() which
+ * did a full synchronous rewrite of the entire index on every decision.
+ * Now uses scheduleIndexFlush() (debounced async) so per-decision cost
+ * is O(1) memory + O(1) async — no event-loop blocking.
+ *
  * @param {string} decisionId
  * @param {string} hash
  */
 async function updateIndex(decisionId, hash) {
   index.set(decisionId, hash);
   lastHash = hash;
-  persistIndex();
+  scheduleIndexFlush();
 }
 
 /**
@@ -495,6 +561,37 @@ async function exportChain(fromId, toId, format = 'json') {
 loadIndex();
 
 // ============================================================================
+// Graceful Shutdown (Phase 9.2)
+// ============================================================================
+//
+// ARCHITECTURAL FIX: when the coordinator receives SIGTERM (e.g., docker
+// stop, oc reload), the process exits without flushing pending index
+// updates. With the old per-call persistIndex, every decision was on disk
+// immediately; with the new debounced flush, we need to flush before exit.
+//
+// flushIndexSync() does a final synchronous persistIndex() to capture any
+// unflushed decisions.
+
+function installShutdownHandlers() {
+  const handler = (signal) => {
+    try {
+      flushIndexSync();
+      // eslint-disable-next-line no-console
+      console.log(`[decision-logger] flushed on ${signal}`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[decision-logger] shutdown flush failed: ${err.message}`);
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => handler('SIGTERM'));
+  process.on('SIGINT', () => handler('SIGINT'));
+}
+
+installShutdownHandlers();
+
+// ============================================================================
 // Module Exports
 // ============================================================================
 
@@ -519,5 +616,11 @@ module.exports = {
   // Index operations
   getLastHash,
   indexLookup,
-  readFromLog
+  readFromLog,
+
+  // Phase 9.2: async flush controls (exported for tests + ops)
+  scheduleIndexFlush,
+  flushIndexSync,
+  isFlushScheduled: () => flushScheduled !== null,
+  isFlushInProgress: () => flushInProgress
 };
