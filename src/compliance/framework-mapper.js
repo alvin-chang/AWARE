@@ -209,8 +209,8 @@ const FRAMEWORKS = {
       // crosswalkConfidence, ismsRef, clause }.
       controls: ISO_42001_CONTROLS,
       controlIds: ISO_42001_CONTROL_IDS,
-      // Per ADR-055 §D3: 13 mapped / 16 partial / 9 gap of 38.
-      awarenessBreakdown: { mapped: 13, partial: 16, gap: 9, total: 38 },
+      // Per ADR-055 §D3: 13 mapped / 19 partial / 6 gap of 38.
+      awarenessBreakdown: { mapped: 13, partial: 19, gap: 6, total: 38 },
       // Per ADR-055 §"Scope statement": Annex A only; no clause 4-10.
       scopeNote: 'Annex A control coverage only; does NOT assert clause 4-10 management-system body coverage; does NOT claim certification.'
     }

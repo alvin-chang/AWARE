@@ -6,7 +6,7 @@
 //   - Each entry has { name, description, awareness, awareComponents,
 //     crosswalkConfidence, ismsRef, clause }
 //   - Awareness class breakdown matches the research report §6.1: 13 mapped /
-//     16 partial / 9 gap of 38
+//     19 partial / 6 gap of 38
 //   - Description length ≤200 chars; no entry is empty
 //   - Catalog is frozen (no runtime mutation)
 //   - Framework block registered in framework-mapper.js with the ADR-055
@@ -66,15 +66,14 @@ const EXPECTED_MAPPED = [
   'A.6.2.6', 'A.6.2.8', 'A.8.3', 'A.8.4', 'A.9.2', 'A.9.4', 'A.10.3'
 ];
 const EXPECTED_PARTIAL = [
-  'A.2.2', 'A.2.3', 'A.3.3', 'A.4.3', 'A.4.5', 'A.6.1.2',
-  'A.6.2.2', 'A.6.2.5', 'A.6.2.7', 'A.7.2', 'A.7.3', 'A.7.5',
-  'A.8.2', 'A.8.5', 'A.10.2', 'A.10.4'
+  'A.2.2', 'A.2.3', 'A.2.4', 'A.3.3', 'A.4.3', 'A.4.5', 'A.6.1.2',
+  'A.6.2.2', 'A.6.2.5', 'A.6.2.7', 'A.7.2', 'A.7.3', 'A.7.4', 'A.7.5',
+  'A.8.2', 'A.8.5', 'A.9.3', 'A.10.2', 'A.10.4'
 ];
 const EXPECTED_GAP = [
-  'A.2.4', 'A.4.6',
+  'A.4.6',
   'A.5.2', 'A.5.3', 'A.5.4', 'A.5.5',  // the headline impact-assessment cluster
-  'A.7.4', 'A.7.6',
-  'A.9.3'
+  'A.7.6'
 ];
 
 // Per-component ISO 42001 mappings per ADR-055 §D5 / research §4. This is
@@ -154,7 +153,7 @@ test('iso42001-catalog: every awareComponents reference exists in framework-mapp
   }
 });
 
-test('iso42001-catalog: awareness-class breakdown is exactly 13 mapped / 16 partial / 9 gap', () => {
+test('iso42001-catalog: awareness-class breakdown is exactly 13 mapped / 19 partial / 6 gap', () => {
   const actual = { mapped: [], partial: [], gap: [] };
   for (const [cid, entry] of Object.entries(ISO_42001_CONTROLS)) {
     actual[entry.awareness].push(cid);
@@ -216,7 +215,7 @@ test('framework-mapper: ISO_42001 is registered in FRAMEWORKS with the ADR-055 �
   assert.match(fw.attribution, /ISMS\.online/);
   assert.match(fw.attribution, /fetched 2026-07-28/);
   assert.strictEqual(fw.catalogRef, './iso42001-catalog');
-  assert.deepStrictEqual(fw.awarenessBreakdown, { mapped: 13, partial: 16, gap: 9, total: 38 });
+  assert.deepStrictEqual(fw.awarenessBreakdown, { mapped: 13, partial: 19, gap: 6, total: 38 });
   assert.match(fw.scopeNote, /Annex A control coverage only/);
   assert.match(fw.scopeNote, /does NOT claim/);
 });

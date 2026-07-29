@@ -94,8 +94,8 @@ const ISO_42001_CONTROLS = Object.freeze({
   'A.2.4': {
     name: 'Review of the AI Policy',
     description: 'AI policy reviewed at planned intervals and after significant changes; review outcome documented.',
-    awareness: 'gap',
-    awareComponents: [],
+    awareness: 'partial',
+    awareComponents: ['compliance-mapping'],
     crosswalkConfidence: 'L',
     ismsRef: 'https://www.isms.online/iso-42001/annex-a-controls/#a-2-4',
     clause: 'A.2 — Policies for AI'
@@ -321,7 +321,7 @@ const ISO_42001_CONTROLS = Object.freeze({
   'A.7.4': {
     name: 'Quality of Data for AI Systems',
     description: 'Data-quality criteria (accuracy, completeness, timeliness) defined and measured.',
-    awareness: 'gap',
+    awareness: 'partial',
     awareComponents: ['credential-classifier'],
     crosswalkConfidence: 'L',
     ismsRef: 'https://www.isms.online/iso-42001/annex-a-controls/#a-7-4',
@@ -401,7 +401,7 @@ const ISO_42001_CONTROLS = Object.freeze({
   'A.9.3': {
     name: 'Objectives for Responsible Use of AI Systems',
     description: 'Defined objectives for responsible AI use (e.g., human oversight, escalation paths).',
-    awareness: 'gap',
+    awareness: 'partial',
     awareComponents: ['compliance-mapping'],
     crosswalkConfidence: 'L',
     ismsRef: 'https://www.isms.online/iso-42001/annex-a-controls/#a-9-3',
