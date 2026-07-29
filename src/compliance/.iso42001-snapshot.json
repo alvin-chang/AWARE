@@ -1,0 +1,8 @@
+{
+  "sourceUrl": "https://www.isms.online/iso-42001/annex-a-controls/",
+  "upstreamDate": "2026-07-28",
+  "fetchedAt": "2026-07-28T21:32:33.259Z",
+  "expectedControlCount": 38,
+  "foundControlCount": 38,
+  "missingControlIds": []
+}

@@ -194,6 +194,54 @@ Phase 4 first-slice SOP. The outcome filter module
 filter rule from `AWARE_TRAINER_FILTER_RULE` — the architecture decision
 is deferred to deploy time, not code time.
 
+### Creating a new ADR
+
+ADRs live in `docs/adr/`. The pre-commit hook
+(`scripts/pre-commit-check.sh`) enforces the numbering convention at
+commit time, so the rules below are not optional.
+
+**Numbering:** Before creating a new ADR, run
+
+```bash
+ls docs/adr/ | grep -oE "ADR-[0-9]+" | sort -V | tail -1
+```
+
+to find the highest existing number, then use **next + 1** as your
+ADR-NNN. **Never reuse a number** — even if an old ADR is rejected,
+the number is "burned" and stays off-limits. The pre-commit hook
+will block the commit if two files in `docs/adr/` share a number
+(see `docs/adr/AWARE-FIX-2026-07-13.md` for the most recent incident
+and the gate that prevents recurrence).
+
+**Filename pattern:** `ADR-NNN-aware-<short-slug>.md`. Examples:
+`ADR-048-aware-llm-caching.md`, `ADR-049-aware-tool-allowlist.md`. The
+`-aware-` segment is required so the pre-commit check can pattern-match
+project files vs random docs in the same directory.
+
+**H1 line:** First line of the file must be `# ADR-NNN — <Title>`. The
+number in the H1 must match the filename; the pre-commit check enforces
+this.
+
+**Un-numbered files:** If a doc in `docs/adr/` is *not* an ADR (e.g.
+a positioning memo like `vnx-positioning.md`), add
+`**ADR-number: skipped**` in the first 3 lines of front matter.
+The check looks for this marker and exempts the file from the
+ADR-NNN-prefix rule.
+
+**Cross-references:** When you reference another ADR in the body of
+your new file, use the form `ADR-NNN §"<section name>"` so future
+readers can find the cited section. After renaming an existing ADR,
+sed-replace the OLD ADR-NNN across `docs/adr/`, `src/`, and `test/`
+— the pre-commit check's "stale reference" rule is what catches a
+half-done rename, and it will block the commit until you've
+updated all references.
+
+**Exemptions:** The check exempts two files from the stale-reference
+rule: the check script itself (`scripts/pre-commit-check.sh`) and
+the historical fix record (`docs/adr/AWARE-FIX-2026-07-13.md`).
+These are the only legitimate places to mention retired ADR numbers
+going forward.
+
 ---
 
 ## Where the operator actions live

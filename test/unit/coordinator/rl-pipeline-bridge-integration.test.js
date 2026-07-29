@@ -160,6 +160,74 @@ test('classifyError handles common error shapes', () => {
   assert.equal(classifyError(new Error('something else')), 'internal_error');
 });
 
+test('classifyError recognises upstream_rate_limited via structured code (t_22a34f6d)', () => {
+  // Structured-code path (set by minimax.js's withRateLimitRetry after
+  // 4 failed 429 attempts).
+  const errWithCode = Object.assign(new Error('429 rate limited'), {
+    code: 'upstream_rate_limited',
+    statusCode: 429,
+  });
+  assert.equal(classifyError(errWithCode), 'upstream_rate_limited');
+
+  // Belt-and-suspenders: an error with statusCode 429 but no code field
+  // (e.g. a future caller surfaces the HTTP status directly).
+  const errWithStatus = Object.assign(new Error('429'), { statusCode: 429 });
+  assert.equal(classifyError(errWithStatus), 'upstream_rate_limited');
+
+  // Non-429 failures keep their existing classification (502 regression
+  // test — must keep working alongside the new branch).
+  assert.equal(classifyError(new Error('the provider API 502 bad gateway')), 'upstream_error');
+});
+
+test('awareRlPipeline surfaces retried_attempts_total in the envelope when upstream retries occurred', async () => {
+  // Stub the upstream layer to inject __retriedAttempts on every call.
+  // K=2 + refine = 3 upstream hits → expected totalRetried = 0+1+2 = 3
+  // (or any sum — what matters is the envelope carries it forward).
+  let callSeq = 0;
+  const tracedClient = {
+    async generate(prompt, opts = {}) {
+      callSeq += 1;
+      const r = { reasoning: `attempt-${callSeq}`, cost_usd: 0.001, __retriedAttempts: callSeq };
+      if (opts.phase === 'prm_score') {
+        return { ...r, reasoning: JSON.stringify({ score: 7, strengths: [], weaknesses: [], confidence: 0.8 }) };
+      }
+      if (opts.phase === 'refine') {
+        return { ...r, reasoning: 'refined', confidence: 0.9 };
+      }
+      return r;
+    },
+    calls: [],
+  };
+  const result = await awareRlPipeline({
+    problem: 'p',
+    K: 2,
+    task_type: 'standard',
+    client: tracedClient,
+    writePairs: false,
+  });
+  assert.equal(result.ok, true);
+  // The envelope aggregates retries across the K parallel + PRM + refine
+  // calls. The exact total depends on how rl-pipeline distributes calls
+  // per attempt/prm/refine — what we assert is that the field is present,
+  // numeric, and > 0 when any underlying call produced a retry count.
+  assert.equal(typeof result.retried_attempts_total, 'number');
+  assert.ok(result.retried_attempts_total > 0, 'envelope carries aggregated retry count');
+});
+
+test('awareRlPipeline omits retried_attempts_total when no upstream retry occurred (clean envelope)', async () => {
+  // The default mockClient returns objects without __retriedAttempts →
+  // sumRetriedAttempts() returns 0 → envelope field is omitted.
+  const result = await awareRlPipeline({
+    problem: 'p',
+    K: 1,
+    task_type: 'simple',
+    client: mockClient(),
+    writePairs: false,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.retried_attempts_total, undefined, 'field omitted on clean envelopes');
+});
+
 test('coordinate() is the public entry point and accepts session/agent context', async () => {
   const result = await coordinate({
     problem: 'p',

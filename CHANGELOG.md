@@ -2,46 +2,7 @@
 
 All notable changes to AWARE Evolution are documented here.
 
-## [Unreleased]
-
-## [2.10.0] — 2026-07-21 — OWASP AST10 support (ADR-048)
-
-**Release type:** minor. Closes the remaining 3 AST10 gaps (AST01, AST06, AST08) per ADR-048.
-
-**Coverage:** 10/10 OWASP AST10 risk classes have dedicated rules in `src/compliance/ast10-mapper.js`.
-- **H-confidence (3):** AST01 (malicious skills), AST03 (over-privilege write), AST06 (weak isolation)
-- **M-confidence (7):** AST02, AST04, AST05, AST07, AST08, AST09, AST10
-
-### Added
-- New `src/compliance/ast10-catalog.js` — canonical OWASP AST10 risk catalogue (10 risk classes)
-- New `src/compliance/skill-scanner.js` — vendor-neutral skill scanner adapter (NVIDIA SkillSpector default, Cisco compatible)
-- New `src/policies/sandbox-decision-emitter.js` — AST06 source-event producer
-- `src/compliance/ast10-mapper.js` extended with 3 new rules (Rule 8, 9, 10) closing the remaining AST10 gaps
-- `src/policies/tool-observation-proxy.js` extended with AST06 + AST08 source-event producers
-- `docs/adr/ADR-048-aware-ast10-coverage.md` — canonical follow-up ADR
-
-### Rules shipped (10/10 AST10 risks)
-- **Rule 1** `scannerRequired` → AST01 (H)
-- **Rule 2** `publisherProvenance` → AST02 (M)
-- **Rule 3** `overPrivilegeWrite` → AST03 (H)
-- **Rule 4** `networkManifestIntegrity` → AST04 (M)
-- **Rule 5** `untrustedInstructionOrigin` → AST05 (M)
-- **Rule 6** `sandboxBoundaryEnforcement` → AST06 (H)
-- **Rule 7** `updateWithoutPin` → AST07 (M)
-- **Rule 8** `sandbox-boundary-violation` → AST06 (H, closes AST06 gap)
-- **Rule 9** `skill-scan-finding` → AST08 (M, closes AST08 gap)
-- **Rule 10** `malicious-or-unproven-skill` → AST01 (H, closes AST01 gap)
-
-### Testing
-- 25/25 standards tests pass (`test/standards/owasp-ast10/ast01.test.js` … `ast10.test.js` + 2 fanout tests + helpers)
-- 44/44 unit tests pass (`test/unit/compliance/skill-scanner.test.js` + `test/unit/policies/tool-observation-proxy-ast06-ast08.test.js`)
-
-### Privacy fix
-- Sanitized stale host-path comment in `ast10-mapper.js:526` to clear gitleaks (an operator-specific home path was replaced with a generic `<profile-dir>` placeholder)
-
-### Pre-commit + pre-push hooks
-- Layer 1 (pre-commit): ✅ passed (privacy filter + gitleaks clean)
-- Layer 2 (pre-push): ✅ passed (public-boundary check on 20 changed scripts, all clean)
+## [2.8.0] — 2026-06-30 — Public release
 
 ## [2.9.0] — 2026-06-30 — CSA AICM v1 support
 
@@ -53,22 +14,72 @@ All notable changes to AWARE Evolution are documented here.
 
 ### 2026-06-30 — CSA AICM v1 support (real control IDs)
 
-**Status:** Phase 1 of compliance mapping upgrade. Real AICM v1 control IDs replace the previous placeholders.
+### Added
 
-**Replaces:** placeholder control IDs (`AI.ID-*`, `AI.OPS-*`, `AI.MT-*`, `AI.OT-*`) that did not exist in the AICM spec with real CSA AICM v1 control IDs (`IAM-*`, `MDS-*`, `DSP-*`, `LOG-*`, `SEF-*`, `TVM-*`, `GRC-*`, `AIS-*`, `UEM-*`, `CEK-*`, `A&A-*`).
+- **`scripts/check-public-boundary.mjs`** — companion to the existing
+  4-layer privacy filter. Detects operator-internal script binding
+  (host paths, operator env dirs, LAN IPs, non-default localhost
+  ports, operator org literals, bearer tokens, common secret prefixes,
+  connection strings with credentials). Enforces a per-file
+  `# public-boundary:` marker convention (`ok`, `operator-internal`,
+  `test-fixture`). Pure-analysis scripts are exempt by default. Wire
+  it in via `scripts/hooks/pre-push` for Layer 2 coverage on every
+  push; the marker grammar and decision logic live in the file-header
+  comment.
 
-**Coverage:** 184 verified control IDs across all 18 AICM v1 domains (76% of CSA's published 243-control universe).
+- **`docs/security/branch-discipline.md`** — documents the dual-remote
+  workflow (gitea vs github), the public-boundary rule, and the
+  cherry-pick procedure for cutting public releases. Covers the four
+  conditions a commit must satisfy to be public-safe and the
+  operator-internal marker convention.
 
-**Added:**
+- **`.gitleaks.toml` allowlist** — added `scripts/check-public-
+  boundary.mjs` to the rule-definition allowlist (its regex literals
+  match its own patterns; same self-defining-file pattern as the
+  existing hook scripts).
+
+### Changed
+
+- **`scripts/run-phase4-d5.sh`** — `MODAL_PROFILE` default changed
+  from the operator's workspace name to `default`. The script is now
+  operator-org-agnostic: deploys to whatever Modal workspace is
+  named in `$MODAL_PROFILE`. Marked `# public-boundary: ok`.
+
+- **`scripts/aware-up`** — added `# public-boundary: operator-internal`
+  marker. The script binds to the operator's local stack topology and
+  is not public-safe in this form. See the marker comment for the
+  generic placeholder language; the operator-specific values live
+  only on the internal `main` branch.
+
+### Fixed
+
+- **`CHANGELOG.md`** — sanitised the v2.7-era historical port-mapping
+  reference (line 227 in the prior version) to remove the literal
+  coordinator publish port. The internal `main` branch retains the
+  historical record; this public copy documents the change
+  generically.
+
+### Notes
+
+- This is the first release cut under the new dual-remote discipline.
+  The internal gitea repository (`origin`) tracks `main` on every
+  push; the public github repository tracks `public/v2.8.x` only at
+  release checkpoints. See `docs/security/branch-discipline.md` for
+  the procedure future releases follow.
+
+- The public-boundary checker, the 4-layer privacy filter, and the
+  pre-push hook on `public/v2.8.x` together enforce that no
+  operator-literal value reaches the github tree at any commit.
+
+### AICM v1 support (cherry-picked from main, 2026-06-30)
+
+Real CSA AICM v1 control IDs replace the previous placeholders. 184 verified control IDs across all 18 AICM v1 domains (76% of CSA's published 243-control universe).
+
 - `src/compliance/aicm-v1-catalog.js` — generated AICM v1 control catalog (184 controls × 18 domains)
-- `scripts/regenerate-aicm-catalog.js` — regeneration script that pulls from the OpenCRE TRACT CSV mirror
+- `scripts/regenerate-aicm-catalog.js` — regeneration script that pulls from the OpenCRE TRACT public CSV mirror
 - `docs/compliance/aicm-v1.md` — coverage documentation, sources, gap analysis
-
-**Changed:**
 - `src/compliance/framework-mapper.js` — `CSA_AI_CM` framework now backed by the real AICM v1 catalog; all 10 AWARE component mappings updated to use real control IDs
-- `src/compliance/evidence-collector.js` — 5 default collectors re-keyed from placeholder IDs to real AICM v1 IDs (`IAM-01`, `IAM-04`, `LOG-03`, `SEF-03`, `IAM-08`)
-- `tests/compliance/compliance-mapping.test.js` — 16 placeholder references updated; framework-name assertion corrected to `"CSA AI Controls Matrix"` (plural, matching CSA's official name)
-- `README.md` — CSA row in the frameworks table updated to reflect v1 / 18 domains / 184 controls
+- `src/compliance/evidence-collector.js` — 5 default collectors re-keyed from placeholder IDs to real AICM v1 IDs
 
 **Privacy fix (95f1c25):** `scripts/regenerate-aicm-catalog.js` no longer hardcodes `/tmp/aicm-fetch/` (an operator-machine directory name); uses `os.tmpdir()` for OS-portable temp paths. Caught during the post-commit privacy audit.
 
@@ -78,6 +89,131 @@ All notable changes to AWARE Evolution are documented here.
 
 **Open items:**
 - Close the 76% → 100% coverage gap (184 → 243 controls) when CSA publishes a non-gated full mirror or OpenCRE updates their TRACT export. See `docs/compliance/aicm-v1.md` § "Closing the coverage gap".
+
+## [Unreleased] — v2 OpenAPI: /tier-promotions + Mandate schemas (2026-07-06)
+
+**Kanban:** t_58ba2031, t_e4aaab5d
+
+### Added
+
+- **`docs/openapi.yaml` v2 surface** — adds the contract RiskMandate.ai
+  needs to consume AWARE tier-promotion events. Schemas: `TierPromotion`
+  (AWARE event payload), `Mandate` (RM acceptance), `MandateCreate`
+  (RM request), `MandateResponse` (RM response). Paths:
+  `POST /v2/tier-promotions` (202 Accepted — event ingest) and
+  `POST /v2/mandates` (201 Created, 409 on idempotency hit). All new
+  paths are protected by `bearerAuth` (JWT) like the rest of the v2 API.
+
+- **`src/v2/tier_promotions_handler.js`** — server-side handler for
+  `POST /v2/tier-promotions` (the contract surface above). Validates
+  the `TierPromotion` schema hand-rolled against openapi.yaml (required
+  fields, UUID format, RFC3339 `promoted_at`, tier enum,
+  `additionalProperties: false` at root). Mounted under `/v2` in
+  `src/api/index.js` after the bearer-auth gate so 401 falls through
+  cleanly. Persistence delegated to the DB-backed writer at
+  `src/db/tier-promotions.js` (sibling card `t_5955682e`) via a
+  dynamic-import bridge from this CJS handler; if the pool is
+  unavailable the handler still returns 202 per the openapi spec
+  ("the server has recorded the event; downstream Mandate creation is
+  the coordinator's responsibility"). New unit suite:
+  `test/unit/api/tier-promotions-handler.test.js` (39 cases — every
+  validation branch + every HTTP status path).
+
+### Fixed
+
+- **`src/api/index.js`** — mount the v2 handler at the root path `/v2`
+  (per openapi.yaml) rather than under `/api/v2`. The handler is
+  lazy-required so a missing SECRET_KEY doesn't take the whole gateway
+  down at boot (mirrors the existing identity-v2 mounting pattern).
+
+### Schema-rigor notes
+
+- `additionalProperties: false` on every new object schema (BLOCK-13
+  precedent: closed root objects force clients to declare extensions
+  explicitly).
+- `Mandate.underwriters.minItems: 1` (RM "no executive accepts alone"
+  — the deeper "min 2 / no one-person acceptance" rule is enforced by
+  the RM policy engine, not the schema).
+- `Mandate.expiry` is required on `Mandate` and `MandateCreate`
+  (RM "no standing mandates" — grants that should persist must be
+  renewed).
+- `Mandate.direction` enum deliberately omits `deny` (RM's contract is
+  to bound the agent's envelope, not to refuse it).
+- `MandateResponse.ramm_level` (integer 1–5) surfaces the RiskMandate
+  Maturity Model level alongside the grant, so the AWARE coordinator
+  can record how mature the accepting organisation is.
+
+### Out of scope (follow-up cards)
+
+- `src/server.js` route handlers for `/v2/tier-promotions` and
+  `/v2/mandates`.
+- `src/coordinator/` tier-promotion trigger logic.
+- `src/ui/` mandate-history views.
+- RiskMandate API client.
+- Docker compose changes.
+
+## [Unreleased] — Tier-promotion audit log writer (2026-07-06)
+
+**Kanban:** t_5955682e
+
+### Added
+
+- **`db/migrations/006_tier_promotions_audit_table.sql`** — forward migration
+  for the `aware_tier_promotions` audit table. Two UNIQUE columns: `event_id`
+  (wire-level UUID, mirrors openapi.yaml `TierPromotion.id`) and
+  `idempotency_key` (sha256 of `(agent_id, from_tier, promoted_at, promoted_by)`)
+  so coordinator retries can't double-write. Indexes on
+  `(agent_id, promoted_at DESC)` and `(promoted_by, promoted_at DESC)` for the
+  RM "show me this agent's history" and operator "what did this principal
+  promote?" queries respectively.
+- **`src/db/tier-promotions.js`** — `recordTierPromotion(conn, promotion)`
+  writer. Validates the PBOM capability grammar (`<verb>:<resource>:<scope?>`)
+  pre-DB so malformed entries fail loudly in the coordinator log instead of
+  landing as garbage that RM can't query. Persists the wire-level TierPromotion
+  shape plus the audit-only `policies_evaluated` (array of
+  `{policy_id, parameters}` — RM reconstructs the approval rationale from
+  this) and `idempotency_key`. ON CONFLICT (idempotency_key) DO NOTHING
+  makes retries idempotent; the function also treats `event_id` UNIQUE
+  collisions as `reason: 'duplicate'` (covers the case where a retry computes
+  the same idempotency key from a re-derived timestamp). Never throws — the
+  coordinator's request path is more important than the audit write.
+- **`src/db/index.js`** — re-exports `recordTierPromotion`,
+  `buildIdempotencyKey`, and `isValidCapability` from the db barrel.
+- **`test/unit/db/tier-promotions.test.js`** — 28 new tests covering: pure
+  helpers (`buildIdempotencyKey` determinism + field sensitivity,
+  `isValidCapability` grammar), validation (every missing-required-field
+  branch, invalid tiers, malformed capabilities, malformed
+  `policies_evaluated`), connection handling (null conn, conn-without-query),
+  happy path (SQL shape + param count + JSONB serialisation), idempotency
+  (two identical writes produce exactly one row), distinct promoted_at
+  produces a fresh row, `23505` unique-violation treated as duplicate,
+  generic insert failure surfaces as `insert-failed` with the error message.
+
+### Coverage
+
+- `tier-promotions.js`: 100% statements / 100% lines / 91.54% branch /
+  100% functions.
+- Suite-wide: 90.09% statements / 90.09% lines (ADR threshold ≥ 88% ✓).
+
+### Schema-rigor notes
+
+- `policies_evaluated` is a JSONB array of `{policy_id, parameters}` objects
+  (not a flat list of IDs) — RM queries need the parameters to reconstruct
+  the "why this was approved" rationale.
+- `capabilities_added` is validated against the PBOM grammar
+  `<verb>:<resource>:<scope?>` pre-DB. Pre-validation means a malformed entry
+  surfaces as `{recorded: false, reason: 'invalid-capability'}` instead of
+  being persisted and silently ignored by downstream consumers.
+- The migration is forward-only (no reversible) per the card body; the
+  project convention has been forward-only migrations since 002.
+
+### Out of scope (sibling cards)
+
+- `src/server.js` route handlers for `/v2/tier-promotions` (separate card).
+- Automatic emission from `src/coordinator/` tier-promotion logic (separate card).
+- RM-side hook + RiskMandate API client (separate card).
+- Retroactive backfill from existing tier events (separate card).
+- UI surfaces (separate card).
 
 ## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
@@ -300,11 +436,12 @@ All notable changes to AWARE Evolution are documented here.
   error. Verified live: the `/coordinate` round-trip now returns real LLM
   responses.
 
-- **`docker-compose.coordinator.yml`** — revert the coordinator publish port from
-  `38181:8080` back to `18081:8080`. Originally introduced as part of an earlier
-  runtime-evidence update but never propagated to the schema, README, smoke
-  tests, and probe script that all hardcode `18081`. The `0.0.0.0` binding
-  rationale is preserved; only the port number changes.
+- **`docker-compose.coordinator.yml`** — revert the coordinator publish
+  port mapping to the schema's documented value. Originally introduced
+  as part of an earlier runtime-evidence update but never propagated
+  to the schema, README, smoke tests, and probe script that all
+  hardcode the same value. The `0.0.0.0` binding rationale is
+  preserved; only the port mapping changes.
 
 ### Probe
 The daily AWARE plugin loadability probe was failing 4/6 because `/coordinate`

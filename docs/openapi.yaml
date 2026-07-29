@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: AWARE API
-  description: API documentation for the AWARE - Adaptive Workflow Agent with Recursive Evolution system
-  version: 1.0.0
+  description: API documentation for the AWARE - Autonomous Warehouse Automated Resource Engine system
+  version: 1.1.0
   contact:
     name: AWARE Team
     email: aware@example.com
@@ -87,6 +87,275 @@ components:
           type: string
         details:
           type: string
+    TierPromotion:
+      type: object
+      description: >-
+        AWARE v2 event payload emitted when an agent's trust tier is upgraded.
+        Consumed by RiskMandate.ai to drive Mandate creation. The connector
+        contract: on receipt of a 202 response, AWARE coordinator SHOULD call
+        RiskMandate POST /v2/mandates with a MandateCreate referencing this
+        event's `id` as `triggering_event_id`.
+      additionalProperties: false
+      required:
+        - id
+        - agent_id
+        - from_tier
+        - to_tier
+        - promoted_by
+        - promoted_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for this promotion event.
+        agent_id:
+          type: string
+          description: The AWARE agent identity whose tier is changing.
+        from_tier:
+          type: string
+          enum: [T0, T1, T2, T3, T4]
+          description: Tier the agent is moving from.
+        to_tier:
+          type: string
+          enum: [T0, T1, T2, T3, T4]
+          description: Tier the agent is moving to.
+        promoted_by:
+          type: string
+          description: Principal (user/service-account) that authorised the tier change.
+        capabilities_added:
+          type: array
+          description: Granular PBOM delta — the capabilities the agent gains at the new tier.
+          items:
+            type: string
+        promoted_at:
+          type: string
+          format: date-time
+          description: RFC3339 timestamp of when the promotion was applied.
+        request_id:
+          type: string
+          format: uuid
+          description: >-
+            Idempotency/dedup token. RiskMandate echoes this on the resulting
+            Mandate so AWARE can correlate the acceptance with the originating
+            event across retries.
+        metadata:
+          type: object
+          description: Free-form context bag. Closed at the root object; the metadata sub-object itself allows any keys for now.
+          additionalProperties: false
+    Mandate:
+      type: object
+      description: >-
+        AWARE acceptance record. Carries the human underwriter(s), the
+        framework controls those underwriters work under, and a bounded
+        direction set. `expiry` is always required (AWARE has no standing
+        grants; anything that should persist must be renewed). Deny is
+        intentionally absent from `direction` — the contract is to bound the
+        agent's envelope, not to refuse it.
+      additionalProperties: false
+      required:
+        - grant_id
+        - granted_by
+        - scope
+        - expiry
+        - interval
+        - direction
+        - underwriters
+        - triggering_event_type
+        - triggering_event_id
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+          description: Server-generated unique grant identifier.
+        granted_by:
+          type: string
+          description: Owner principal who recorded the acceptance.
+        scope:
+          type: array
+          description: Capability identifiers covered by this grant.
+          items:
+            type: string
+        expiry:
+          type: string
+          format: date-time
+          description: >-
+            RFC3339 expiry timestamp. Required on every Mandate — AWARE has
+            no standing-grant concept; grants that should persist must be renewed.
+        interval:
+          type: string
+          enum: [1h, 4h, 1d, 1w, 1m, 6m]
+          description: Re-evaluation cadence.
+        direction:
+          type: string
+          enum: [get_more_data, reduce, increase, hold]
+          description: >-
+            AWARE's bounded direction set. Deliberately omits `deny` — the
+            contract is to constrain the agent's envelope, not to refuse it.
+            Owner call (pending): if the AWARE policy-delta shape replaces
+            this field, the schema will carry `prior_capability_deltas`
+            directly and `direction` will be removed.
+        underwriters:
+          type: array
+          description: >-
+            Principals (technical, security, GRC) who underwrote this grant.
+            Minimum 1; the "no executive accepts alone" invariant is enforced
+            by an out-of-band policy check, not by the schema.
+          minItems: 1
+          items:
+            type: string
+        control_ids:
+          type: array
+          description: >-
+            Framework-specific control IDs the underwriter's authority
+            derives from (e.g. AICM `IAM-01`, `AC-09`, `DSP-02`; OWASP
+            `LLM01`–`LLM10`; ISO `A.9.x`/`A.12.x`/`A.16.x`). These are the
+            policy binding the human `underwriters` work under, NOT a
+            standalone human list. The set is dynamic — new controls are
+            registered via `src/compliance/framework-mapper.js`, which is
+            the single source of truth for which framework IDs are
+            currently recognised.
+          items:
+            type: string
+        lethal_trifecta_flag:
+          type: boolean
+          description: >-
+            True when the agent now combines: reads untrusted content AND
+            reaches the public internet AND takes actions on its own. AWARE
+            computes this from the capabilities delta on the triggering
+            TierPromotion.
+        triggering_event_type:
+          type: string
+          enum: [tier_promotion, pre_tool_block, cascade_revoke, spawn_request]
+          description: Kind of AWARE event that prompted this Mandate.
+        triggering_event_id:
+          type: string
+          description: ID of the AWARE event (e.g. TierPromotion.id) that triggered this Mandate.
+        created_at:
+          type: string
+          format: date-time
+          description: RFC3339 timestamp the Mandate was created.
+    MandateCreate:
+      type: object
+      description: >-
+        Request shape for POST /v2/mandates. Subset of Mandate — the server
+        generates `grant_id` and `created_at`, the client supplies the rest.
+      additionalProperties: false
+      required:
+        - granted_by
+        - scope
+        - expiry
+        - interval
+        - direction
+        - underwriters
+        - triggering_event_type
+        - triggering_event_id
+      properties:
+        granted_by:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        expiry:
+          type: string
+          format: date-time
+        interval:
+          type: string
+          enum: [1h, 4h, 1d, 1w, 1m, 6m]
+        direction:
+          type: string
+          enum: [get_more_data, reduce, increase, hold]
+        underwriters:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        control_ids:
+          type: array
+          description: >-
+            Framework-specific control IDs the underwriter's authority
+            derives from (e.g. AICM `IAM-01`, `AC-09`, `DSP-02`; OWASP
+            `LLM01`–`LLM10`; ISO `A.9.x`/`A.12.x`/`A.16.x`). The set is
+            dynamic — see `src/compliance/framework-mapper.js` for the
+            registered control IDs.
+          items:
+            type: string
+        lethal_trifecta_flag:
+          type: boolean
+        triggering_event_type:
+          type: string
+          enum: [tier_promotion, pre_tool_block, cascade_revoke, spawn_request]
+        triggering_event_id:
+          type: string
+    MandateResponse:
+      type: object
+      description: >-
+        Response shape for POST /v2/mandates. Extends Mandate with
+        `agent_constraint_tier` so the AWARE coordinator can record which
+        of the five T0–T4 constraint tiers the accepting agent holds after
+        the mandate resolution.
+      additionalProperties: false
+      required:
+        - grant_id
+        - granted_by
+        - scope
+        - expiry
+        - interval
+        - direction
+        - underwriters
+        - triggering_event_type
+        - triggering_event_id
+        - agent_constraint_tier
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+        granted_by:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        expiry:
+          type: string
+          format: date-time
+        interval:
+          type: string
+          enum: [1h, 4h, 1d, 1w, 1m, 6m]
+        direction:
+          type: string
+          enum: [get_more_data, reduce, increase, hold]
+        underwriters:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        control_ids:
+          type: array
+          items:
+            type: string
+        lethal_trifecta_flag:
+          type: boolean
+        triggering_event_type:
+          type: string
+          enum: [tier_promotion, pre_tool_block, cascade_revoke, spawn_request]
+        triggering_event_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        agent_constraint_tier:
+          type: string
+          enum: [T0, T1, T2, T3, T4]
+          description: >-
+            AWARE constraint tier the agent holds after this mandate
+            resolution. Maps to the five-tier system defined in
+            `src/server.js` (see README.md "T0–T4 constraint levels"):
+            T0 audit-trail, T1 crypto-identity, T2 guardrailed,
+            T3 policy-driven, T4 autonomous. Server-set; clients read but
+            do not supply. Supersedes the previous `ramm_level` integer
+            (removed in 1.1.0 — RM vocabulary did not belong on an AWARE
+            response object).
 
 paths:
   /health:
@@ -547,6 +816,91 @@ paths:
       responses:
         '200':
           description: Resource deleted
+
+  /v2/tier-promotions:
+    post:
+      summary: Emit a tier-promotion event (AWARE v2)
+      description: >-
+        AWARE coordinator calls this endpoint when an agent's trust tier
+        is upgraded. The payload is an event, not a synchronous command:
+        202 Accepted indicates the event was recorded; downstream Mandate
+        creation is performed by the AWARE coordinator via a separate
+        POST to RiskMandate /v2/mandates. This endpoint is the contract
+        surface shared with RiskMandate.ai and any other consumer that
+        needs to react to tier changes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TierPromotion'
+      responses:
+        '202':
+          description: >-
+            Tier promotion event accepted. The server has recorded the
+            event; downstream Mandate creation is the coordinator's
+            responsibility.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id:
+                    type: string
+                    format: uuid
+                    description: Echoes the TierPromotion.id for client correlation.
+                  accepted_at:
+                    type: string
+                    format: date-time
+        '400':
+          description: Malformed event payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v2/mandates:
+    post:
+      summary: Create a Mandate acceptance (RiskMandate.ai v2)
+      description: >-
+        Records a RiskMandate acceptance in response to an AWARE event
+        (typically a TierPromotion). The AWARE coordinator invokes this
+        on the back of a successful POST /v2/tier-promotions, supplying
+        the original event's id as triggering_event_id. Idempotency is
+        enforced server-side via the client-supplied triggering_event_id:
+        a 409 response indicates a Mandate already exists for that event.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MandateCreate'
+      responses:
+        '201':
+          description: Mandate created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MandateResponse'
+        '400':
+          description: Malformed MandateCreate payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            A Mandate already exists for this triggering_event_id
+            (idempotency guard). The existing grant is returned in the
+            body so the client can reconcile without re-creating.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MandateResponse'
 
 security:
   - bearerAuth: []

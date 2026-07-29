@@ -1,7 +1,7 @@
 {
   "name": "aware",
-  "version": "2.10.0",
-  "description": "AWARE - Adaptive Workflow Agent with Recursive Evolution",
+  "version": "2.9.0",
+  "description": "AWARE - Autonomous Compliance Infrastructure for AI Agents",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/api/index.js",
@@ -12,6 +12,10 @@
     "seed:dev": "npm run seed:dev:users && npm run seed:dev:agents",
     "seed:dev:clean": "rm -f src/data/users.json src/data/agents.json",
     "test": "node --test 'test/unit/**/*.test.js'",
+    "test:ast10-standards": "node --test 'test/standards/owasp-ast10/*.test.js'",
+    "test:apts-standards": "node --test 'test/standards/owasp-apts/*.test.js'",
+    "test:donkai": "node --test 'test/standards/owasp-donkai/*.test.js'",
+    "test:llm-top-10-standards": "node --test 'test/standards/owasp-donkai/*.test.js' 'test/integration/replay-llm-top-10.test.js'",
     "test:integration": "node --test 'test/integration/**/*.test.js'",
     "test:all": "node --test 'test/unit/**/*.test.js' 'test/integration/**/*.test.js'",
     "test:jest": "jest",

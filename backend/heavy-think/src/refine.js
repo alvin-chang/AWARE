@@ -19,6 +19,9 @@ export async function refine({ problem, best_attempt, task_type, context, client
     refined_score,
     confidence: Math.max(0, Math.min(1, refined_score)),
     cost_usd,
+    // Additive: retry metadata from the provider client. See
+    // t_22a34f6d design §3.4.2.
+    __retriedAttempts: result.__retriedAttempts || 0,
   };
 }
 
