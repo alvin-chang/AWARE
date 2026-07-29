@@ -4,6 +4,7 @@
 
 const { AICM_V1_DOMAINS, AICM_V1_CONTROL_IDS } = require('./aicm-v1-catalog');
 const { MCP_TOP_10_CONTROLS, MCP_TOP_10_CONTROL_IDS } = require('./mcp-top10-catalog');
+const { ISO_42001_CONTROLS, ISO_42001_CONTROL_IDS } = require('./iso42001-catalog');
 
 /**
  * Compliance Framework Definitions
@@ -170,6 +171,48 @@ const FRAMEWORKS = {
       catalogRef: './mcp-top10-catalog',
       controls: MCP_TOP_10_CONTROLS,
       controlIds: MCP_TOP_10_CONTROL_IDS,
+    },
+    // ADR-055 — ISO/IEC 42001:2023 (AI Management System). Catalog pinned to
+    // the ISMS.online third-party mirror (fetched 2026-07-28; the official
+    // 42-control Annex A is paywalled + Cloudflare-walled on iso.org). The
+    // 38-control subset shipped in v1 is the ISMS.online enumeration; an ISO
+    // corrigendum or amendment is a NEW AWARE release and a NEW catalogue
+    // file (D1 pin discipline) — do NOT edit iso42001-catalog.js in place.
+    //
+    // License posture: ISO standards are NOT Creative Commons; the catalog
+    // uses control IDs + short titles from the public ISMS.online mirror
+    // and paraphrased descriptions. No ISO normative text reproduced
+    // anywhere in the repo. SPDX stays Apache-2.0 for the code; attribution
+    // to ISMS.online lives in the catalog file header (D2).
+    //
+    // Scope statement: AWARE asserts Annex A control coverage only. Does
+    // NOT assert clause 4-10 (management-system body) coverage. Does NOT
+    // claim ISO/IEC 42001:2023 certification.
+    //
+    // Per ADR-055 §D3, per-entry `awareness: 'mapped' | 'partial' | 'gap'`
+    // marks the 13 / 16 / 9 breakdown (research §6.1). A.6.2.8 (event logs)
+    // is the canonical load-bearing mapping — surfaced via the audit chain
+    // that compliance-mapping, anomaly-detection, and kill-switch ride.
+    ISO_42001: {
+      id: 'ISO_42001',
+      name: 'ISO/IEC 42001:2023 — AI Management System',
+      version: 'v1.0-2026-07-28',
+      source: 'https://www.isms.online/iso-42001/annex-a-controls/',
+      // Per ADR-055 D1: pin URL + fetch date; ISO corrigendum = new release.
+      pinDate: '2026-07-28',
+      // Per ADR-055 D2: SPDX stays Apache-2.0; attribution in catalog header.
+      license: 'Apache-2.0 (code) / no upstream CC (control IDs + titles from ISMS.online)',
+      attribution: 'Control IDs and titles sourced from ISMS.online public summary of ISO/IEC 42001:2023 Annex A (fetched 2026-07-28). Descriptions paraphrased; no ISO normative text reproduced.',
+      catalogRef: './iso42001-catalog',
+      // Flat 38-control list, ISMS.online nav order. Per ADR-055 §D3 each
+      // entry carries { name, description, awareness, awareComponents,
+      // crosswalkConfidence, ismsRef, clause }.
+      controls: ISO_42001_CONTROLS,
+      controlIds: ISO_42001_CONTROL_IDS,
+      // Per ADR-055 §D3: 13 mapped / 16 partial / 9 gap of 38.
+      awarenessBreakdown: { mapped: 13, partial: 16, gap: 9, total: 38 },
+      // Per ADR-055 §"Scope statement": Annex A only; no clause 4-10.
+      scopeNote: 'Annex A control coverage only; does NOT assert clause 4-10 management-system body coverage; does NOT claim certification.'
     }
   };
 
@@ -192,7 +235,14 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-050 §3: LLM05 (v1.1 Supply Chain) → LLM03:2025; LLM10 (v1.1 Model Theft) → LLM02:2025.
     'OWASP_LLM_TOP_10': ['LLM03', 'LLM02'],
     // ADR-043: agent-registry covers AST02 (supply-chain, via publisher-key machinery).
-    'OWASP_AST10': ['AST02']
+    'OWASP_AST10': ['AST02'],
+    // ADR-055 §D5 / research §4: agent-registry is the canonical AWARE
+    // surface for A.3.2 (roles/responsibilities), A.4.2 (resource inventory),
+    // A.4.3 (data resources, partial), A.4.5 (compute resources, partial),
+    // A.6.2.2 (requirements per agent), A.6.2.5 (deployment state),
+    // A.7.2 (data for development), A.9.4 (intended use), A.10.2
+    // (responsibility allocation).
+    'ISO_42001': ['A.3.2', 'A.4.2', 'A.4.3', 'A.4.5', 'A.6.2.2', 'A.6.2.5', 'A.7.2', 'A.9.4', 'A.10.2']
   },
 
   // Phase 1.2: Per-Agent Sandbox Policies — execution isolation, input validation.
@@ -208,7 +258,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-051 §2.2: sandbox policies deny shell=True / eval / exec, which is
     // the runtime defence for MCP05 (Command Injection & Execution) regardless
     // of whether the call originated from an MCP-derived tool call.
-    'OWASP_MCP_TOP_10': ['MCP05']
+    'OWASP_MCP_TOP_10': ['MCP05'],
+    // ADR-055 §D5: sandbox-policies is one of the two AWARE surfaces for
+    // A.6.1.3 (responsible design & development processes); tool-access-control
+    // is the other half of the H-confidence mapping.
+    'ISO_42001': ['A.6.1.3']
   },
 
   // Phase 1.3: Behavioural Baseline — per-agent behavioural baseline for anomaly scoring.
@@ -221,7 +275,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM04', 'LLM09'],
     // ADR-043: behavioral-baseline flags anomalous skill behaviour post-call,
     // which is the AST05 (untrusted external instructions) defence surface.
-    'OWASP_AST10': ['AST05']
+    'OWASP_AST10': ['AST05'],
+    // ADR-055 §D5 / research §4: behavioral-baseline provides the reference
+    // distribution for A.6.2.4 (V&V) and out-of-scope detection for A.9.4
+    // (intended use).
+    'ISO_42001': ['A.6.2.4', 'A.9.4']
   },
 
   // Phase 1.4: Kill Switch — emergency termination of misbehaving agents.
@@ -233,7 +291,10 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-050 §3: LLM04 (v1.1 Model DoS) → LLM10:2025; LLM08 (v1.1 Excessive Agency) → LLM06:2025.
     'OWASP_LLM_TOP_10': ['LLM10', 'LLM06'],
     // ADR-043: kill-switch is the AST06 (weak isolation) blast-radius terminator.
-    'OWASP_AST10': ['AST06']
+    'OWASP_AST10': ['AST06'],
+    // ADR-055 §D5 / research §4: kill-switch chain events feed A.6.2.6
+    // (operation & monitoring) and A.8.4 (communication of incidents).
+    'ISO_42001': ['A.6.2.6', 'A.8.4']
   },
 
   // Phase 2.1: Pheromone Specialists — specialised detection heuristics (per Good CISO SimuRA).
@@ -249,6 +310,8 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM09']
     // No 'OWASP_AST10' key — by design. Cross-checked against
     // docs/compliance/ast10.md §"AWARE component → AST10 coverage".
+    // ADR-055 §D5: pheromone-specialists has no ISO_42001 mapping either
+    // (heuristic-only; same posture as the AST10/MCP/AIDEFEND exclusions).
   },
 
   // Phase 2.2: Security-Weighted Heuristic — risk-weighted decision routing.
@@ -261,7 +324,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     'OWASP_LLM_TOP_10': ['LLM01', 'LLM05'],
     // ADR-043: security-heuristic scores behavioural anomalies — the AST08
     // (poor scanning) defence surface, partial coverage.
-    'OWASP_AST10': ['AST08']
+    'OWASP_AST10': ['AST08'],
+    // ADR-055 §D5 / research §4: security-heuristic participates in A.6.2.4
+    // (V&V, scoring decisions against expected behaviour) and A.6.2.2
+    // (verifying that an agent meets its declared requirements).
+    'ISO_42001': ['A.6.2.2', 'A.6.2.4']
   },
 
   // Phase 3.1A: Agent Identity & Authentication — agent identity, authN, authZ.
@@ -282,7 +349,11 @@ const AWARE_COMPONENT_MAPPINGS = {
     // with MCP-server signing (JWS / COSE); the publisher-key surface covers
     // MCP01 (token / secret exposure), MCP04 (supply-chain, pending identity
     // header SPIKE), and MCP07 (mTLS).
-    'OWASP_MCP_TOP_10': ['MCP01', 'MCP04', 'MCP07']
+    'OWASP_MCP_TOP_10': ['MCP01', 'MCP04', 'MCP07'],
+    // ADR-055 §D5 / research §4: identity-provider covers A.3.2 (roles)
+    // and A.10.3 (suppliers) — publisher-key machinery is the supplier-
+    // identity surface for AI components.
+    'ISO_42001': ['A.3.2', 'A.10.3']
   },
 
   // Phase 3.1B: Behavioural Anomaly Detection — detect anomalous AI agent behaviour.
@@ -301,7 +372,13 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-051 §2.2: anomaly-detection fires on MCP03 (tool/schema poisoning
     // attempts) and MCP06 (intent flow subversion) once the new MCP adapter
     // starts emitting mcp_message source events.
-    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06']
+    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06'],
+    // ADR-055 §D5 / research §4: anomaly-detection participates in A.3.3
+    // (concerns — observation events record), A.6.2.4 (V&V), A.6.2.6
+    // (operation & monitoring), A.6.2.8 (event logs — via chain events;
+    // A.6.2.8 is the canonical ISO 42001 mapping and rides the same chain),
+    // and A.8.4 (incident communication).
+    'ISO_42001': ['A.3.3', 'A.6.2.4', 'A.6.2.6', 'A.6.2.8', 'A.8.4']
   },
 
   // Phase 3.1C: Tool Access Control — fine-grained tool invocation control.
@@ -323,7 +400,12 @@ const AWARE_COMPONENT_MAPPINGS = {
     // MCP03 (tool/schema poisoning observation), MCP05 (parameter validation),
     // MCP07 (per-call authorization). The same per-call RBAC pipeline that
     // backs AST01/AST03/AST04/AST07 also fires on MCP-derived tool calls.
-    'OWASP_MCP_TOP_10': ['MCP02', 'MCP03', 'MCP05', 'MCP07']
+    'OWASP_MCP_TOP_10': ['MCP02', 'MCP03', 'MCP05', 'MCP07'],
+    // ADR-055 §D5 / research §4: tool-access-control is the central surface
+    // for A.6.1.3 (design & development processes), A.7.3 (data acquisition
+    // allowlist), and A.9.2 (responsible use — runtime RBAC is the
+    // enforcement mechanism).
+    'ISO_42001': ['A.6.1.3', 'A.7.3', 'A.9.2']
   },
 
   // Phase 3.x: Tool Observation Proxy — observes model-input classifications
@@ -347,7 +429,12 @@ const AWARE_COMPONENT_MAPPINGS = {
     // ADR-050 §5 GAP-4 + GAP-6 — closes LLM07 + LLM09 coverage.
     'OWASP_LLM_TOP_10': ['LLM07', 'LLM09'],
     // ADR-043: observation participation in the audit-chain governance surface.
-    'OWASP_AST10': ['AST09']
+    'OWASP_AST10': ['AST09'],
+    // ADR-055 §D5 / research §4: tool-observation-proxy records data flows
+    // (input/output classification) and concerns — A.3.3 (concerns reporting),
+    // A.4.3 (data resources — observation events are the access record), and
+    // A.6.2.6 (operation & monitoring).
+    'ISO_42001': ['A.3.3', 'A.4.3', 'A.6.2.6']
   },
 
   // Phase 3.2: Compliance Mapping — cross-framework mapping + posture reporting.
@@ -364,7 +451,17 @@ const AWARE_COMPONENT_MAPPINGS = {
     // the compliance-report output is part of the audit evidence chain)
     // and MCP09 (shadow MCP — the report answers "which MCP servers
     // are we compliant against?").
-    'OWASP_MCP_TOP_10': ['MCP08', 'MCP09']
+    'OWASP_MCP_TOP_10': ['MCP08', 'MCP09'],
+    // ADR-055 §D5 / research §4: compliance-mapping is the broadest ISO 42001
+    // surface — emits the formal reports referenced by A.2.2 / A.2.3 (AI
+    // policy + alignment), A.6.1.2 (responsible development objectives),
+    // A.6.2.3 (design documentation), A.6.2.7 (technical documentation),
+    // A.6.2.8 (event logs — compliance reports are part of the audit chain
+    // that IS the A.6.2.8 evidence), A.7.5 (data provenance), A.8.2
+    // (system documentation), A.8.3 (external reporting), A.8.5 (interested-
+    // party information), A.9.3 (responsible-use objectives), and A.10.4
+    // (customer-facing commitments).
+    'ISO_42001': ['A.2.2', 'A.2.3', 'A.2.4', 'A.6.1.2', 'A.6.2.3', 'A.6.2.7', 'A.6.2.8', 'A.7.5', 'A.8.2', 'A.8.3', 'A.8.5', 'A.9.3', 'A.10.4']
   },
 
   // ADR-051 §2.2 — AWARE components not yet in the framework-mapper
@@ -381,7 +478,14 @@ const AWARE_COMPONENT_MAPPINGS = {
   // MCP06 (intent-flow subversion, MCP resources/read content),
   // MCP08 (audit/telemetry surface), MCP10 (cross-session context).
   'tool-observation-proxy': {
-    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06', 'MCP08', 'MCP10']
+    'OWASP_MCP_TOP_10': ['MCP03', 'MCP06', 'MCP08', 'MCP10'],
+    // ADR-055 §D5 / research §4: tool-observation-proxy is the canonical
+    // observation surface for A.3.3 (concerns reporting), A.4.3 (data
+    // resources — observation events are the access record), and A.6.2.6
+    // (operation & monitoring). The earlier 'tool-observation-proxy' row
+    // (line 424, added in the Phase 3.x block) is overridden by this one
+    // in JS, so the ISO_42001 mapping lives here.
+    'ISO_42001': ['A.3.3', 'A.4.3', 'A.6.2.6']
   },
 
   // Per-call RBAC: src/policies/permission-model.js evaluates
@@ -390,6 +494,12 @@ const AWARE_COMPONENT_MAPPINGS = {
   // deferred to AWARE 2.2) and MCP07 (per-call authorization).
   'permission-model': {
     'OWASP_MCP_TOP_10': ['MCP02', 'MCP07']
+    // No 'ISO_42001' key — research §4 does not enumerate a per-component
+    // permission-model mapping. Per-call RBAC is captured under
+    // tool-access-control's A.9.2 (responsible-use processes) mapping;
+    // adding a duplicate row here would inflate the crosswalk without
+    // adding evidence. Cross-checked against ADR-055 §D5 (which also does
+    // not enumerate permission-model).
   },
 
   // Tool-level shadow detection: src/policies/shadow-detector.js flags
@@ -399,6 +509,10 @@ const AWARE_COMPONENT_MAPPINGS = {
   // allowlist is a follow-up (deferred).
   'shadow-detector': {
     'OWASP_MCP_TOP_10': ['MCP09']
+    // No 'ISO_42001' key — research §4 does not enumerate a shadow-detector
+    // mapping. Tool-level shadow detection is a partial mitigation for
+    // MCP09 (shadow MCP servers); it does not surface as a distinct ISO
+    // 42001 control per ADR-055 §D5.
   },
 
   // Tool-output credential classifier:
@@ -409,7 +523,11 @@ const AWARE_COMPONENT_MAPPINGS = {
   // MCP-config / prompt-template secret coverage requires the new MCP
   // adapter and is deferred.
   'credential-classifier': {
-    'OWASP_MCP_TOP_10': ['MCP01']
+    'OWASP_MCP_TOP_10': ['MCP01'],
+    // ADR-055 §D5 / research §4: credential-classifier covers A.7.4
+    // (data quality for sensitive content — only the secret/PII quality
+    // dimension is wired today).
+    'ISO_42001': ['A.7.4']
   }
 };
 
@@ -534,6 +652,28 @@ class FrameworkMapper {
           categoryName: ctrl.name,
           severity: ctrl.severity || null,
           description: ctrl.description
+        });
+      }
+    }
+
+    // ISO/IEC 42001:2023 — flat A.X.Y controls with per-entry awareness.
+    // Per ADR-055 §D3 the entry shape is { name, description, awareness,
+    // awareComponents, crosswalkConfidence, ismsRef, clause }. We expose
+    // awareness + awareComponents + crosswalkConfidence so the compliance
+    // report can render the 13/16/9 breakdown and operators can drill
+    // from a control back to AWARE components.
+    if (frameworkId === 'ISO_42001') {
+      for (const [ctrlId, ctrl] of Object.entries(framework.controls || {})) {
+        controls.push({
+          id: ctrlId,
+          category: ctrlId,
+          categoryName: ctrl.name,
+          description: ctrl.description,
+          awareness: ctrl.awareness || null,
+          awareComponents: ctrl.awareComponents || [],
+          crosswalkConfidence: ctrl.crosswalkConfidence || null,
+          ismsRef: ctrl.ismsRef || null,
+          clause: ctrl.clause || null
         });
       }
     }
