@@ -1,7 +1,23 @@
 {
-  "name": "aware",
-  "version": "2.9.0",
-  "description": "AWARE - Autonomous Compliance Infrastructure for AI Agents",
+  "name": "@goodciso/aware",
+  "version": "2.11.0",
+  "description": "AWARE - Adaptive Workflow Agent with Recursive Evolution",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GoodCISO/aware.git"
+  },
+  "homepage": "https://github.com/GoodCISO/aware#readme",
+  "bugs": {
+    "url": "https://github.com/GoodCISO/aware/issues"
+  },
+  "files": [
+    "src/",
+    "docs/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "package.json"
+  ],
   "main": "src/index.js",
   "scripts": {
     "start": "node src/api/index.js",
