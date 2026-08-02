@@ -75,8 +75,9 @@ security-audit-gitleaks.json
 security-audit-trivy.json
 
 # Generated seed data (see scripts/seed-dev-*.js for source)
-/src/data/users.json
-/src/data/agents.json
+# Note: leading slash anchors to repo root; relative pattern matches anywhere.
+src/data/users.json
+src/data/agents.json
 
 # Operational runtime data (cron logs, probe summaries, eval results)
 /data/

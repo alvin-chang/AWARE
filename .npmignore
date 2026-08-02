@@ -1,0 +1,11 @@
+# AWARE .npmignore
+# Created 2026-08-02 per Alvin directive (msg 2116): exclude React UI deps from npm tarball.
+
+# React UI dependencies (huge — 88 MB / 77k files if not excluded)
+src/ui/node_modules/
+src/ui/build/
+src/ui/.cache/
+
+# Generated seed data (defense in depth — also fixed in .gitignore)
+/src/data/users.json
+/src/data/agents.json
