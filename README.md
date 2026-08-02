@@ -1,4 +1,4 @@
-# AWARE — Adaptive Workflow Agent with Recursive Evolution
+# AWARE — Autonomous Compliance Infrastructure for AI Agents
 
 **Project Key:** `aware`
 **Source:** https://github.com/GoodCISO/aware

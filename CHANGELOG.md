@@ -2,6 +2,128 @@
 
 All notable changes to AWARE Evolution are documented here.
 
+## [2.11.0] — 2026-07-31 — Package rebrand to @goodciso/aware + OWASP LLM Top 10:2025 + AST10 + MCP + Vaara + ISO 42001
+
+**Release type:** minor. Major rebrand (aware → @goodciso/aware), closes 4 OWASP framework gaps (LLM07, LLM09, LLM10, AST10), ships MCP adapter, ATLAS mapper, VaaraAuditBackend, ISO/IEC 42001 catalog, plus 30+ feature/fix commits.
+
+**Rebrand:** `aware` → `@goodciso/aware`. The npm package now lives under the `@goodciso` scope; the GitHub repo moves from `alvinchang/aware` to `GoodCISO/aware`. Source files are unchanged.
+
+### Added (high-level)
+- **OWASP LLM Top 10:2025** (ADR-050) — rebind from v1.1 to 2025; LLM07 system-prompt-elicit rule; LLM09 review-loop event; LLM10 projection tightened to gate on outcome.success=false; DonkAI replay harness; SARIF surface-routing plumbing for LLM07/LLM09/LLM10.
+- **OWASP AST10** (ADR-048) — close remaining 3 AST10 gaps (AST01, AST06, AST08) with Rules 8/9/10 in `src/compliance/ast10-mapper.js`; new `src/compliance/ast10-catalog.js` + `src/compliance/skill-scanner.js` (vendor-neutral, NVIDIA SkillSpector default, Cisco compatible); `src/policies/sandbox-decision-emitter.js`.
+- **MCP adapter** (ADR-051) — coordinator JSON-RPC adapter + `mcp_message` emitter.
+- **VaaraAuditBackend** — opt-in shadow-mode audit backend for the AWARE decision chain; `src/coordinator/adapters/vaara.js` + 1k-fixture integration tests.
+- **Independent stdlib chain verifier** — decoupled verifier with 1k fixture.
+- **ATLAS mapper** — wire ATLAS v2026.06 catalogue + mapper into the consumer tree; 22-case test suite for `atlas-mapper` (all 7 rules).
+- **ISO/IEC 42001:2023 catalog** (ADR-055) — `src/compliance/iso42001-catalog.js` + framework-mapper entry; A.2.4/A.7.4/A.9.3 reconciled to partial per PR #9 review.
+- **Tier promotions** — `feat(db)` audit table + store, `feat(api+gateway)` tier-promotion handler + audit manifest, `feat(v2)` initial v2 namespace scaffolding, `feat(scripts)` build-and-export-coordinator, `chore(docker)` tier-promotion image updates, `docs` tier promotions changelog + OpenAPI sync.
+- **AICM v1 support** (re-shipped) — real CSA AICM v1 control IDs (184 verified across 18 domains) replace placeholder IDs.
+- **Coordinator resilience** — upstream-aware 429 backoff/retry; debounced async index flush for decision-logger; OLLAMA_URL re-enabled via `host.docker.internal`; ESM credential-stub export; MCP adapter + `src/policies` copy to Dockerfile.
+
+### Changed
+- **package.json name** `aware` → `@goodciso/aware`; **version** 2.10.0 → 2.11.0; new `repository`, `homepage`, `bugs`, `files` fields.
+- **Privacy** — strip stale `@license GPL-3.0` headers from S3-origin audit files (Phase 4 §7 follow-up).
+- **Scripts** — `scripts/collect-runtime-evidence.sh` output redirected to `../runtime/evidence/` (operator-internal path).
+
+### Documentation
+- ADR-051 (MCP JSON-RPC adapter), ADR-055 (ISO/IEC 42001 catalog).
+- `docs/contributing.md` — new "Creating a new ADR" section.
+- ADR numbering pre-commit gate + 2026-07-13 incident record.
+- Retired-numbers list parameterised.
+- Branch-discipline doc rewritten (security §), public-boundary checker re-shipped.
+
+### Testing
+- DonkAI replay harness covers LLM Top 10:2025 end-to-end.
+- `atlas-mapper` test suite: 22/22.
+- Vaara integration tests pass.
+- 1k-fixture chain-verifier.
+
+### Privacy / security
+- Public-boundary checker (cherry-pick `08a6523`) ensures no operator-internal literals (literal ports, Modal workspace names) leak to GitHub.
+- Branch-discipline doc clarifies dual-remote discipline (gitea operator-internal vs github public).
+- `08a6523` cherry-pick sanitises `scripts/aware-up` to use generic topology references.
+
+### Source commits (35 feature commits, oldest-first)
+```
+08a6523 chore(security): add public-boundary checker
+d1e170a docs(security): branch-discipline — gitea vs github remotes
+db92ff1 docs(security): rewrite branch-discipline on public branch
+910bedf feat(compliance): AICM v1 support
+18603fc feat(db): tier promotions audit table + store
+a67218c feat(api+gateway): tier promotion handler + audit package manifest
+5669acd feat(v2): initial v2 namespace scaffolding
+643f9b4 chore(docker): tier promotion image updates
+b14be10 docs: tier promotions changelog + openapi sync
+1e4ef71 feat(scripts): build-and-export-coordinator
+ebc2b0d chore(license): strip stale @license GPL-3.0 headers
+bb596a6 fix(scripts): redirect collect-runtime-evidence.sh output
+6b5d7bb feat(coordinator): upstream-aware 429 backoff/retry
+f69e483 fix(adr): pre-commit gate for ADR numbering + 2026-07-13 incident record
+e726a5b docs(contributing): add Creating a new ADR section
+f7d8941 refactor(adr): parameterize the retired-numbers list
+e925a6b feat(compliance): wire ATLAS v2026.06 catalogue + mapper
+b20e15e test(compliance): add atlas-mapper test suite
+b8caaa0 feat(audit): VaaraAuditBackend — opt-in shadow-mode adapter
+e6c2b95 feat(compliance): rebind OWASP_LLM_TOP_10 framework v1.1 → 2025
+3d299d6 feat(policies): LLM07:2025 system-prompt-elicit rule
+ef4730e feat(coordinator): MCP JSON-RPC adapter + mcp_message emitter
+4abdc20 feat(compliance): LLM09:2025 review-loop event + route
+5e4bbf7 test(compliance): DonkAI replay harness
+1673259 test(compliance): GAP-1+4+6 plumbing — surface LLM07 + LLM09 events
+0d07551 test(compliance): GAP-7 projection — surface LLM10 events
+f8af100 test(compliance): tighten LLM10 projection
+0505b33 feat(aware): close AST10 gap
+32081af feat(audit): independent stdlib chain verifier + 1k fixture
+83d40f4 fix(aware): ship MCP adapter + src/policies copy to Dockerfile
+e4c5c92 fix(aware): export credential stub as ESM
+c31cf23 fix(aware): re-enable OLLAMA_URL via host.docker.internal
+07c1053 fix(aware): debounced async index flush for decision-logger
+b5e1e2b feat(compliance): ISO/IEC 42001:2023 catalog + framework-mapper entry
+d8c470a docs(adr)+catalog: add ADR-055 + reconcile A.2.4/A.7.4/A.9.3
+```
+
+(Excludes: `65171a4` v2.8.0 release metadata; `156d58d` v2.9.0 release metadata; `77701f1` / `e89b16e` / `d69ac27` merge commits — content carried by the non-merge commits above.)
+
+
+## [2.10.0] — 2026-07-21 — OWASP AST10 support (ADR-048)
+
+**Release type:** minor. Closes the remaining 3 AST10 gaps (AST01, AST06, AST08) per ADR-048.
+
+**Coverage:** 10/10 OWASP AST10 risk classes have dedicated rules in `src/compliance/ast10-mapper.js`.
+- **H-confidence (3):** AST01 (malicious skills), AST03 (over-privilege write), AST06 (weak isolation)
+- **M-confidence (7):** AST02, AST04, AST05, AST07, AST08, AST09, AST10
+
+### Added
+- New `src/compliance/ast10-catalog.js` — canonical OWASP AST10 risk catalogue (10 risk classes)
+- New `src/compliance/skill-scanner.js` — vendor-neutral skill scanner adapter (NVIDIA SkillSpector default, Cisco compatible)
+- New `src/policies/sandbox-decision-emitter.js` — AST06 source-event producer
+- `src/compliance/ast10-mapper.js` extended with 3 new rules (Rule 8, 9, 10) closing the remaining AST10 gaps
+- `src/policies/tool-observation-proxy.js` extended with AST06 + AST08 source-event producers
+- `docs/adr/ADR-048-aware-ast10-coverage.md` — canonical follow-up ADR
+
+### Rules shipped (10/10 AST10 risks)
+- **Rule 1** `scannerRequired` → AST01 (H)
+- **Rule 2** `publisherProvenance` → AST02 (M)
+- **Rule 3** `overPrivilegeWrite` → AST03 (H)
+- **Rule 4** `networkManifestIntegrity` → AST04 (M)
+- **Rule 5** `untrustedInstructionOrigin` → AST05 (M)
+- **Rule 6** `sandboxBoundaryEnforcement` → AST06 (H)
+- **Rule 7** `updateWithoutPin` → AST07 (M)
+- **Rule 8** `sandbox-boundary-violation` → AST06 (H, closes AST06 gap)
+- **Rule 9** `skill-scan-finding` → AST08 (M, closes AST08 gap)
+- **Rule 10** `malicious-or-unproven-skill` → AST01 (H, closes AST01 gap)
+
+### Testing
+- 25/25 standards tests pass (`test/standards/owasp-ast10/ast01.test.js` … `ast10.test.js` + 2 fanout tests + helpers)
+- 44/44 unit tests pass (`test/unit/compliance/skill-scanner.test.js` + `test/unit/policies/tool-observation-proxy-ast06-ast08.test.js`)
+
+### Privacy fix
+- Sanitized stale host-path comment in `ast10-mapper.js:526` to clear gitleaks (an operator-specific home path was replaced with a generic `<profile-dir>` placeholder)
+
+### Pre-commit + pre-push hooks
+- Layer 1 (pre-commit): ✅ passed (privacy filter + gitleaks clean)
+- Layer 2 (pre-push): ✅ passed (public-boundary check on 20 changed scripts, all clean)
+
 ## [2.8.0] — 2026-06-30 — Public release
 
 ## [2.9.0] — 2026-06-30 — CSA AICM v1 support
