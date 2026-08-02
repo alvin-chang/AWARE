@@ -40,17 +40,28 @@ AWARE implements **T0–T4 constraint levels** — five enforcement tiers every 
 
 ## Compliance Frameworks
 
-AWARE ships with built-in mapping to five major AI and security compliance frameworks. The mapper (`src/compliance/framework-mapper.js`) is the source of truth — every AWARE control is registered against the relevant control IDs in each framework.
+AWARE ships with built-in mapping to **eight** AI and security compliance frameworks. The mapper (`src/compliance/framework-mapper.js`) is the source of truth — every AWARE control is registered against the relevant control IDs in each framework.
 
 | Framework | Version | Coverage |
 |---|---|---|
 | **CSA AI Controls Matrix (AICM)** | v1 | All 18 domains / 184 verified control IDs (`IAM-*`, `MDS-*`, `DSP-*`, `GRC-*`, …) — see `src/compliance/aicm-v1-catalog.js` |
 | **NIST AI Risk Management Framework** | 1.0 | Govern, Map, Measure, Manage — full mapping via `GOVERN`, `MAP`, `MEASURE`, `MANAGE` |
 | **ISO/IEC 27001** | 2022 | Access Control (A.9), Operations Security (A.12), Incident Management (A.16) — control-level mapping |
+| **ISO/IEC 42001** (AI Management System) | v1.0-2026-07-28 | 38 of 42 Annex A controls (A.5–A.8); `awareness` field tracks mapped/partial/gap — see `src/compliance/iso42001-catalog.js` (ADR-055). Catalog pinned to ISMS.online public mirror; ISO corrigendum = new AWARE release. |
 | **DORA** (Digital Operational Resilience Act) | 2022 | Internal Control Frameworks (Art. 12), ICT Incidents (Art. 26), Threat Intelligence (Art. 27) |
-| **OWASP Top 10 for LLM Applications** | v1.1 | All ten controls: LLM01 Prompt Injection through LLM10 Model Theft |
+| **OWASP Top 10 for LLM Applications** | 2025 | All ten risks (LLM01 Prompt Injection → LLM10 Unbounded Consumption); rebinding from v1.1 (2023) → 2025 spec per ADR-050 §5 GAP-1 — see `docs/compliance/llm-top-10.md`. Deprecated v1.1 IDs preserved at `OWASP_LLM_TOP_10_v1_1` for traceability. |
+| **OWASP Agentic Skills Top 10** (AST10) | v1.0-2026 | All ten risks (AST01 Malicious Skills → AST10 Cross-Platform Reuse); behaviour-layer threat model that AWARE's hook-based auto-interception sits in front of — see `src/compliance/ast10-catalog.js` (ADR-048) |
+| **OWASP MCP Top 10** | 2025 | Protocol-layer threat model (Model Context Protocol); adjacent to AST10 (behaviour) and LLM Top 10 (model) — see `src/compliance/mcp-top10-catalog.js` (ADR-051) |
 
 Use `src/compliance/framework-mapper.js` as the source of truth for which AWARE controls map to which framework IDs. The companion compliance matrix at `docs/compliance-matrix.md` documents the full mapping in human-readable form.
+
+### What's new in v2.11.0
+
+- **Rebrand:** `aware` → `@goodciso/aware` (npm scope); `alvinchang/aware` → `GoodCISO/aware` (GitHub). Source code unchanged.
+- **Three new framework catalogs** added to `framework-mapper.js`: OWASP LLM Top 10:2025 (ADR-050), OWASP MCP Top 10 (ADR-051), ISO/IEC 42001 (ADR-055).
+- **AST10 coverage gap closed** (carry-over from v2.10.0) — see ADR-048.
+- **Vaara shadow audit adapter merged** (pluggable audit transport; commit `d69ac27`).
+- **OSS hygiene:** License cleanup (commit `ebc2b0d`) fixes a latent Apache-2.0 / GPL-3.0 header conflict on `github/main`; tarball down to **452.1 kB** from 88.3 MB pre-cleanup.
 
 ---
 
