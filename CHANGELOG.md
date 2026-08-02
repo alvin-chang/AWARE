@@ -2,6 +2,25 @@
 
 All notable changes to AWARE Evolution are documented here.
 
+## [2.11.1] — 2026-08-02 — Docs patch: README compliance frameworks table updated for v2.11.0 catalogs
+
+**Release type:** patch. README.md only — no code/runtime changes from v2.11.0. Closes the post-release README gap surfaced in the Herald website audit cycle.
+
+### Documentation
+- **README compliance frameworks table** — bumped count from 5 to 8 frameworks to reflect v2.11.0's catalog additions.
+- **ISO/IEC 42001** (AI Management System, v1.0-2026-07-28) added per ADR-055.
+- **OWASP Top 10 for LLM Applications** updated from v1.1 → **2025** per ADR-050 GAP-1 (deprecated v1.1 IDs preserved at `OWASP_LLM_TOP_10_v1_1` for traceability).
+- **OWASP Agentic Skills Top 10 (AST10)** added (v1.0-2026) per ADR-048.
+- **OWASP MCP Top 10** added (2025) per ADR-051.
+- New **"What's new in v2.11.0"** subsection covering the rebrand (`aware` → `@goodciso/aware`; `alvinchang/aware` → `GoodCISO/aware`), the three new framework catalogs, AST10 gap closure, Vaara shadow audit adapter, and OSS hygiene (license cleanup, tarball 88.3 MB → 452 kB).
+
+### Notes
+- npm tarball regenerated to include the updated README. Code, tests, and runtime behaviour unchanged from v2.11.0.
+- v2.11.0 tag remains immutable; v2.11.1 is the canonical docs-patch follow-up.
+- Herald msg 8439 ("Ship v2.11.1") authorised this release.
+
+— Alvin Chang, 2026-08-02
+
 ## [2.11.0] — 2026-07-31 — Package rebrand to @goodciso/aware + OWASP LLM Top 10:2025 + AST10 + MCP + Vaara + ISO 42001
 
 **Release type:** minor. Major rebrand (aware → @goodciso/aware), closes 4 OWASP framework gaps (LLM07, LLM09, LLM10, AST10), ships MCP adapter, ATLAS mapper, VaaraAuditBackend, ISO/IEC 42001 catalog, plus 30+ feature/fix commits.
