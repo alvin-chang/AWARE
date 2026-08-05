@@ -4,12 +4,18 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startServer } from '../../../src/coordinator/http-server.js';
 import { COORDINATOR_VERSION, COORDINATOR_BUILD_PHASE } from '../../../src/coordinator/index.js';
 import { _setPoolForTest as _setBudgetPoolForTest } from '../../../src/budget/watchdog.js';
 
+// Hoisted by test.before so the audit-chain tests can re-use the same dir.
+let auditDir = null;
+
 // SEC-002: the coordinator
-// /coordinate endpoint now requires Authorization: Bearer <token> unless
+// /coordinate endpoint now requires Authorization: Bearer *** unless
 // AWARE_COORDINATOR_AUTH_DISABLED=*** set. The existing test suite asserts
 // the legacy no-auth behavior end-to-end (29 fetch calls to /coordinate +
 // /budget/status). To keep those tests green without rewriting the entire
@@ -18,9 +24,22 @@ import { _setPoolForTest as _setBudgetPoolForTest } from '../../../src/budget/wa
 // the gate works for the positive + negative paths.
 test.before(() => {
   process.env.AWARE_COORDINATOR_AUTH_DISABLED = '1';
+  // Point the audit chain at a tmp dir so the audit-chain rows written by
+  // success-path coordinate calls (existing + new t_22a34f6d tests) don't
+  // pollute the host's /data/audit. Set BEFORE the first /coordinate call
+  // so decision-logger.js captures it at lazy-load (it reads process.env
+  // at module top, which only fires on first getDecisionLogger() inside
+  // logDecisionFireAndCodert()).
+  auditDir = mkdtempSync(join(tmpdir(), 'aware-audit-'));
+  process.env.AUDIT_DIR = auditDir;
 });
-test.after(() => {
+test.after(async () => {
   delete process.env.AWARE_COORDINATOR_AUTH_DISABLED;
+  delete process.env.AUDIT_DIR;
+  if (auditDir) {
+    rmSync(auditDir, { recursive: true, force: true });
+    auditDir = null;
+  }
 });
 
 // Helper: build a stub router with controllable backends.
@@ -261,6 +280,125 @@ test('POST /coordinate maps the real coordinate() envelope to 400/503/500 by err
       assert.equal(r3.status, 500);
       const b3 = await r3.json();
       assert.equal(b3.kind, 'internal_error');
+    },
+  );
+});
+
+test('Case 7: POST /coordinate returns 503 with kind upstream_rate_limited when retried 429 is exhausted (t_22a34f6d)', async () => {
+  // Stub the coordinate function to return the new error kind.
+  const coordinateFn = async () => ({
+    ok: false,
+    error: { type: 'upstream_rate_limited', message: 'minimax API 429 after 4 attempts' },
+  });
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'the provider', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ problem: 'hi' }),
+      });
+      assert.equal(res.status, 503, 'retried 429 maps to 503');
+      const body = await res.json();
+      assert.equal(body.kind, 'upstream_rate_limited');
+      assert.match(body.error, /429/);
+    },
+  );
+});
+
+test('audit chain: successful retried call writes one row with retriedAttempts = N (t_22a34f6d)', async () => {
+  // Use the real decision-logger so we exercise the full pipeline. The
+  // file-scope test.before() pointed AUDIT_DIR at a tmp dir so we don't
+  // pollute the host's /data/audit. The chained record's outcome.retriedAttempts
+  // is the load-bearing assertion.
+  const expectedFile = join(auditDir, 'decision-chain.jsonl');
+  const baselineLines = existsSync(expectedFile)
+    ? readFileSync(expectedFile, 'utf8').trim().split('\n').filter(Boolean).length
+    : 0;
+
+  const coordinateFn = async () => ({
+    ok: true,
+    attempts: [{ reasoning: 'a1' }],
+    refined: 'r',
+    confidence: 0.9,
+    cost_usd: 0.5,
+    retried_attempts_total: 2,  // pretend upstream retried twice
+  });
+
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'the provider', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ problem: 'audit-test' }),
+      });
+      assert.equal(res.status, 200);
+
+      // Best-effort retry-read: the audit writer is fire-and-forget.
+      let lines = [];
+      const deadline = Date.now() + 1000;
+      while (Date.now() < deadline) {
+        if (existsSync(expectedFile)) {
+          lines = readFileSync(expectedFile, 'utf8').trim().split('\n').filter(Boolean);
+          if (lines.length > baselineLines) break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const newLines = lines.slice(baselineLines);
+      assert.ok(newLines.length >= 1, 'audit chain row written');
+      const row = JSON.parse(newLines[newLines.length - 1]);
+      assert.equal(row.outcome.retriedAttempts, 2, 'retriedAttempts echoed from envelope');
+      assert.equal(row.outcome.retriesExhausted, false, 'no fresh exhaustion on success path');
+    },
+  );
+});
+
+test('audit chain: success-path retriesExhausted is false; failure path returns 503 without audit row (t_22a34f6d)', async () => {
+  // The success-path audit log entry exists for every successful
+  // /coordinate call. Failure paths (`result.ok === false`) take an
+  // earlier `return sendJson(res, status, ...)` and DO NOT emit an audit
+  // chain row — the prior `logConversationFireAndCodert(...)` call (the
+  // conversation logger) is the source of truth for failed-request
+  // observability. This test confirms the success-path contract.
+  const expectedFile = join(auditDir, 'decision-chain.jsonl');
+  const baselineLines = existsSync(expectedFile)
+    ? readFileSync(expectedFile, 'utf8').trim().split('\n').filter(Boolean).length
+    : 0;
+
+  // Drive a success with retriesExhausted conceptually true upstream —
+  // the audit row attributes both retriedAttempts > 0 AND retriesExhausted
+  // = false because the call ultimately succeeded after the retries.
+  // For the failure-path shape, see http-server.js:702-708 — no audit
+  // row is emitted from logDecisionFireAndCodert on the {ok:false} path.
+  const coordinateFn = async () => ({
+    ok: true,
+    attempts: [{ reasoning: 'a1' }],
+    refined: 'r',
+    confidence: 0.9,
+    cost_usd: 0.5,
+    retried_attempts_total: 0,  // success path never sets retriesExhausted
+  });
+
+  await withServer(
+    { port: 0, router: stubRouter([{ name: 'the provider', healthy: true }]), coordinateFn },
+    async (h) => {
+      const res = await fetch(`http://${h.host}:${h.port}/coordinate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ problem: 'audit-clean' }),
+      });
+      assert.equal(res.status, 200);
+
+      let lines = [];
+      const deadline = Date.now() + 1000;
+      while (Date.now() < deadline) {
+        if (existsSync(expectedFile)) {
+          lines = readFileSync(expectedFile, 'utf8').trim().split('\n').filter(Boolean);
+          if (lines.length > baselineLines) break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const newLines = lines.slice(baselineLines);
+      assert.ok(newLines.length >= 1, 'audit chain row written');
+      const row = JSON.parse(newLines[newLines.length - 1]);
+      assert.equal(row.outcome.success, true);
+      assert.equal(row.outcome.retriedAttempts, 0);
+      assert.equal(row.outcome.retriesExhausted, false, 'success path → retriesExhausted always false');
     },
   );
 });

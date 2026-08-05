@@ -90,6 +90,131 @@ Real CSA AICM v1 control IDs replace the previous placeholders. 184 verified con
 **Open items:**
 - Close the 76% → 100% coverage gap (184 → 243 controls) when CSA publishes a non-gated full mirror or OpenCRE updates their TRACT export. See `docs/compliance/aicm-v1.md` § "Closing the coverage gap".
 
+## [Unreleased] — v2 OpenAPI: /tier-promotions + Mandate schemas (2026-07-06)
+
+**Kanban:** t_58ba2031, t_e4aaab5d
+
+### Added
+
+- **`docs/openapi.yaml` v2 surface** — adds the contract RiskMandate.ai
+  needs to consume AWARE tier-promotion events. Schemas: `TierPromotion`
+  (AWARE event payload), `Mandate` (RM acceptance), `MandateCreate`
+  (RM request), `MandateResponse` (RM response). Paths:
+  `POST /v2/tier-promotions` (202 Accepted — event ingest) and
+  `POST /v2/mandates` (201 Created, 409 on idempotency hit). All new
+  paths are protected by `bearerAuth` (JWT) like the rest of the v2 API.
+
+- **`src/v2/tier_promotions_handler.js`** — server-side handler for
+  `POST /v2/tier-promotions` (the contract surface above). Validates
+  the `TierPromotion` schema hand-rolled against openapi.yaml (required
+  fields, UUID format, RFC3339 `promoted_at`, tier enum,
+  `additionalProperties: false` at root). Mounted under `/v2` in
+  `src/api/index.js` after the bearer-auth gate so 401 falls through
+  cleanly. Persistence delegated to the DB-backed writer at
+  `src/db/tier-promotions.js` (sibling card `t_5955682e`) via a
+  dynamic-import bridge from this CJS handler; if the pool is
+  unavailable the handler still returns 202 per the openapi spec
+  ("the server has recorded the event; downstream Mandate creation is
+  the coordinator's responsibility"). New unit suite:
+  `test/unit/api/tier-promotions-handler.test.js` (39 cases — every
+  validation branch + every HTTP status path).
+
+### Fixed
+
+- **`src/api/index.js`** — mount the v2 handler at the root path `/v2`
+  (per openapi.yaml) rather than under `/api/v2`. The handler is
+  lazy-required so a missing SECRET_KEY doesn't take the whole gateway
+  down at boot (mirrors the existing identity-v2 mounting pattern).
+
+### Schema-rigor notes
+
+- `additionalProperties: false` on every new object schema (BLOCK-13
+  precedent: closed root objects force clients to declare extensions
+  explicitly).
+- `Mandate.underwriters.minItems: 1` (RM "no executive accepts alone"
+  — the deeper "min 2 / no one-person acceptance" rule is enforced by
+  the RM policy engine, not the schema).
+- `Mandate.expiry` is required on `Mandate` and `MandateCreate`
+  (RM "no standing mandates" — grants that should persist must be
+  renewed).
+- `Mandate.direction` enum deliberately omits `deny` (RM's contract is
+  to bound the agent's envelope, not to refuse it).
+- `MandateResponse.ramm_level` (integer 1–5) surfaces the RiskMandate
+  Maturity Model level alongside the grant, so the AWARE coordinator
+  can record how mature the accepting organisation is.
+
+### Out of scope (follow-up cards)
+
+- `src/server.js` route handlers for `/v2/tier-promotions` and
+  `/v2/mandates`.
+- `src/coordinator/` tier-promotion trigger logic.
+- `src/ui/` mandate-history views.
+- RiskMandate API client.
+- Docker compose changes.
+
+## [Unreleased] — Tier-promotion audit log writer (2026-07-06)
+
+**Kanban:** t_5955682e
+
+### Added
+
+- **`db/migrations/006_tier_promotions_audit_table.sql`** — forward migration
+  for the `aware_tier_promotions` audit table. Two UNIQUE columns: `event_id`
+  (wire-level UUID, mirrors openapi.yaml `TierPromotion.id`) and
+  `idempotency_key` (sha256 of `(agent_id, from_tier, promoted_at, promoted_by)`)
+  so coordinator retries can't double-write. Indexes on
+  `(agent_id, promoted_at DESC)` and `(promoted_by, promoted_at DESC)` for the
+  RM "show me this agent's history" and operator "what did this principal
+  promote?" queries respectively.
+- **`src/db/tier-promotions.js`** — `recordTierPromotion(conn, promotion)`
+  writer. Validates the PBOM capability grammar (`<verb>:<resource>:<scope?>`)
+  pre-DB so malformed entries fail loudly in the coordinator log instead of
+  landing as garbage that RM can't query. Persists the wire-level TierPromotion
+  shape plus the audit-only `policies_evaluated` (array of
+  `{policy_id, parameters}` — RM reconstructs the approval rationale from
+  this) and `idempotency_key`. ON CONFLICT (idempotency_key) DO NOTHING
+  makes retries idempotent; the function also treats `event_id` UNIQUE
+  collisions as `reason: 'duplicate'` (covers the case where a retry computes
+  the same idempotency key from a re-derived timestamp). Never throws — the
+  coordinator's request path is more important than the audit write.
+- **`src/db/index.js`** — re-exports `recordTierPromotion`,
+  `buildIdempotencyKey`, and `isValidCapability` from the db barrel.
+- **`test/unit/db/tier-promotions.test.js`** — 28 new tests covering: pure
+  helpers (`buildIdempotencyKey` determinism + field sensitivity,
+  `isValidCapability` grammar), validation (every missing-required-field
+  branch, invalid tiers, malformed capabilities, malformed
+  `policies_evaluated`), connection handling (null conn, conn-without-query),
+  happy path (SQL shape + param count + JSONB serialisation), idempotency
+  (two identical writes produce exactly one row), distinct promoted_at
+  produces a fresh row, `23505` unique-violation treated as duplicate,
+  generic insert failure surfaces as `insert-failed` with the error message.
+
+### Coverage
+
+- `tier-promotions.js`: 100% statements / 100% lines / 91.54% branch /
+  100% functions.
+- Suite-wide: 90.09% statements / 90.09% lines (ADR threshold ≥ 88% ✓).
+
+### Schema-rigor notes
+
+- `policies_evaluated` is a JSONB array of `{policy_id, parameters}` objects
+  (not a flat list of IDs) — RM queries need the parameters to reconstruct
+  the "why this was approved" rationale.
+- `capabilities_added` is validated against the PBOM grammar
+  `<verb>:<resource>:<scope?>` pre-DB. Pre-validation means a malformed entry
+  surfaces as `{recorded: false, reason: 'invalid-capability'}` instead of
+  being persisted and silently ignored by downstream consumers.
+- The migration is forward-only (no reversible) per the card body; the
+  project convention has been forward-only migrations since 002.
+
+### Out of scope (sibling cards)
+
+- `src/server.js` route handlers for `/v2/tier-promotions` (separate card).
+- Automatic emission from `src/coordinator/` tier-promotion logic (separate card).
+- RM-side hook + RiskMandate API client (separate card).
+- Retroactive backfill from existing tier events (separate card).
+- UI surfaces (separate card).
+
 ## [Unreleased] — AWARE Evolution COMPLETE ✅ (2026-04-02)
 
 **All 4 phases complete:**

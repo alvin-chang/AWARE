@@ -203,3 +203,9 @@ export async function closePool() {
 }
 
 export { dbStatus };
+
+// Re-export tier-promotion audit log helpers so callers can import them
+// from the db barrel: `import { recordTierPromotion } from '../db/index.js'`.
+// The tier-promotion module is the persistence-side half of the AWARE v2
+// /v2/tier-promotions contract (parents: t_58ba2031).
+export { recordTierPromotion, buildIdempotencyKey, isValidCapability } from './tier-promotions.js';

@@ -419,7 +419,7 @@ if (require.main === module) {
     // eslint-disable-next-line no-console
     console.log(`[aware-gateway] upstream: ${config.gateway.coordinatorUrl}`);
     // eslint-disable-next-line no-console
-    console.log(`[aware-gateway] max body: ${GATEWAY_MAX_BODY_BYTES} bytes`);
+    console.log(`[aware-gateway] max body: ${getMaxBodyBytes()} bytes`);
     // eslint-disable-next-line no-console
     console.log(`[aware-gateway] kill-switch: ${isKilled() ? 'ENGAGED' : 'off'}`);
   });

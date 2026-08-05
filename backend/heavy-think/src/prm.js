@@ -38,6 +38,9 @@ export async function scoreWithPRM({ problem, reasoning, task_type, context, prm
     confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
     cost_usd: result.cost_usd || 0,
     raw: text,
+    // Additive: retry metadata from the provider client. See
+    // t_22a34f6d design §3.4.2.
+    __retriedAttempts: result.__retriedAttempts || 0,
   };
 }
 

@@ -228,7 +228,27 @@ class APIGateway {
     // Phase 1.4: Kill Switch routes
     this.app.use('/api/kill-switch', killSwitchRouter);
 
-    // SC-MOD-015: Mount the previously-orphaned route files. Two of the
+    // AWARE v2: POST /v2/tier-promotions — openapi.yaml defines this at the
+    // root path (NOT under /api/), so we mount it at the root with bearer auth
+    // supplied by the upstream `this.app.use(authenticateToken)` above. The
+    // handler module is lazily-required (mirrors the identity-v2 pattern) so a
+    // missing SECRET_KEY doesn't take down the whole gateway.
+    this.app.use('/v2', (req, res, next) => {
+      if (!this._tierPromotionsRouter) {
+        try {
+          const { createTierPromotionsRouter } = require('../v2/tier_promotions_handler');
+          this._tierPromotionsRouter = createTierPromotionsRouter();
+        } catch (err) {
+          return res.status(503).json({
+            success: false,
+            error: 'v2 tier-promotions routes unavailable: ' + err.message,
+          });
+        }
+      }
+      this._tierPromotionsRouter(req, res, next);
+    });
+
+    // SC-MOD-015: Mount the previously-orphaned route files.
     // five (compliance.js, tools.js) export Express routers directly
     // and mount as-is. The other three (identity-v2.js, audit.js,
     // hot-reload-policies.js) export collections of route handlers

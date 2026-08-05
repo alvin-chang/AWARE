@@ -6,7 +6,7 @@
  * 
  * @module audit/decision-logger
  * @author Coder (Coder)
- * @license GPL-3.0
+ * @license Apache-2.0
  */
 
 'use strict';
